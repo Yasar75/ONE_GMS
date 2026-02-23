@@ -40,7 +40,7 @@
 //         <CardContent>
 //           <LoginForm />
 //           <p className="mt-4 text-xs text-muted-foreground">
-//             Demo Credentials: <span className="font-medium">admin@webxlerner.com</span> / <span className="font-medium">webxadmin123</span>
+//             Demo Credentials: <span className="font-medium">admin@giantmindsolutions.com</span> / <span className="font-medium">webxadmin123</span>
 //           </p>
 //         </CardContent>
 //       </Card>
@@ -72,10 +72,10 @@ function LoginPage() {
   return (
     <main className="relative isolate min-h-dvh grid grid-cols-1 md:grid-cols-2">
       {/* Left: Form Section */}
-      <section className="flex items-center justify-center p-6 md:p-8">
+      <section className="flex items-center justify-center p-6 md:p-8" style={{ background: "linear-gradient(135deg, rgba(255, 136, 0, 0.34) 0%, rgba(37, 116, 220, 0.53) 55%, rgba(255, 255, 255, 0.1) 100%)" }}>
         <Card className="w-full max-w-md shadow-sm bg-white/80 backdrop-blur-sm border-white/40 dark:bg-black/40 dark:border-white/20">
           <CardHeader className="space-y-2">
-            <CardTitle className="text-pretty">WebX Lerner EMS</CardTitle>
+            <CardTitle className="text-pretty">GMS LMS</CardTitle>
             <CardDescription className="text-pretty">
               Admin Dashboard — Sign in to continue
             </CardDescription>
@@ -83,8 +83,8 @@ function LoginPage() {
           <CardContent>
             <LoginForm />
             <p className="mt-4 text-xs text-muted-foreground">
-              Demo Credentials: <span className="font-medium">admin@webxlerner.com</span> /{" "}
-              <span className="font-medium">webxadmin123</span>
+              Demo Credentials: <span className="font-medium">admin@giantmindsolutions.com</span> /{" "}
+              <span className="font-medium">gmsadmin123</span>
             </p>
           </CardContent>
         </Card>
@@ -104,11 +104,12 @@ function LoginPage() {
         {/* Overlay content */}
         <div className="absolute inset-0 z-20 p-8 md:p-10 flex items-center justify-center">
           <div className="max-w-md text-white/95 drop-shadow-sm text-center">
+          <img src="/giantmind-logo-white.svg" alt="Giantmind Solutions Logo" className="mx-auto w-50 h-24" />
             <h2 className="text-balance text-3xl md:text-4xl font-semibold tracking-tight">
-              WebX Lerner
-            </h2>
+              Giantmind Solutions 
+              </h2>
             <p className="text-pretty mt-2 text-base md:text-lg font-medium">
-              Event Management System
+              Learning Management System
             </p>
             <span
               className="inline-block mt-4 rounded-full bg-white/10 px-3 py-1 text-sm font-medium ring-1 ring-white/25"
