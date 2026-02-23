@@ -1,4 +1,4 @@
-// File: D:\VS Code\learning-management-system\app\dashboard\projects\page.tsx
+// File: D:\VS Code\learning-management-system\frontend\app\dashboard\projects\page.tsx
 import * as entry from '../../../../../app/dashboard/projects/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

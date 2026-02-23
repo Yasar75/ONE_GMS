@@ -1,4 +1,4 @@
-// File: D:\VS Code\learning-management-system\app\layout.tsx
+// File: D:\VS Code\learning-management-system\frontend\app\layout.tsx
 import * as entry from '../../../app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
