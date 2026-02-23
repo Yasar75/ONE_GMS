@@ -53,7 +53,7 @@ export function AppHeader() {
     }
     try {
       const payload = JSON.parse(tokenRaw)
-      setEmail(payload?.email ?? "admin@webxlerner.com")
+      setEmail(payload?.email ?? "admin@giantmindsolutions.com")
       setReady(true)
     } catch {
       router.replace("/login")

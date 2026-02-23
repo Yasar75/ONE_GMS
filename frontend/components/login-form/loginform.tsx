@@ -11,14 +11,14 @@ import Link from "next/link"
 
 export function LoginForm({ className }: { className?: string }) {
   const router = useRouter()
-  const [email, setEmail] = useState("admin@webxlerner.com")
-  const [password, setPassword] = useState("webxadmin123")
+  const [email, setEmail] = useState("admin@giantmindsolutions.com")
+  const [password, setPassword] = useState("gmsadmin123")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const DEMO_EMAIL = "admin@webxlerner.com"
-  const DEMO_PASSWORD = "webxadmin123"
+  const DEMO_EMAIL = "admin@giantmindsolutions.com"
+  const DEMO_PASSWORD = "gmsadmin123"
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => {

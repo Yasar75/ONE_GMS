@@ -13,11 +13,11 @@ const sidebarItems = [
   { name: "Employees", href: "/dashboard/employees", icon: Users },
   { name: "Attendance", href: "/dashboard/attendance", icon: Calendar },
   { name: "Leave Management", href: "/dashboard/leave-management", icon: ClipboardList },
-  { name: "Projects", href: "/dashboard/projects", icon: Briefcase },
-   { name: "About Us", href: "/dashboard/about", icon: Briefcase },
-    { name: "Contect Us", href: "/dashboard/contact", icon: Briefcase },
+  // { name: "Projects", href: "/dashboard/projects", icon: Briefcase },
+  //  { name: "About Us", href: "/dashboard/about", icon: Briefcase },
+    // { name: "Contect Us", href: "/dashboard/contact", icon: Briefcase },
 
-  { name: "Settings", href: "/dashboard/settings", icon: Settings },
+  // { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ]
 
 export function AppSidebar() {
@@ -53,8 +53,8 @@ export function AppSidebar() {
         )}
       >
         <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
-            <h1 className="text-xl font-bold text-sky-600 dark:text-sky-400">EMS Pro</h1>
+          <div className="flex items-center justify-between h-18 px-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-bold text-sky-600 text-nowarp dark:text-sky-400">Learning Management System</h2>
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(false)}>
               <X className="h-5 w-5" />
             </Button>
@@ -89,7 +89,7 @@ export function AppSidebar() {
               </div>
               <div className="ml-3">
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Admin User</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">admin@company.com</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">admin@giantmindsolutions.com</p>
               </div>
             </div>
           </div>
