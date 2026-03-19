@@ -3,11 +3,11 @@ import { ROLES } from './role.js'
 export const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000
 
 export const AUTH_STORAGE_KEYS = {
-  user: 'lms.auth.user',
-  accessToken: 'lms.auth.token',
-  refreshToken: 'lms.auth.refreshToken',
-  lastActivityAt: 'lms.auth.lastActivityAt',
-  rememberedLogin: 'lms.auth.rememberedLogin'
+  user: 'one_gms.auth.user',
+  accessToken: 'one_gms.auth.token',
+  refreshToken: 'one_gms.auth.refreshToken',
+  lastActivityAt: 'one_gms.auth.lastActivityAt',
+  rememberedLogin: 'one_gms.auth.rememberedLogin'
 }
 
 export function normalizeRole(roleName) {

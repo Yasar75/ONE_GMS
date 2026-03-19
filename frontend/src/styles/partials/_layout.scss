@@ -40,6 +40,30 @@ body {
   overflow: hidden;
 }
 
+[data-bs-theme="light"] body {
+  background-color: #eef3fb;
+}
+
+[data-bs-theme="light"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.4;
+  background-image:
+    repeating-linear-gradient(
+      120deg,
+      rgba(80, 102, 138, 0.06) 0 1px,
+      transparent 1px 12px
+    ),
+    repeating-linear-gradient(
+      30deg,
+      rgba(255, 255, 255, 0.35) 0 1px,
+      transparent 1px 10px
+    );
+}
+
 .app-content {
   position: fixed;
   top: var(--header-h);
@@ -52,6 +76,12 @@ body {
   height: 100%;
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+[data-bs-theme="light"] .app-content-scroll {
+  background:
+    radial-gradient(120% 85% at 0% 0%, rgba(255, 255, 255, 0.64) 0%, rgba(255, 255, 255, 0.18) 56%, rgba(255, 255, 255, 0) 100%),
+    linear-gradient(180deg, rgba(250, 253, 255, 0.48), rgba(239, 245, 253, 0.52));
 }
 
 .app-content.with-sidebar {

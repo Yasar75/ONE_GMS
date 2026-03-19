@@ -1,4 +1,4 @@
-const CACHE_PREFIX = 'lms.query-cache.v2.'
+const CACHE_PREFIX = 'one_gms.query-cache.v2.'
 
 function buildStorageKey(queryKey) {
   return `${CACHE_PREFIX}${Array.isArray(queryKey) ? queryKey.join('::') : String(queryKey)}`

@@ -1213,16 +1213,34 @@
   min-width: 150px;
   min-height: 3rem;
   border-radius: 1rem;
-  display: inline-flex;
+  display: inline-grid;
+  grid-auto-flow: column;
   align-items: center;
   justify-content: center;
   gap: 0.65rem;
   font-weight: 700;
+  line-height: 1;
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background-position 220ms ease;
 }
 
 .attendance-action-btn svg {
   flex: 0 0 auto;
+  display: block;
+  align-self: center;
+  margin: 0;
+  margin-top: 0;
+  vertical-align: middle;
+}
+
+.attendance-action-btn.btn svg {
+  margin-top: 0;
+}
+
+.attendance-action-btn span {
+  display: block;
+  align-self: center;
+  line-height: 1;
+  margin: 0;
 }
 
 .attendance-action-btn:hover,
@@ -1239,49 +1257,163 @@
   border-width: 1px;
 }
 
+.attendance-split-action {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+  max-width: 320px;
+}
+
+.attendance-split-trigger {
+  width: 100%;
+  justify-content: center;
+}
+
+.attendance-split-menu {
+  position: absolute;
+  inset: calc(100% + 0.65rem) 0 auto 0;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  box-shadow: 0 22px 40px rgba(15, 23, 42, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  z-index: 20;
+}
+
+.attendance-split-action.is-open .attendance-split-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.attendance-split-option {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.8rem 0.95rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.attendance-split-option.soft:hover,
+.attendance-split-option.soft:focus-visible {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.24);
+}
+
+.attendance-split-option.final:hover,
+.attendance-split-option.final:focus-visible {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.24);
+}
+
+.attendance-split-option__title {
+  font-weight: 700;
+}
+
+.attendance-split-option__helper {
+  font-size: 0.78rem;
+  color: var(--bs-secondary-color);
+}
+
 .attendance-action-btn-punch {
   position: relative;
   min-width: clamp(12.5rem, 32vw, 15.5rem);
   min-height: 3.65rem;
   padding: 0.95rem 1.3rem;
   border-radius: 1.25rem;
+  border: 1px solid transparent;
   overflow: hidden;
   isolation: isolate;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16);
+  color: #fff;
+  background-size: 180% 180%;
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-position 320ms ease,
+    filter 220ms ease;
+  animation: attendancePunchGradientFlow 5.8s ease-in-out infinite;
 }
 
 .attendance-action-btn-punch::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.18) 20%, transparent 42%);
-  transform: translateX(-130%);
-  transition: transform 260ms ease;
-  z-index: -1;
+  z-index: 0;
+  background: linear-gradient(110deg, transparent 18%, rgba(255, 255, 255, 0.5) 36%, transparent 54%);
+  transform: translateX(-145%);
+  animation: attendancePunchSheen 3.8s linear infinite;
+}
+
+.attendance-action-btn-punch::after {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  border-radius: inherit;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.3;
+  filter: blur(18px);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 70%);
+  animation: attendancePunchGlowBreath 2.6s ease-in-out infinite;
 }
 
 .attendance-action-btn-punch:hover::before,
 .attendance-action-btn-punch:focus-visible::before,
 .attendance-action-btn-punch.is-pending::before {
-  transform: translateX(135%);
+  animation-duration: 1.4s;
+}
+
+.attendance-action-btn-punch:hover,
+.attendance-action-btn-punch:focus-visible {
+  transform: translateY(-2px) scale(1.01);
+  background-position: 100% 50%;
+  box-shadow: 0 20px 36px rgba(15, 23, 42, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  filter: saturate(1.08);
+}
+
+.attendance-split-action.is-open .attendance-action-btn-punchout {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(185, 28, 28, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .attendance-action-btn-punch svg,
 .attendance-action-btn-punch span {
   position: relative;
-  z-index: 1;
+  z-index: 2;
+}
+
+.attendance-action-btn-punch svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  filter: drop-shadow(0 1px 4px rgba(15, 23, 42, 0.2));
 }
 
 .attendance-action-btn-punchin {
-  color: #fff;
-  border-color: rgba(37, 116, 220, 0.24);
-  background: linear-gradient(135deg, #2574dc 0%, #4f93ef 55%, #7caef5 100%);
+  border-color: rgba(37, 116, 220, 0.5);
+  background-image: linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 55%, #22c55e 100%);
+  box-shadow: 0 16px 32px rgba(29, 78, 216, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.attendance-action-btn-resume {
+  border-color: rgba(13, 148, 136, 0.5);
+  background-image: linear-gradient(135deg, #0f766e 0%, #14b8a6 55%, #38bdf8 100%);
+  box-shadow: 0 16px 32px rgba(13, 148, 136, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .attendance-action-btn-punchout {
-  color: #fff;
-  border-color: rgba(255, 136, 0, 0.24);
-  background: linear-gradient(135deg, #ff8800 0%, #ff9f2f 55%, #ffb658 100%);
+  border-color: rgba(239, 68, 68, 0.5);
+  background-image: linear-gradient(135deg, #b91c1c 0%, #ef4444 50%, #f59e0b 100%);
+  box-shadow: 0 16px 32px rgba(185, 28, 28, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .attendance-action-btn-secondary {
@@ -1292,34 +1424,130 @@
 }
 
 .attendance-action-btn-punch.is-pending {
-  animation: attendancePunchButtonPulse 1s ease-in-out infinite;
+  animation: attendancePunchPendingPulse 0.92s ease-in-out infinite, attendancePunchGradientFlow 3.2s ease-in-out infinite;
+}
+
+.attendance-action-btn-punch.is-pending::after {
+  opacity: 0.5;
 }
 
 .attendance-action-btn-punch.is-pending svg {
-  animation: attendancePunchIconBeat 0.95s ease-in-out infinite;
+  animation: attendancePunchIconSpin 0.92s linear infinite;
 }
 
-@keyframes attendancePunchButtonPulse {
-  0%,
+@keyframes attendancePunchSheen {
+  0% {
+    transform: translateX(-145%);
+  }
+
+  30%,
   100% {
-    transform: translateY(0);
-    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16);
+    transform: translateX(155%);
+  }
+}
+
+@keyframes attendancePunchGradientFlow {
+  0% {
+    background-position: 0% 45%;
   }
 
   50% {
-    transform: translateY(-1px) scale(1.01);
-    box-shadow: 0 20px 36px rgba(15, 23, 42, 0.22);
+    background-position: 100% 55%;
+  }
+
+  100% {
+    background-position: 0% 45%;
   }
 }
 
-@keyframes attendancePunchIconBeat {
+@keyframes attendancePunchGlowBreath {
+  0%,
+  100% {
+    opacity: 0.24;
+    transform: scale(0.98);
+  }
+
+  50% {
+    opacity: 0.5;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes attendancePunchPendingPulse {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-1px) scale(1.015);
+  }
+}
+
+@keyframes attendancePunchIconSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes attendancePunchHandPulse {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(-1px) rotate(-7deg);
+  }
+}
+
+@keyframes attendancePunchOutBeat {
   0%,
   100% {
     transform: scale(1);
   }
 
-  50% {
-    transform: scale(1.12);
+  40% {
+    transform: scale(1.08);
+  }
+
+  70% {
+    transform: scale(0.95);
+  }
+}
+
+.attendance-action-btn-punchin svg,
+.attendance-action-btn-resume svg {
+  animation: attendancePunchHandPulse 1.9s ease-in-out infinite;
+}
+
+.attendance-action-btn-punchout svg {
+  animation: attendancePunchOutBeat 1.8s ease-in-out infinite;
+}
+
+[data-bs-theme="dark"] .attendance-action-btn-punch {
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.54), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+[data-bs-theme="dark"] .attendance-action-btn-punchin {
+  border-color: rgba(56, 189, 248, 0.62);
+}
+
+[data-bs-theme="dark"] .attendance-action-btn-resume {
+  border-color: rgba(45, 212, 191, 0.62);
+}
+
+[data-bs-theme="dark"] .attendance-action-btn-punchout {
+  border-color: rgba(248, 113, 113, 0.62);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attendance-action-btn-punch,
+  .attendance-action-btn-punch::before,
+  .attendance-action-btn-punch::after,
+  .attendance-action-btn-punch svg {
+    animation: none !important;
+    transition: none !important;
   }
 }
 
@@ -1341,6 +1569,49 @@
 [data-bs-theme="light"] .attendance-note-card,
 [data-bs-theme="light"] .attendance-action-summary {
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.04);
+}
+
+[data-bs-theme="light"] .card,
+[data-bs-theme="light"] .employee-table-wrap,
+[data-bs-theme="light"] .workspace-table,
+[data-bs-theme="light"] .glass {
+  background-image: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(250, 252, 255, 0.9) 52%,
+    rgba(242, 247, 255, 0.88) 100%
+  );
+  border-color: rgba(148, 170, 205, 0.28);
+}
+
+[data-bs-theme="light"] .card-header.bg-body {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.86) 0%,
+    rgba(246, 250, 255, 0.78) 100%
+  ) !important;
+  border-bottom: 1px solid rgba(148, 170, 205, 0.22) !important;
+}
+
+[data-bs-theme="light"] .employee-table thead th {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(247, 251, 255, 0.9) 100%
+  );
+}
+
+[data-bs-theme="dark"] .attendance-split-menu {
+  background: rgba(15, 23, 42, 0.88);
+}
+
+[data-bs-theme="dark"] .attendance-split-option {
+  background: rgba(30, 41, 59, 0.94);
+  color: #e2e8f0;
+}
+
+[data-bs-theme="dark"] .attendance-split-option__helper {
+  color: rgba(226, 232, 240, 0.72);
 }
 
 @media (max-width: 991.98px) {

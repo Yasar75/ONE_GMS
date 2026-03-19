@@ -13,7 +13,7 @@ export const authMock = {
         id: safeRole === ROLES.ADMIN ? 'u-admin-1' : 'u-emp-1',
         firstName,
         role: safeRole,
-        email: email || (safeRole === ROLES.ADMIN ? 'admin@lms.local' : 'employee@lms.local'),
+        email: email || (safeRole === ROLES.ADMIN ? 'admin@one_gms.local' : 'employee@one_gms.local'),
         avatarUrl: ''
       }
     }

@@ -47,8 +47,10 @@ export const attendanceService = {
     return normalizePunchAction(response.data)
   },
 
-  async punchOut() {
-    const response = await http.post(endpoints.punchLog.punchOut)
+  async punchOut(mode = 'final') {
+    const response = await http.post(endpoints.punchLog.punchOut, null, {
+      params: { mode: String(mode || 'final').toLowerCase() === 'soft' ? 'soft' : 'final' }
+    })
     return normalizePunchAction(response.data)
   },
 
