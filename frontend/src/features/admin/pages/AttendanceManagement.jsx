@@ -856,7 +856,7 @@ export default function AdminAttendance() {
             </div>
           </div>
 
-          <CardShell title="Attendance Register Preview" right={<button type="button" className="btn btn-sm btn-light" onClick={() => setActiveTab('attendance')}>Open full register</button>}>
+          <CardShell title="Attendance Register Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('attendance')}>Open full register</button>}>
             <div className="employee-table-wrap table-responsive">
               <table className="table employee-table workspace-table workspace-table--attendance-preview align-middle mb-0">
                 <thead><tr><th>Date</th><th>Employee</th><th>Status</th><th>Worked</th><th className="table-header-center">Action</th></tr></thead>
@@ -875,7 +875,7 @@ export default function AdminAttendance() {
             </div>
           </CardShell>
 
-          <CardShell title="Pending Regularization Preview" right={<button type="button" className="btn btn-sm btn-light" onClick={() => setActiveTab('regularization')}>Open full queue</button>}>
+          <CardShell title="Pending Regularization Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('regularization')}>Open full queue</button>}>
             <div className="employee-table-wrap table-responsive">
               <table className="table employee-table workspace-table workspace-table--regularization-preview align-middle mb-0">
                 <thead><tr><th>Employee</th><th>Date</th><th>Status</th><th className="table-header-center">Action</th></tr></thead>

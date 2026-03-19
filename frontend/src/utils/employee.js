@@ -1,3 +1,5 @@
+import * as XLSX from 'xlsx'
+
 export const EMPLOYEE_STORAGE_KEY = 'one_gms.admin.employees.directory'
 
 export const EMPLOYEE_POSITION_OPTIONS = []
@@ -8,6 +10,68 @@ export const EMPLOYEE_WORK_LOCATION_OPTIONS = ['Onsite', 'Remote', 'Hybrid']
 export const EMPLOYEE_GENDER_OPTIONS = ['Male', 'Female', 'Others']
 export const EMPLOYEE_BLOOD_GROUP_OPTIONS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
 export const EMPLOYEE_ATTENDANCE_OPTIONS = ['Present', 'Remote', 'On Leave', 'Half-Day', 'Absent']
+export const EMPLOYEE_IMPORT_HEADERS = [
+  'Employee Code',
+  'First Name',
+  'Last Name',
+  'Email',
+  'Phone',
+  'Role',
+  'Position',
+  'Department',
+  'Status',
+  'Work Location',
+  'Join Date',
+  'Date Of Birth',
+  'Gender',
+  'Caste',
+  'Employee Type',
+  'Emergency Contact',
+  'Blood Group',
+  'Address'
+]
+export const EMPLOYEE_IMPORT_TEMPLATE_SAMPLE_ROWS = [
+  [
+    'EMP-2001',
+    'Aarav',
+    'Sharma',
+    'aarav.sharma@example.com',
+    '+919876543210',
+    'Admin',
+    'Software Engineer',
+    'Engineering',
+    'Active',
+    'Onsite',
+    '2024-02-15',
+    '1995-04-24',
+    'Male',
+    '',
+    'FullTime',
+    '+919123456780',
+    'B+',
+    'Bangalore'
+  ],
+  [
+    'EMP-2002',
+    'Diya',
+    'Patel',
+    'diya.patel@example.com',
+    '+919812345678',
+    'Admin',
+    'HR Executive',
+    'Human Resources',
+    'Active',
+    'Hybrid',
+    '15/02/2024',
+    '33865',
+    'Female',
+    '',
+    'FullTime',
+    '+919298765432',
+    'O+',
+    'Mumbai'
+  ]
+]
 
 export const PHONE_COUNTRY_OPTIONS = [
   { countryCode: 'IN', label: 'India', dialCode: '+91' },
@@ -312,16 +376,69 @@ export function buildPhoneValue(countryDialCode, localNumber) {
 }
 
 export function normalizeDateInput(value) {
-  if (!value) return ''
-  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return String(value)
+  if (value === null || value === undefined || value === '') return ''
 
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : toIsoDateString(value)
+  }
 
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const numericDate = excelSerialToIsoDate(value)
+    if (numericDate) return numericDate
+  }
+
+  const raw = String(value).trim()
+  if (!raw) return ''
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw
+  }
+
+  if (/^\d+(\.\d+)?$/.test(raw)) {
+    const serialDate = excelSerialToIsoDate(raw)
+    if (serialDate) return serialDate
+  }
+
+  const ymdMatch = raw.match(/^(\d{4})[\/.\- ](\d{1,2})[\/.\- ](\d{1,2})$/)
+  if (ymdMatch) {
+    const ymdValue = buildIsoDateFromParts(
+      Number(ymdMatch[1]),
+      Number(ymdMatch[2]),
+      Number(ymdMatch[3])
+    )
+    if (ymdValue) return ymdValue
+  }
+
+  const dmyOrMdyMatch = raw.match(/^(\d{1,2})[\/.\- ](\d{1,2})[\/.\- ](\d{2,4})$/)
+  if (dmyOrMdyMatch) {
+    const first = Number(dmyOrMdyMatch[1])
+    const second = Number(dmyOrMdyMatch[2])
+    const normalizedYear = normalizeTwoDigitYear(Number(dmyOrMdyMatch[3]))
+
+    const dayFirstValue = buildIsoDateFromParts(normalizedYear, second, first)
+    const monthFirstValue = buildIsoDateFromParts(normalizedYear, first, second)
+
+    if (first > 12 && dayFirstValue) return dayFirstValue
+    if (second > 12 && monthFirstValue) return monthFirstValue
+    if (dayFirstValue) return dayFirstValue
+    if (monthFirstValue) return monthFirstValue
+  }
+
+  const date = new Date(raw)
+  if (!Number.isNaN(date.getTime())) {
+    return toIsoDateString(date)
+  }
+
+  return raw
+}
+
+export function isIsoDateInput(value) {
+  const raw = String(value || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false
+
+  const [year, month, day] = raw.split('-').map((part) => Number(part))
+  const date = new Date(year, month - 1, day)
+  return date.getFullYear() === year && date.getMonth() + 1 === month && date.getDate() === day
 }
 
 export function downloadEmployeesAsCsv(records) {
@@ -357,72 +474,56 @@ export function downloadEmployeesAsCsv(records) {
 
 export function downloadEmployeesAsExcel(records) {
   const header = ['Employee Code', 'First Name', 'Last Name', 'Role', 'Position', 'Department', 'Email', 'Phone', 'Join Date', 'Status', 'Date Of Birth', 'Gender', 'Caste', 'Employee Type', 'Work Location', 'Emergency Contact', 'Blood Group', 'Address']
-  const rows = records.map((employee) => `
-    <tr>
-      <td>${escapeHtml(employee.employeeCode || employee.id)}</td>
-      <td>${escapeHtml(employee.firstName)}</td>
-      <td>${escapeHtml(employee.lastName)}</td>
-      <td>${escapeHtml(employee.roleName || employee.roleType)}</td>
-      <td>${escapeHtml(employee.position)}</td>
-      <td>${escapeHtml(employee.department)}</td>
-      <td>${escapeHtml(employee.email)}</td>
-      <td>${escapeHtml(employee.phone)}</td>
-      <td>${escapeHtml(employee.joinDate)}</td>
-      <td>${escapeHtml(employee.status)}</td>
-      <td>${escapeHtml(employee.dateOfBirth)}</td>
-      <td>${escapeHtml(employee.gender)}</td>
-      <td>${escapeHtml(employee.caste)}</td>
-      <td>${escapeHtml(employee.employeeType)}</td>
-      <td>${escapeHtml(employee.workLocation)}</td>
-      <td>${escapeHtml(employee.emergencyContact)}</td>
-      <td>${escapeHtml(employee.bloodGroup)}</td>
-      <td>${escapeHtml(employee.address)}</td>
-    </tr>
-  `).join('')
+  const rows = records.map((employee) => ([
+    employee.employeeCode || employee.id || '',
+    employee.firstName || '',
+    employee.lastName || '',
+    employee.roleName || employee.roleType || '',
+    employee.position || '',
+    employee.department || '',
+    employee.email || '',
+    employee.phone || '',
+    employee.joinDate || '',
+    employee.status || '',
+    employee.dateOfBirth || '',
+    employee.gender || '',
+    employee.caste || '',
+    employee.employeeType || '',
+    employee.workLocation || '',
+    employee.emergencyContact || '',
+    employee.bloodGroup || '',
+    employee.address || ''
+  ]))
 
-  const html = `
-    <html>
-      <head><meta charset="utf-8" /></head>
-      <body>
-        <table>
-          <thead><tr>${header.map((value) => `<th>${escapeHtml(value)}</th>`).join('')}</tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </body>
-    </html>
-  `
+  const workbook = XLSX.utils.book_new()
+  const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows])
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Employees Directory')
 
-  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' })
-  downloadBlob(blob, `employees-directory-${Date.now()}.xls`)
+  const workbookBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([workbookBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  downloadBlob(blob, `employees-directory-${Date.now()}.xlsx`)
 }
 
 
 export function downloadEmployeeImportTemplateCsv() {
-  const headers = [
-    'Employee Code',
-    'First Name',
-    'Last Name',
-    'Email',
-    'Phone',
-    'Role',
-    'Position',
-    'Department',
-    'Status',
-    'Work Location',
-    'Join Date',
-    'Date Of Birth',
-    'Gender',
-    'Caste',
-    'Employee Type',
-    'Emergency Contact',
-    'Blood Group',
-    'Address'
-  ]
+  const csvRows = [EMPLOYEE_IMPORT_HEADERS, ...EMPLOYEE_IMPORT_TEMPLATE_SAMPLE_ROWS]
+  const csvContent = csvRows
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
+    .join('\n')
 
-  const csvContent = headers.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')
-  const blob = new Blob([`${csvContent}
-`], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob([`${csvContent}\n`], { type: 'text/csv;charset=utf-8;' })
   downloadBlob(blob, 'employees-import-template.csv')
+}
+
+export function downloadEmployeeImportTemplateExcel() {
+  const worksheetRows = [EMPLOYEE_IMPORT_HEADERS, ...EMPLOYEE_IMPORT_TEMPLATE_SAMPLE_ROWS]
+  const workbook = XLSX.utils.book_new()
+  const worksheet = XLSX.utils.aoa_to_sheet(worksheetRows)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Employees Import')
+
+  const workbookBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([workbookBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  downloadBlob(blob, 'employees-import-template.xlsx')
 }
 
 function downloadBlob(blob, fileName) {
@@ -460,4 +561,40 @@ function toNullableString(value) {
 function toNullablePhone(value) {
   const normalized = String(value ?? '').replace(/[^\d+]/g, '')
   return normalized ? normalized : null
+}
+
+function toIsoDateString(value) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function buildIsoDateFromParts(year, month, day) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return ''
+  if (month < 1 || month > 12 || day < 1 || day > 31) return ''
+
+  const date = new Date(year, month - 1, day)
+  if (date.getFullYear() !== year || date.getMonth() + 1 !== month || date.getDate() !== day) return ''
+  return toIsoDateString(date)
+}
+
+function normalizeTwoDigitYear(year) {
+  if (!Number.isInteger(year)) return year
+  if (year >= 100) return year
+  return year >= 70 ? 1900 + year : 2000 + year
+}
+
+function excelSerialToIsoDate(value) {
+  const serial = Number(value)
+  if (!Number.isFinite(serial)) return ''
+  if (serial < 20000 || serial > 80000) return ''
+
+  const days = Math.floor(serial)
+  const excelEpochUtc = Date.UTC(1899, 11, 30)
+  const date = new Date(excelEpochUtc + (days * 24 * 60 * 60 * 1000))
+  return Number.isNaN(date.getTime()) ? '' : toIsoDateString(date)
 }
