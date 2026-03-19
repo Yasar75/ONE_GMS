@@ -2,7 +2,8 @@ export const endpoints = {
   auth: {
     login: '/api/v1/auth/login',
     me: '/api/v1/auth/me',
-    refresh: '/api/v1/auth/refresh_token'
+    refresh: '/api/v1/auth/refresh_token',
+    changePassword: '/api/v1/auth/change-password'
   },
   dashboard: {
     admin: '/dashboard/admin',
@@ -11,7 +12,22 @@ export const endpoints = {
   employee: {
     list: '/api/v1/employee/',
     create: '/api/v1/employee',
-    detail: (employeeUid) => `/api/v1/employee/${employeeUid}`
+    detail: (employeeUid) => `/api/v1/employee/${employeeUid}`,
+    profile: {
+      me: '/api/v1/employee/profile/me',
+      photo: '/api/v1/employee/profile/me/photo',
+      documents: '/api/v1/employee/profile/me/documents',
+      byEmployee: (employeeUid) => `/api/v1/employee/${employeeUid}/profile`
+    },
+    requests: {
+      list: '/api/v1/employee/profile-requests',
+      editLock: (employeeUid) => `/api/v1/employee/profile-requests/${employeeUid}/edit-lock`
+    }
+  },
+  employeeDocuments: {
+    upload: '/api/v1/employee_documents/upload',
+    detail: (documentUid) => `/api/v1/employee_documents/${documentUid}`,
+    byEmployee: (employeeUid) => `/api/v1/employee_documents/employee/${employeeUid}`
   },
   employeeMetadata: {
     list: '/api/v1/employee-metadata/',

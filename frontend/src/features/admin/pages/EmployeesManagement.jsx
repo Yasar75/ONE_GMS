@@ -1,9 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
 import PageHeader from '../../../components/common/PageHeader.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
-import OverviewList from '../../../components/common/OverviewList.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
@@ -32,7 +31,6 @@ import {
   formatEmployeeAge,
   getDefaultPhoneCountryOption,
   getEmployeeAge,
-  getEmployeeOverviewItems,
   isIsoDateInput,
   normalizeDateInput,
   parseStoredPhoneValue
@@ -44,6 +42,8 @@ import {
   ExportIcon,
   FilterIcon,
   ImportIcon,
+  LockClosedIcon,
+  LockOpenIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
@@ -54,12 +54,21 @@ import {
 } from '../../../components/common/AppIcons.jsx'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { metadataService } from '../../../api/services/metadata.service.js'
+import { employeeService } from '../../../api/services/employee.service.js'
 
 const TAB_ITEMS = [
   { key: 'metadata', label: 'Metadata Entries', helper: 'Backend-driven master data' },
-  { key: 'entries', label: 'Employee Entries', helper: 'Directory, create, update, export' }
-  // Mapping tab is under development and will be available in a future release.
-  // { key: 'mapping', label: 'Employees Mapping', helper: 'Manager, HR, lead, coordinator' }
+  { key: 'entries', label: 'Employee Entries', helper: 'Directory, create, update, export' },
+  // Reserved for future backend module support.
+  // { key: 'mapping', label: 'Employee Mapping', helper: 'Reserved for future use' },
+  { key: 'requests', label: 'Employee Requests', helper: 'Profile edit lock or unlock controls' }
+]
+
+const EMPLOYEE_VIEW_TABS = [
+  { key: 'info', label: 'Info', helper: 'Identity and status snapshot' },
+  { key: 'basic', label: 'Basic Details', helper: 'Organization mapping details' },
+  { key: 'additional', label: 'Additional Details', helper: 'Personal profile and skills' },
+  { key: 'documents', label: 'Documents', helper: 'Uploaded files and download links' }
 ]
 
 const METADATA_SECTIONS = [
@@ -93,6 +102,8 @@ const ROLE_MODULE_ALIAS_MAP = {
   'Leave Balance': 'Employee Leave Balance',
   'Metadata Entries': 'Employee Metadata',
   'Employees Entries': 'Employee',
+  'Employee Request': 'Employee Requests',
+  'Employees Request': 'Employee Requests',
   'Employees Skills': 'Employee Skills',
   'Employees Documents': 'Employee Documents'
 }
@@ -111,6 +122,7 @@ const ROLE_MODULE_VISUAL_CONFIG = [
       { key: 'Employee', label: 'Employees Entries' },
       // Reserved for future backend module support.
       { key: 'Employee Mapping', label: 'Employee Mapping', hidden: true },
+      { key: 'Employee Requests', label: 'Employee Requests' },
       { key: 'Employee Skills', label: 'Employees Skills' },
       { key: 'Employee Documents', label: 'Employees Documents' }
     ]
@@ -737,6 +749,26 @@ function ActionButton({ icon, label, variant = 'view', onClick }) {
   )
 }
 
+function ProfileLockToggleButton({ canEditProfileDetails, onClick }) {
+  const isUnlocked = Boolean(canEditProfileDetails)
+  const label = isUnlocked ? 'Lock Edit' : 'Unlock Edit'
+
+  return (
+    <button
+      type="button"
+      className={`employee-lock-toggle ${isUnlocked ? 'is-unlocked' : 'is-locked'}`}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
+      <span className="employee-lock-toggle-icon">
+        {isUnlocked ? <LockOpenIcon /> : <LockClosedIcon />}
+      </span>
+      <span className="employee-lock-toggle-label">{label}</span>
+    </button>
+  )
+}
+
 function EmployeeFormFields({
   draft,
   onChange,
@@ -1250,6 +1282,16 @@ export default function AdminEmployees() {
   const { data: roles = [] } = useRoleDirectoryQuery()
   const { data: roleModules = [], isFetching: roleModulesFetching } = useRoleModulesQuery()
   const { addEmployee, bulkAddEmployees, updateEmployee, deleteEmployee } = useEmployeeDirectoryActions()
+  const {
+    data: profileRequests = [],
+    isFetching: profileRequestsFetching
+  } = useQuery({
+    queryKey: ['employees', 'profile-requests'],
+    queryFn: employeeService.getProfileRequests,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false
+  })
 
   const [activeTab, setActiveTab] = useState('entries')
   const [search, setSearch] = useState('')
@@ -1269,6 +1311,9 @@ export default function AdminEmployees() {
   const [selectedEmployee, setSelectedEmployee] = useState(null)
   const [employeeDraft, setEmployeeDraft] = useState(() => createEmptyEmployeeDraft())
   const [previewEmployee, setPreviewEmployee] = useState(null)
+  const [previewEmployeeProfile, setPreviewEmployeeProfile] = useState(null)
+  const [previewEmployeeProfileLoading, setPreviewEmployeeProfileLoading] = useState(false)
+  const [previewEmployeeTab, setPreviewEmployeeTab] = useState('info')
 
   const [metadataModal, setMetadataModal] = useState(null)
   const [metadataDraft, setMetadataDraft] = useState({ category: '', value: '', label: '', description: '', isActive: true, sortOrder: 0 })
@@ -1429,6 +1474,39 @@ export default function AdminEmployees() {
       coordinator: base
     }
   }, [employees])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadPreviewProfile() {
+      if (!previewEmployee?.uid) {
+        setPreviewEmployeeProfile(null)
+        setPreviewEmployeeTab('info')
+        return
+      }
+
+      setPreviewEmployeeTab('info')
+      setPreviewEmployeeProfileLoading(true)
+      try {
+        const profile = await employeeService.getEmployeeProfile(previewEmployee.uid)
+        if (!isMounted) return
+        setPreviewEmployeeProfile(profile)
+      } catch (error) {
+        if (!isMounted) return
+        setPreviewEmployeeProfile(null)
+        showStatus({
+          type: 'error',
+          title: 'Employee profile load failed',
+          message: error?.response?.data?.detail || error?.message || 'Could not load employee profile details.'
+        })
+      } finally {
+        if (isMounted) setPreviewEmployeeProfileLoading(false)
+      }
+    }
+
+    loadPreviewProfile()
+    return () => { isMounted = false }
+  }, [previewEmployee, showStatus])
 
   function resetDirectoryFilters() {
     setSearch('')
@@ -1767,6 +1845,46 @@ export default function AdminEmployees() {
     }
   }
 
+  async function handleToggleProfileEditLock(requestEntry) {
+    const nextEditState = !requestEntry.canEditProfileDetails
+    const actionLabel = nextEditState ? 'unlock' : 'lock'
+
+    const accepted = await showConfirm({
+      modalTitle: `${nextEditState ? 'Unlock' : 'Lock'} Profile Editing`,
+      title: `${nextEditState ? 'Unlock' : 'Lock'} profile details for ${requestEntry.fullName}?`,
+      message: nextEditState
+        ? 'Employee will be able to edit profile details again until they submit updates.'
+        : 'Employee profile details will be locked. Nickname, profile picture, and password remain editable.'
+    })
+    if (!accepted) return
+
+    try {
+      await runWithLoader(
+        async () => {
+          await employeeService.updateProfileEditLock(requestEntry.employeeUid, nextEditState)
+          await queryClient.invalidateQueries({ queryKey: ['employees', 'profile-requests'] })
+        },
+        {
+          title: `${nextEditState ? 'Unlocking' : 'Locking'} profile`,
+          message: `Applying profile edit ${actionLabel} state for ${requestEntry.fullName}.`,
+          minVisibleMs: 550
+        }
+      )
+
+      showStatus({
+        type: 'success',
+        title: `Profile ${nextEditState ? 'unlocked' : 'locked'}`,
+        message: `${requestEntry.fullName} profile detail editing is now ${nextEditState ? 'enabled' : 'disabled'}.`
+      })
+    } catch (error) {
+      showStatus({
+        type: 'error',
+        title: 'Profile request update failed',
+        message: error?.response?.data?.detail || error?.message || 'Could not update profile request state.'
+      })
+    }
+  }
+
   const metadataPanels = useMemo(() => METADATA_SECTIONS.map((section) => {
     if (section.key === 'roles') {
       return { ...section, entries: roles.map((role) => ({ ...role, isActive: true })) }
@@ -2008,53 +2126,75 @@ export default function AdminEmployees() {
         </>
       ) : null}
 
-      {/* Mapping tab is under development and will be available in a future release. */}
-      {/* {activeTab === 'mapping' ? (
+      {activeTab === 'mapping' ? (
+        <div className="card border-0 shadow-sm glass employee-directory-shell">
+          <div className="card-body py-5 text-center">
+            <div className="fw-semibold mb-2">Employee Mapping</div>
+            <div className="text-muted small">This section is kept as-is for future use.</div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === 'requests' ? (
         <div className="card border-0 shadow-sm glass employee-directory-shell">
           <div className="card-body d-flex flex-column gap-3">
-            <div className="employee-toolbar employee-toolbar-top">
-              <div className="employee-toolbar-search employee-search-field">
-                <label className="form-label small text-muted">Search Mapping</label>
-                <div className="input-group employee-search-group">
-                  <span className="input-group-text"><SearchIcon /></span>
-                  <input className="form-control" value={mappingSearch} onChange={(event) => setMappingSearch(event.target.value)} placeholder="Search by employee, role, manager, HR, team lead, or coordinator" />
-                </div>
+            <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+              <div>
+                <div className="fw-semibold">Employee Requests</div>
+                <div className="text-muted small">Lock or unlock profile detail editing for employee users.</div>
               </div>
-              <div className="small text-muted">Mapped employees: <strong>{metrics.mapped}</strong> / {employees.length}</div>
+              <div className="small text-muted">Records: <strong>{profileRequests.length}</strong></div>
             </div>
 
             <div className="table-responsive employee-table-wrap">
-              <table className="table align-middle mb-0 employee-table employee-table-dense mapping-table">
+              <table className="table align-middle mb-0 employee-table employee-table-dense">
                 <thead>
                   <tr>
                     <th>Employee</th>
-                    <th>Manager</th>
-                    <th>HR</th>
-                    <th>Team Lead</th>
-                    <th>Coordinator</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Profile Completion</th>
+                    <th>Password</th>
+                    <th>Edit Lock</th>
+                    <th>Account</th>
                     <th className="text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {mappingRows.length ? mappingRows.map((employee) => (
-                    <tr key={employee.uid}>
-                      <td className="employee-cell-wrap"><CellStack title={employee.fullName} subtitle={`${employee.employeeCode} • ${employee.roleName || 'No role'}`} className="employee-cell-wrap" /></td>
-                      <td className="employee-cell-wrap">{employee.managerName || 'Unassigned'}</td>
-                      <td className="employee-cell-wrap">{employee.hrEmployeeName || 'Unassigned'}</td>
-                      <td className="employee-cell-wrap">{employee.teamLeadName || 'Unassigned'}</td>
-                      <td className="employee-cell-wrap">{employee.coordinatorName || 'Unassigned'}</td>
+                  {profileRequests.length ? profileRequests.map((entry) => (
+                    <tr key={entry.employeeUid}>
+                      <td className="employee-cell-wrap">
+                        <CellStack title={entry.fullName || '—'} subtitle={entry.employeeCode || '—'} />
+                      </td>
+                      <td className="employee-cell-wrap">{entry.email || '—'}</td>
+                      <td className="employee-cell-wrap"><EmployeeBadge value={entry.status || '—'} type="status" /></td>
+                      <td className="employee-cell-wrap">
+                        {entry.profileCompletedAt ? formatDate(entry.profileCompletedAt) : <span className="text-muted">Pending</span>}
+                      </td>
+                      <td className="employee-cell-wrap">
+                        <EmployeeBadge value={entry.mustChangePassword ? 'Default' : 'Updated'} type="workLocation" />
+                      </td>
+                      <td className="employee-cell-wrap">
+                        <EmployeeBadge value={entry.canEditProfileDetails ? 'Unlocked' : 'Locked'} type={entry.canEditProfileDetails ? 'workLocation' : 'status'} />
+                      </td>
+                      <td className="employee-cell-wrap">
+                        <EmployeeBadge value={entry.isLocked ? 'Locked' : 'Active'} type="status" />
+                      </td>
                       <td className="employee-actions-cell">
-                        <div className="employee-action-cluster metadata-action-cluster">
-                          <ActionButton icon={<PencilIcon />} label="Assign" variant="edit" onClick={() => openMappingModal(employee)} />
+                        <div className="employee-action-cluster">
+                          <ProfileLockToggleButton
+                            canEditProfileDetails={entry.canEditProfileDetails}
+                            onClick={() => handleToggleProfileEditLock(entry)}
+                          />
                         </div>
                       </td>
                     </tr>
                   )) : (
                     <tr>
-                      <td colSpan="7">
+                      <td colSpan="8">
                         <div className="employee-empty-state text-center py-4">
-                          <div className="fw-semibold mb-1">No employee mapping rows matched the search.</div>
-                          <div className="text-muted small">Try another employee name or reporting assignee.</div>
+                          <div className="fw-semibold mb-1">No employee requests found.</div>
+                          <div className="text-muted small">Employee profile request records will appear here.</div>
                         </div>
                       </td>
                     </tr>
@@ -2062,9 +2202,10 @@ export default function AdminEmployees() {
                 </tbody>
               </table>
             </div>
+            {profileRequestsFetching ? <div className="text-muted small">Refreshing employee requests…</div> : null}
           </div>
         </div>
-      ) : null} */}
+      ) : null}
 
       <ModalFrame
         open={isEmployeeFormOpen}
@@ -2129,7 +2270,11 @@ export default function AdminEmployees() {
       <ModalFrame
         open={Boolean(previewEmployee)}
         title="Employee Overview"
-        onClose={() => setPreviewEmployee(null)}
+        onClose={() => {
+          setPreviewEmployee(null)
+          setPreviewEmployeeProfile(null)
+          setPreviewEmployeeTab('info')
+        }}
         size="lg"
         footer={(
           <>
@@ -2140,20 +2285,81 @@ export default function AdminEmployees() {
       >
         {previewEmployee ? (
           <div className="d-flex flex-column gap-3">
-            <div className="employee-overview-box">
-              <div className="d-flex align-items-start justify-content-between gap-3 mb-3 flex-wrap">
-                <div>
-                  <div className="small text-muted">Overview</div>
-                  <div className="h5 fw-bold mb-1">{previewEmployee.fullName}</div>
-                  <div className="text-muted small">{previewEmployee.roleName || 'No role'} • {previewEmployee.employeeCode}</div>
-                </div>
-                <div className="d-flex gap-2 flex-wrap">
-                  <EmployeeBadge value={previewEmployee.status} type="status" />
-                  <EmployeeBadge value={previewEmployee.workLocation} type="workLocation" />
-                </div>
+            <AttendanceTabs activeTab={previewEmployeeTab} onChange={setPreviewEmployeeTab} tabs={EMPLOYEE_VIEW_TABS} />
+
+            {previewEmployeeProfileLoading ? (
+              <div className="text-muted small">Loading employee details…</div>
+            ) : (
+              <div className="employee-overview-box">
+                {previewEmployeeTab === 'info' ? (
+                  <div className="row g-3 align-items-start">
+                    <div className="col-12 col-md-4">
+                      <div className="profile-photo-preview">
+                        {previewEmployeeProfile?.profileImageUrl
+                          ? <img src={previewEmployeeProfile.profileImageUrl} alt={previewEmployee.fullName || 'Employee'} />
+                          : <span>{String(previewEmployee.fullName || 'E').charAt(0).toUpperCase()}</span>}
+                      </div>
+                    </div>
+                    <div className="col-12 col-md-8">
+                      <div className="row g-2">
+                        <div className="col-12 col-md-6"><strong>Employee Code:</strong> {previewEmployee.employeeCode || '—'}</div>
+                        <div className="col-12 col-md-6"><strong>Name:</strong> {previewEmployee.fullName || '—'}</div>
+                        <div className="col-12 col-md-6"><strong>Email:</strong> {previewEmployee.email || '—'}</div>
+                        <div className="col-12 col-md-6"><strong>Mobile:</strong> {previewEmployee.phone || '—'}</div>
+                        <div className="col-12 col-md-6"><strong>Role:</strong> {previewEmployee.roleName || '—'}</div>
+                        <div className="col-12 col-md-6"><strong>Status:</strong> <EmployeeBadge value={previewEmployee.status || '—'} type="status" /></div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {previewEmployeeTab === 'basic' ? (
+                  <div className="row g-2">
+                    <div className="col-12 col-md-6"><strong>Department:</strong> {previewEmployee.department || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Position:</strong> {previewEmployee.position || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Date of Joining:</strong> {formatDate(previewEmployee.joinDate)}</div>
+                    <div className="col-12 col-md-6"><strong>Work Location:</strong> {previewEmployee.workLocation || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Employee Type:</strong> {previewEmployee.employeeType || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Manager:</strong> {previewEmployee.managerName || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>HR:</strong> {previewEmployee.hrEmployeeName || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Lead:</strong> {previewEmployee.teamLeadName || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Coordinator:</strong> {previewEmployee.coordinatorName || '—'}</div>
+                  </div>
+                ) : null}
+
+                {previewEmployeeTab === 'additional' ? (
+                  <div className="row g-2">
+                    <div className="col-12 col-md-6"><strong>Gender:</strong> {previewEmployee.gender || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Date of Birth:</strong> {formatDate(previewEmployee.dateOfBirth)}</div>
+                    <div className="col-12 col-md-6"><strong>Age:</strong> {formatEmployeeAge(previewEmployee.dateOfBirth)}</div>
+                    <div className="col-12 col-md-6">
+                      <strong>Skills:</strong>{' '}
+                      {previewEmployeeProfile?.skills?.length
+                        ? previewEmployeeProfile.skills.map((entry) => entry.skill).join(', ')
+                        : '—'}
+                    </div>
+                    <div className="col-12 col-md-6"><strong>Blood Group:</strong> {previewEmployee.bloodGroup || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Emergency Contact:</strong> {previewEmployee.emergencyContact || '—'}</div>
+                    <div className="col-12"><strong>Address:</strong> {previewEmployee.address || '—'}</div>
+                  </div>
+                ) : null}
+
+                {previewEmployeeTab === 'documents' ? (
+                  <div className="d-flex flex-column gap-2">
+                    {previewEmployeeProfile?.documents?.length ? previewEmployeeProfile.documents.map((document) => (
+                      <a key={document.uid} href={document.fileUrl || '#'} target="_blank" rel="noreferrer" download={document.name || 'employee-document'} className="profile-doc-item">
+                        <span className="fw-semibold">{document.name || 'Document'}</span>
+                        <span className="text-muted small">
+                          {document.documentType || 'OTHER'} • {document.uploadDateLabel || '—'}
+                        </span>
+                      </a>
+                    )) : (
+                      <div className="text-muted small">No documents uploaded for this employee.</div>
+                    )}
+                  </div>
+                ) : null}
               </div>
-              <OverviewList items={getEmployeeOverviewItems(previewEmployee, previewEmployee.managerName || '—')} />
-            </div>
+            )}
           </div>
         ) : null}
       </ModalFrame>

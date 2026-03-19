@@ -4,10 +4,14 @@ import { useAuth } from '../providers/AuthProvider.jsx'
 import { ROLES } from '../../utils/role.js'
 
 export function RoleRedirect() {
-  const { role, isAuthReady } = useAuth()
+  const { role, isAuthReady, user } = useAuth()
 
   if (!isAuthReady) {
     return <div className="text-muted">Loading session…</div>
+  }
+
+  if (user?.mustCompleteProfile || user?.mustChangePassword) {
+    return <Navigate to="/profile" replace />
   }
 
   if (role === ROLES.ADMIN) return <Navigate to="/admin/dashboard" replace />

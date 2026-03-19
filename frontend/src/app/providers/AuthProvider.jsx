@@ -24,6 +24,13 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => storage.get(AUTH_STORAGE_KEYS.accessToken, null))
   const [refreshToken, setRefreshToken] = useState(() => storage.get(AUTH_STORAGE_KEYS.refreshToken, null))
 
+  const syncCurrentUser = useCallback((nextUser) => {
+    if (!nextUser) return
+    storage.set(AUTH_STORAGE_KEYS.user, nextUser)
+    setUser(nextUser)
+    queryClient.setQueryData(['auth', 'me'], nextUser)
+  }, [queryClient])
+
   const sessionQuery = useQuery({
     queryKey: ['auth', 'me'],
     queryFn: authService.getCurrentUser,
@@ -51,6 +58,7 @@ export function AuthProvider({ children }) {
     queryClient.removeQueries({ queryKey: ['auth'] })
     queryClient.removeQueries({ queryKey: ['dashboard'] })
     queryClient.removeQueries({ queryKey: ['employees'] })
+    queryClient.removeQueries({ queryKey: ['employees', 'profile-requests'] })
     queryClient.removeQueries({ queryKey: ['attendance'] })
   }, [clearIdleTimer, queryClient])
 
@@ -88,10 +96,9 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (sessionQuery.data) {
-      storage.set(AUTH_STORAGE_KEYS.user, sessionQuery.data)
-      setUser(sessionQuery.data)
+      syncCurrentUser(sessionQuery.data)
     }
-  }, [sessionQuery.data])
+  }, [sessionQuery.data, syncCurrentUser])
 
   useEffect(() => {
     if (sessionQuery.isError) {
@@ -187,11 +194,9 @@ export function AuthProvider({ children }) {
         throw new Error(`This account belongs to ${profile.roleName}, not the selected role.`)
       }
 
-      storage.set(AUTH_STORAGE_KEYS.user, profile)
       setToken(loginResult.access_token)
       setRefreshToken(loginResult.refresh_token)
-      setUser(profile)
-      queryClient.setQueryData(['auth', 'me'], profile)
+      syncCurrentUser(profile)
       await prefetchRoleDependencies(profile)
       scheduleIdleTimeout()
 
@@ -200,7 +205,7 @@ export function AuthProvider({ children }) {
       clearAuthState()
       throw error
     }
-  }, [clearAuthState, prefetchRoleDependencies, queryClient, scheduleIdleTimeout])
+  }, [clearAuthState, prefetchRoleDependencies, scheduleIdleTimeout, syncCurrentUser])
 
   const logout = useCallback(async (reason = 'manual') => {
     if (reason === 'idle') {
@@ -250,8 +255,9 @@ export function AuthProvider({ children }) {
     logout,
     refreshSession: sessionQuery.refetch,
     prefetchRoleDependencies,
-    registerActivity
-  }), [user, token, refreshToken, sessionQuery.status, sessionQuery.refetch, login, logout, prefetchRoleDependencies, registerActivity])
+    registerActivity,
+    syncCurrentUser
+  }), [user, token, refreshToken, sessionQuery.status, sessionQuery.refetch, login, logout, prefetchRoleDependencies, registerActivity, syncCurrentUser])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

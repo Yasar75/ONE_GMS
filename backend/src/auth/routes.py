@@ -8,7 +8,8 @@ from src.config import Config
 from src.db.main import get_session
 from src.errors import InvalidCredentials, InvalidToken, UserAlreadyExists, UserNotFound
 from src.mail import create_message, mail
-from src.db.models import Role
+from src.db.models import Role, Employee
+from sqlmodel import select
 
 from .dependencies import RefreshTokenBearer, get_current_user, AdminOnly, RoleChecker
 from .schemas import (
@@ -19,6 +20,7 @@ from .schemas import (
     UserLoginModel,ChangePasswordModel,UserUnlockResponse,UserUnlockRequest
 )
 from .service import UserService
+from .service import DEFAULT_TEMP_PASSWORD
 from .utils import (
     create_access_token,
     create_url_safe_token,
@@ -86,16 +88,22 @@ async def login_user(login_data: UserLoginModel, session: AsyncSession = Depends
     if user is None:
         raise InvalidCredentials()
 
-    # auto lock if first login not done within 48 hours
-    user = await user_service.auto_lock_if_first_login_expired(user, session)
+    # auto lock if profile completion was not submitted within 48 hours
+    user = await user_service.auto_lock_if_profile_completion_expired(user, session)
 
-    if user.is_locked:raise HTTPException(status_code=status.HTTP_423_LOCKED,detail=user.locked_reason or "Your account is locked. Please contact admin.")
+    if user.is_locked:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=user.locked_reason or "Your account is locked. Please contact admin.",
+        )
 
     password_valid = verify_password(password, user.password_hash)
     if not password_valid:
         raise InvalidCredentials()
 
     role = await session.get(Role, user.role_id)
+    employee_result = await session.exec(select(Employee).where(Employee.user_uid == user.uid))
+    has_employee_profile = employee_result.first() is not None
 
     access_token = create_access_token(user_data={"email": user.email,"user_uid": str(user.uid),"role_id": str(user.role_id),
             "role_name": role.role_name if role else None,})
@@ -103,10 +111,24 @@ async def login_user(login_data: UserLoginModel, session: AsyncSession = Depends
     refresh_token = create_access_token(user_data={"email": user.email, "user_uid": str(user.uid)},refresh=True,
         expiry=timedelta(days=REFRESH_TOKEN_EXPIRY),)
 
-    await user_service.mark_first_login_success(user, session)
+    is_default_password = verify_password(DEFAULT_TEMP_PASSWORD, user.password_hash)
+    must_change_password = bool(user.must_change_password or is_default_password)
+    must_complete_profile = has_employee_profile and user.profile_completed_at is None
 
-    return JSONResponse(content={"message": "Login successful","access_token": access_token,"refresh_token": refresh_token,
-            "user": {"email": user.email, "uid": str(user.uid)},})
+    return JSONResponse(
+        content={
+            "message": "Login successful",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": {
+                "email": user.email,
+                "uid": str(user.uid),
+                "must_change_password": must_change_password,
+                "must_complete_profile": must_complete_profile,
+                "can_edit_profile_details": bool(user.can_edit_profile_details),
+            },
+        }
+    )
 # @auth_router.post("/login")
 # async def login_user(login_data: UserLoginModel, session: AsyncSession = Depends(get_session)):
 #     email = str(login_data.email).strip().lower()
@@ -159,10 +181,17 @@ async def get_new_access_token(token_details: dict = Depends(RefreshTokenBearer(
 @auth_router.get("/me")
 async def me(user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     role = await session.get(Role, user.role_id)
+    is_default_password = verify_password(DEFAULT_TEMP_PASSWORD, user.password_hash)
+    employee_result = await session.exec(select(Employee).where(Employee.user_uid == user.uid))
+    has_employee_profile = employee_result.first() is not None
+    must_change_password = bool(user.must_change_password or is_default_password)
     return {
            "user": user,
            "role_name": role.role_name,
-           "permissions": role.permissions
+           "permissions": role.permissions,
+           "must_change_password": must_change_password,
+           "must_complete_profile": has_employee_profile and user.profile_completed_at is None,
+           "can_edit_profile_details": bool(user.can_edit_profile_details)
            }
 
 
@@ -219,7 +248,7 @@ async def reset_account_password(
             raise UserNotFound()
 
         passwd_hash = generate_password_hash(new_password)
-        await user_service.update_user(user, {"password_hash": passwd_hash}, session)
+        await user_service.update_user(user, {"password_hash": passwd_hash, "must_change_password": False}, session)
 
         return JSONResponse(
             content={"message": "Password reset Successfully"},
@@ -234,18 +263,46 @@ async def reset_account_password(
 
 @auth_router.post("/change-password", status_code=status.HTTP_200_OK)
 async def change_password(password_data: ChangePasswordModel,current_user=Depends(get_current_user),session: AsyncSession = Depends(get_session)):
-    if not verify_password(password_data.current_password, current_user.password_hash):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Current password is incorrect")
-
     if password_data.new_password != password_data.confirm_new_password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="New password and confirm password do not match")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password and confirm password do not match")
 
-    if password_data.current_password == password_data.new_password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="New password must be different from current password")
+    is_first_time_password_change = bool(
+        current_user.must_change_password
+        or verify_password(DEFAULT_TEMP_PASSWORD, current_user.password_hash)
+    )
+
+    if is_first_time_password_change:
+        if password_data.new_password == DEFAULT_TEMP_PASSWORD:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be different from the default password.",
+            )
+    else:
+        if not password_data.current_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is required.",
+            )
+        if not verify_password(password_data.current_password, current_user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect",
+            )
+        if password_data.current_password == password_data.new_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be different from current password",
+            )
 
     await user_service.change_password(user=current_user,new_password=password_data.new_password,session=session)
 
-    return JSONResponse(content={"message": "Password changed successfully"},status_code=status.HTTP_200_OK)
+    return JSONResponse(
+        content={
+            "message": "Password changed successfully",
+            "must_change_password": False,
+        },
+        status_code=status.HTTP_200_OK,
+    )
 
 
 ## For lock unlock user's credential.
