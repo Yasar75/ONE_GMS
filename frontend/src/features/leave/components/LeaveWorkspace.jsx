@@ -1410,7 +1410,7 @@ export default function LeaveWorkspace({ isAdmin = false, initialTab = 'apply' }
 
           <CardShell
             title={`Calendar Register • ${selectedCalendarLabel}`}
-            right={<button type="button" className="btn btn-outline-primary btn-sm" onClick={() => openHolidayEditor('add')}>Quick Add</button>}
+            right={<button type="button" className="btn btn-outline-info btn-sm" onClick={() => openHolidayEditor('add')}>Quick Add</button>}
           >
             <div className="table-responsive employee-table-wrap">
               <table className="table employee-table workspace-table align-middle mb-0">

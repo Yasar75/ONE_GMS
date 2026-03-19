@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import * as XLSX from 'xlsx'
 import PageHeader from '../../../components/common/PageHeader.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import OverviewList from '../../../components/common/OverviewList.jsx'
@@ -24,6 +25,7 @@ import {
   buildEmployeePayload,
   buildPhoneValue,
   downloadEmployeeImportTemplateCsv,
+  downloadEmployeeImportTemplateExcel,
   downloadEmployeesAsCsv,
   downloadEmployeesAsExcel,
   formatDate,
@@ -31,6 +33,7 @@ import {
   getDefaultPhoneCountryOption,
   getEmployeeAge,
   getEmployeeOverviewItems,
+  isIsoDateInput,
   normalizeDateInput,
   parseStoredPhoneValue
 } from '../../../utils/employee.js'
@@ -79,6 +82,82 @@ const ACCESS_LEVEL_OPTIONS = [
 
 const ROLE_ACCESS_EXPANDED_GROUPS_CACHE_KEY = 'one-gms:role-access-expanded-groups:v1'
 const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
+const ROLE_MODULE_ALIAS_MAP = {
+  'Holiday Calendar': 'Holiday Calender',
+  'Holiday Calandar': 'Holiday Calender',
+  'Assign Shifts': 'Assign Shift',
+  'Attendance Punch Logs': 'Attendance Punch Log',
+  'Leave Requests': 'Leave Request',
+  'Assign Leaves': 'Assign Leave',
+  'Leave Type Entries': 'Leave Type',
+  'Leave Balance': 'Employee Leave Balance',
+  'Metadata Entries': 'Employee Metadata',
+  'Employees Entries': 'Employee',
+  'Employees Skills': 'Employee Skills',
+  'Employees Documents': 'Employee Documents'
+}
+const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administration', 'Employee', 'Attendance', 'Leave', 'Other']
+const ROLE_MODULE_VISUAL_CONFIG = [
+  {
+    title: 'Administration',
+    modules: [
+      { key: 'Roles', label: 'Roles' }
+    ]
+  },
+  {
+    title: 'Employee',
+    modules: [
+      { key: 'Employee Metadata', label: 'Metadata Entries' },
+      { key: 'Employee', label: 'Employees Entries' },
+      // Reserved for future backend module support.
+      { key: 'Employee Mapping', label: 'Employee Mapping', hidden: true },
+      { key: 'Employee Skills', label: 'Employees Skills' },
+      { key: 'Employee Documents', label: 'Employees Documents' }
+    ]
+  },
+  {
+    title: 'Attendance',
+    modules: [
+      { key: 'Shift Roster', label: 'Shift Roster' },
+      { key: 'Assign Shift', label: 'Assign Shifts' },
+      { key: 'Attendance', label: 'Attendance Entries' },
+      { key: 'Attendance Punch Log', label: 'Attendance Punch Logs' },
+      { key: 'Attendance Regularization', label: 'Attendance Regularization' },
+      { key: 'Attendance Regularization Logs', label: 'Attendance Regularization Logs' }
+    ]
+  },
+  {
+    title: 'Leave',
+    modules: [
+      { key: 'Holiday Calender', label: 'Holiday Calandar' },
+      { key: 'Leave Type', label: 'Leave Type Entries' },
+      { key: 'Assign Leave', label: 'Assign Leaves' },
+      { key: 'Employee Leave Balance', label: 'Leave Balance' },
+      { key: 'Leave Request', label: 'Leave Requests' }
+    ]
+  }
+]
+
+const ROLE_MODULE_VISUAL_META = (() => {
+  const displayNameByKey = {}
+  const groupNameByKey = {}
+  const sortOrderByKey = {}
+  const hiddenModuleKeys = new Set()
+  let sortOrder = 0
+
+  ROLE_MODULE_VISUAL_CONFIG.forEach((group) => {
+    group.modules.forEach((moduleConfig) => {
+      displayNameByKey[moduleConfig.key] = moduleConfig.label
+      groupNameByKey[moduleConfig.key] = group.title
+      sortOrderByKey[moduleConfig.key] = sortOrder
+      sortOrder += 1
+
+      if (moduleConfig.hidden) hiddenModuleKeys.add(moduleConfig.key)
+    })
+  })
+
+  return { displayNameByKey, groupNameByKey, sortOrderByKey, hiddenModuleKeys }
+})()
 
 function createEmptyRoleDraft() {
   return { uid: null, roleName: '', description: '', access: {} }
@@ -96,6 +175,24 @@ function sanitizeRoleModuleName(moduleName) {
     .trim()
 
   return /[A-Za-z0-9]/.test(normalizedValue) ? normalizedValue : ''
+}
+
+function toCanonicalRoleModuleName(moduleName) {
+  const sanitizedModuleName = sanitizeRoleModuleName(moduleName)
+  if (!sanitizedModuleName) return ''
+  return ROLE_MODULE_ALIAS_MAP[sanitizedModuleName] || sanitizedModuleName
+}
+
+function getRoleModuleDisplayName(moduleName) {
+  const canonicalModuleName = toCanonicalRoleModuleName(moduleName)
+  if (!canonicalModuleName) return ''
+  return ROLE_MODULE_VISUAL_META.displayNameByKey[canonicalModuleName] || canonicalModuleName
+}
+
+function getRoleModuleSortOrder(moduleName) {
+  const canonicalModuleName = toCanonicalRoleModuleName(moduleName)
+  if (!canonicalModuleName) return Number.MAX_SAFE_INTEGER
+  return ROLE_MODULE_VISUAL_META.sortOrderByKey[canonicalModuleName] ?? Number.MAX_SAFE_INTEGER
 }
 
 function buildFullRoleAccess(modules = []) {
@@ -117,9 +214,9 @@ function normalizeRoleAccess(access = {}) {
       .map((option) => option.key)
       .filter((level) => Array.isArray(accessLevels) && accessLevels.includes(level))
 
-    const sanitizedModuleName = sanitizeRoleModuleName(moduleName)
-    if (sanitizedModuleName && normalizedLevels.length) {
-      accumulator[sanitizedModuleName] = normalizedLevels
+    const canonicalModuleName = toCanonicalRoleModuleName(moduleName)
+    if (canonicalModuleName && normalizedLevels.length) {
+      accumulator[canonicalModuleName] = normalizedLevels
     }
     return accumulator
   }, {})
@@ -131,7 +228,7 @@ function getRoleAccessSummary(access = {}) {
 
   const preview = configuredModules
     .slice(0, 2)
-    .map(([moduleName, accessLevels]) => `${moduleName} (${accessLevels.map((level) => level.toUpperCase()).join('/')})`)
+    .map(([moduleName, accessLevels]) => `${getRoleModuleDisplayName(moduleName)} (${accessLevels.map((level) => level.toUpperCase()).join('/')})`)
     .join(', ')
 
   return `${configuredModules.length} module${configuredModules.length === 1 ? '' : 's'} • ${preview}${configuredModules.length > 2 ? ` +${configuredModules.length - 2} more` : ''}`
@@ -145,34 +242,43 @@ function buildRoleAccessMeta(access = {}) {
 
 function dedupeRoleModules(modules = []) {
   return Array.from(new Set((Array.isArray(modules) ? modules : [])
-    .map(sanitizeRoleModuleName)
+    .map(toCanonicalRoleModuleName)
     .filter(Boolean)))
 }
 
 function getRoleModuleGroupName(moduleName) {
-  if (!moduleName) return 'Other'
-  if (moduleName === 'Roles') return 'Administration'
-  if (moduleName.startsWith('Employee')) return 'Employees'
-  if (moduleName.startsWith('Attendance') || moduleName === 'Shift Roster' || moduleName === 'Assign Shift') return 'Attendance'
-  if (moduleName === 'Holiday Calendar' || moduleName === 'Leave Request' || moduleName === 'Leave Type') return 'Leave'
+  const canonicalModuleName = toCanonicalRoleModuleName(moduleName)
+  if (!canonicalModuleName) return 'Other'
+
+  const configuredGroup = ROLE_MODULE_VISUAL_META.groupNameByKey[canonicalModuleName]
+  if (configuredGroup) return configuredGroup
+
+  if (canonicalModuleName.startsWith('Employee')) return 'Employee'
+  if (canonicalModuleName.startsWith('Attendance') || canonicalModuleName === 'Shift Roster' || canonicalModuleName === 'Assign Shift') return 'Attendance'
+  if (canonicalModuleName === 'Holiday Calender' || canonicalModuleName === 'Leave Request' || canonicalModuleName === 'Leave Type' || canonicalModuleName === 'Assign Leave') return 'Leave'
   return 'Other'
 }
 
 function buildRoleModuleGroups(modules = []) {
-  const orderedGroupNames = ['Employees', 'Attendance', 'Leave', 'Administration', 'Other']
   const groupedModules = dedupeRoleModules(modules).reduce((accumulator, moduleName) => {
+    if (ROLE_MODULE_VISUAL_META.hiddenModuleKeys.has(moduleName)) return accumulator
     const groupName = getRoleModuleGroupName(moduleName)
     accumulator[groupName] = accumulator[groupName] || []
     accumulator[groupName].push(moduleName)
     return accumulator
   }, {})
 
-  return orderedGroupNames
+  return ROLE_MODULE_VISUAL_GROUP_ORDER
     .filter((groupName) => Array.isArray(groupedModules[groupName]) && groupedModules[groupName].length)
     .map((groupName) => ({
       key: groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
       title: groupName,
-      modules: groupedModules[groupName]
+      modules: groupedModules[groupName].sort((leftModule, rightModule) => {
+        const leftSortOrder = getRoleModuleSortOrder(leftModule)
+        const rightSortOrder = getRoleModuleSortOrder(rightModule)
+        if (leftSortOrder !== rightSortOrder) return leftSortOrder - rightSortOrder
+        return getRoleModuleDisplayName(leftModule).localeCompare(getRoleModuleDisplayName(rightModule))
+      })
     }))
 }
 
@@ -400,6 +506,10 @@ function parseCsvLine(line = '') {
   return values.map((value) => value.trim())
 }
 
+function normalizeImportHeader(header = '') {
+  return String(header || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
 function parseBulkEmployeeCsv(content = '') {
   const lines = String(content || '')
     .replace(/^\uFEFF/, '')
@@ -410,23 +520,73 @@ function parseBulkEmployeeCsv(content = '') {
     return { headers: [], rows: [] }
   }
 
-  const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim())
+  const headers = parseCsvLine(lines[0]).map(normalizeImportHeader)
   const rows = lines.slice(1).map((line) => {
     const values = parseCsvLine(line)
-    return headers.reduce((accumulator, header, index) => {
+    const mappedRow = headers.reduce((accumulator, header, index) => {
       accumulator[header] = values[index] || ''
       return accumulator
     }, {})
+    return Object.values(mappedRow).some((value) => String(value || '').trim()) ? mappedRow : null
   })
+
+  return { headers, rows: rows.filter(Boolean) }
+}
+
+async function parseBulkEmployeeXlsx(file) {
+  const workbookBuffer = await file.arrayBuffer()
+  const workbook = XLSX.read(workbookBuffer, { type: 'array', raw: true, cellDates: false })
+  const [firstSheetName] = workbook.SheetNames
+  if (!firstSheetName) return { headers: [], rows: [] }
+
+  const firstSheet = workbook.Sheets[firstSheetName]
+  const sheetRows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: true, defval: '' })
+  if (!Array.isArray(sheetRows) || sheetRows.length <= 1) return { headers: [], rows: [] }
+
+  const headers = (Array.isArray(sheetRows[0]) ? sheetRows[0] : []).map(normalizeImportHeader)
+  const rows = sheetRows.slice(1).map((sheetRow) => {
+    const values = Array.isArray(sheetRow) ? sheetRow : []
+    const mappedRow = headers.reduce((accumulator, header, index) => {
+      accumulator[header] = values[index] ?? ''
+      return accumulator
+    }, {})
+    return Object.values(mappedRow).some((value) => String(value || '').trim()) ? mappedRow : null
+  }).filter(Boolean)
 
   return { headers, rows }
 }
 
+function getImportFileExtension(fileName = '') {
+  const segments = String(fileName || '').toLowerCase().trim().split('.')
+  return segments.length > 1 ? segments.pop() : ''
+}
+
+async function parseBulkEmployeeFile(file) {
+  const extension = getImportFileExtension(file?.name || '')
+
+  if (extension === 'csv') {
+    const content = await file.text()
+    return parseBulkEmployeeCsv(content)
+  }
+
+  if (extension === 'xls') {
+    throw new Error('Legacy Excel .xls is no longer supported. Please upload an .xlsx file.')
+  }
+
+  if (extension === 'xlsx') {
+    return parseBulkEmployeeXlsx(file)
+  }
+
+  throw new Error('Unsupported file format. Upload CSV or Excel (.xlsx).')
+}
+
 function pickCsvValue(row, aliases) {
-  return aliases.reduce((selected, alias) => {
-    if (selected) return selected
-    return row[alias.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()] || ''
+  const selectedValue = aliases.reduce((selected, alias) => {
+    if (String(selected ?? '').trim()) return selected
+    return row[normalizeImportHeader(alias)] ?? ''
   }, '')
+
+  return String(selectedValue ?? '')
 }
 
 function buildImportPayloads(rows = [], employees = [], roleDirectory = new Map()) {
@@ -447,14 +607,26 @@ function buildImportPayloads(rows = [], employees = [], roleDirectory = new Map(
     const department = pickCsvValue(row, ['Department']).trim()
     const status = pickCsvValue(row, ['Status']).trim() || 'Active'
     const workLocation = pickCsvValue(row, ['Work Location']).trim()
-    const joinDate = normalizeDateInput(pickCsvValue(row, ['Join Date']).trim())
-    const dateOfBirth = normalizeDateInput(pickCsvValue(row, ['Date Of Birth']).trim())
+    const joinDateInput = pickCsvValue(row, ['Join Date']).trim()
+    const dateOfBirthInput = pickCsvValue(row, ['Date Of Birth']).trim()
+    const joinDate = normalizeDateInput(joinDateInput)
+    const dateOfBirth = normalizeDateInput(dateOfBirthInput)
     const employeeType = pickCsvValue(row, ['Employee Type']).trim()
     const gender = pickCsvValue(row, ['Gender']).trim()
     const caste = pickCsvValue(row, ['Caste']).trim()
     const emergencyContact = pickCsvValue(row, ['Emergency Contact']).trim()
     const bloodGroup = pickCsvValue(row, ['Blood Group']).trim()
     const address = pickCsvValue(row, ['Address']).trim()
+
+    if (joinDateInput && !isIsoDateInput(joinDate)) {
+      errors.push(`Row ${rowNumber}: invalid Join Date "${joinDateInput}". Use YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or Excel serial date.`)
+      return
+    }
+
+    if (dateOfBirthInput && !isIsoDateInput(dateOfBirth)) {
+      errors.push(`Row ${rowNumber}: invalid Date Of Birth "${dateOfBirthInput}". Use YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or Excel serial date.`)
+      return
+    }
 
     const requiredChecks = [
       ['Employee Code', employeeCode],
@@ -991,7 +1163,7 @@ function RoleEntryModal({ open, title, draft, onChange, onClose, onSubmit, modul
                           return (
                             <div className="role-access-grid role-access-grid__row" key={moduleName}>
                               <div className="role-access-grid__module">
-                                <div className="fw-semibold">{moduleName}</div>
+                                <div className="fw-semibold">{getRoleModuleDisplayName(moduleName)}</div>
                                 <div className="text-muted small">{selectedAccess.length ? `${selectedAccess.map((level) => level.toUpperCase()).join(' / ')} enabled` : 'No access selected'}</div>
                               </div>
                               {ACCESS_LEVEL_OPTIONS.map((option) => (
@@ -1386,12 +1558,19 @@ export default function AdminEmployees() {
 
   async function handleImportSubmit() {
     if (!importFile) {
-      showStatus({ type: 'error', title: 'No file selected', message: 'Upload the populated CSV template before starting the bulk import.' })
+      showStatus({ type: 'error', title: 'No file selected', message: 'Upload the populated CSV or Excel template before starting the bulk import.' })
       return
     }
 
-    const content = await importFile.text()
-    const { rows } = parseBulkEmployeeCsv(content)
+    let rows = []
+    try {
+      const parsedFile = await parseBulkEmployeeFile(importFile)
+      rows = parsedFile.rows
+    } catch (fileParseError) {
+      showStatus({ type: 'error', title: 'Unsupported import file', message: fileParseError?.message || 'The selected file could not be parsed.' })
+      return
+    }
+
     const { payloads, errors } = buildImportPayloads(rows, employees, roleDirectory)
 
     if (!payloads.length) {
@@ -1410,7 +1589,7 @@ export default function AdminEmployees() {
       setImportFile(null)
       setIsImportOpen(false)
     } catch (importError) {
-      showStatus({ type: 'error', title: 'Bulk import failed', message: importError?.response?.data?.detail || importError?.message || 'The CSV file could not be imported.' })
+      showStatus({ type: 'error', title: 'Bulk import failed', message: importError?.response?.data?.detail || importError?.message || 'The selected file could not be imported.' })
     }
   }
 
@@ -1925,7 +2104,8 @@ export default function AdminEmployees() {
         size="lg"
         footer={(
           <>
-            <button type="button" className="btn btn-light btn-icon-inline" onClick={downloadEmployeeImportTemplateCsv}><DownloadIcon /><span>Download Template</span></button>
+            <button type="button" className="btn btn-light btn-icon-inline" onClick={downloadEmployeeImportTemplateCsv}><DownloadIcon /><span>CSV Template</span></button>
+            <button type="button" className="btn btn-light btn-icon-inline" onClick={downloadEmployeeImportTemplateExcel}><DownloadIcon /><span>Excel Template</span></button>
             <button type="button" className="btn btn-primary" onClick={handleImportSubmit}>Start Import</button>
             <button type="button" className="btn btn-outline-secondary" onClick={() => setIsImportOpen(false)}>Cancel</button>
           </>
@@ -1934,12 +2114,13 @@ export default function AdminEmployees() {
         <div className="d-flex flex-column gap-3">
           <div className="employee-import-note">
             <div className="fw-semibold mb-1">Bulk entry template</div>
-            <div className="text-muted small">Download the CSV template, fill one employee per row, use an existing role name from metadata, and upload the completed file here. Linked signup creation still uses the default password Welcome@123.</div>
+            <div className="text-muted small">Download the CSV or Excel template, fill one employee per row, use an existing role name from metadata, and upload the completed file here. Linked signup creation still uses the default password Welcome@123.</div>
+            <div className="text-muted small mt-2">Validation checks: required fields, unique employee code, role name must exist in metadata, date formats are auto-converted (`YYYY-MM-DD`, `DD/MM/YYYY`, `MM/DD/YYYY`, and Excel serial dates), and date of birth must keep age between 21 and 65.</div>
           </div>
           <div className="employee-import-upload">
-            <label className="form-label">Upload populated CSV</label>
-            <input type="file" className="form-control" accept=".csv,text/csv" onChange={(event) => setImportFile(event.target.files?.[0] || null)} />
-            <div className="form-text">Accepted format: CSV. The file is validated before records are created.</div>
+            <label className="form-label">Upload populated template</label>
+            <input type="file" className="form-control" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setImportFile(event.target.files?.[0] || null)} />
+            <div className="form-text">Accepted formats: CSV and Excel (.xlsx). The file is validated before records are created.</div>
           </div>
           {importFile ? <div className="employee-import-file-chip"><span className="fw-semibold">Selected file:</span> {importFile.name}</div> : null}
         </div>
