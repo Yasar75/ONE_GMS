@@ -1,6 +1,7 @@
 import React from 'react'
 import ThemeToggle from './ThemeToggle.jsx'
 import ProfileWidget from './ProfileWidget.jsx'
+import HeaderPunchCard from './HeaderPunchCard.jsx'
 import logoLight from '../../assets/headerLogo.svg'
 import logoDark from '../../assets/headerLogo_white.svg'
 import faviconPng from '../../assets/favicon.png'
@@ -25,7 +26,8 @@ export default function Header({ ui }) {
             <span className="app-brand-title text-muted">ONE GMS</span>
           </div>
         </div>
-        <div className="d-flex align-items-center gap-2">
+        <div className="d-flex align-items-center gap-2 app-header-actions">
+          <HeaderPunchCard />
           <ThemeToggle />
           <ProfileWidget />
         </div>

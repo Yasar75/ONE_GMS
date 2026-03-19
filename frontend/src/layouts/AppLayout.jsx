@@ -6,7 +6,7 @@ import TopNavbar from '../components/nav/TopNavbar.jsx'
 import Footer from '../components/footer/Footer.jsx'
 import { storage } from '../utils/storage.js'
 
-const LOCK_KEY = 'lms.ui.sidebarLocked'
+const LOCK_KEY = 'one_gms.ui.sidebarLocked'
 
 export function AppLayout() {
   const location = useLocation()

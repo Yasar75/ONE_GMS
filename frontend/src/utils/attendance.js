@@ -1,6 +1,151 @@
+import { storage } from './storage.js'
+
 function getSafeDate(value) {
   const date = value instanceof Date ? value : new Date(value)
   return Number.isNaN(date.getTime()) ? null : date
+}
+
+const PUNCH_CONTROL_STORAGE_KEY = 'attendance:punch-control:v1'
+export const PUNCH_CONTROL_CHANGED_EVENT = 'attendance:punch-control:changed'
+
+function dispatchPunchControlChanged(attendanceDate) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
+
+  try {
+    window.dispatchEvent(new CustomEvent(PUNCH_CONTROL_CHANGED_EVENT, {
+      detail: { attendanceDate: toPunchControlDateKey(attendanceDate), at: Date.now() }
+    }))
+  } catch {
+    // Keep attendance interactions functional even if custom events are unavailable.
+  }
+}
+
+function getPunchControlStore() {
+  const value = storage.get(PUNCH_CONTROL_STORAGE_KEY, {})
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return value
+}
+
+function savePunchControlStore(store) {
+  try {
+    storage.set(PUNCH_CONTROL_STORAGE_KEY, store)
+  } catch {
+    // Keep attendance interactions functional even if storage is unavailable.
+  }
+}
+
+function toPunchControlDateKey(value) {
+  const safe = String(value || '').trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(safe) ? safe : ''
+}
+
+function toPunchControlTimeKey(value) {
+  const date = getSafeDate(value)
+  return date ? date.toISOString() : ''
+}
+
+function normalizePunchControlMode(value) {
+  return String(value || '').toLowerCase() === 'soft' ? 'soft' : 'final'
+}
+
+function normalizePunchControlEntry(entry) {
+  const outModes = entry?.outModes && typeof entry.outModes === 'object' && !Array.isArray(entry.outModes)
+    ? entry.outModes
+    : {}
+  const resumePunchIns = Array.isArray(entry?.resumePunchIns) ? entry.resumePunchIns : []
+  return { outModes, resumePunchIns }
+}
+
+function updatePunchControlEntry(attendanceDate, updater) {
+  const dateKey = toPunchControlDateKey(attendanceDate)
+  if (!dateKey || typeof updater !== 'function') return
+
+  const store = getPunchControlStore()
+  const current = normalizePunchControlEntry(store[dateKey])
+  const nextEntry = normalizePunchControlEntry(updater(current))
+
+  savePunchControlStore({
+    ...store,
+    [dateKey]: nextEntry
+  })
+  dispatchPunchControlChanged(dateKey)
+}
+
+function hasExplicitPunchMode(sourceValue) {
+  const source = String(sourceValue || '').toUpperCase()
+  return source.includes('SOFT') || source.includes('FINAL')
+}
+
+export function rememberPunchOutMode(attendanceDate, punchTime, mode = 'final') {
+  const timeKey = toPunchControlTimeKey(punchTime)
+  if (!timeKey) return
+
+  updatePunchControlEntry(attendanceDate, (current) => ({
+    ...current,
+    outModes: {
+      ...current.outModes,
+      [timeKey]: normalizePunchControlMode(mode)
+    }
+  }))
+}
+
+export function rememberSoftPunchResume(attendanceDate, punchInTime = new Date()) {
+  const timeKey = toPunchControlTimeKey(punchInTime)
+  if (!timeKey) return
+
+  updatePunchControlEntry(attendanceDate, (current) => ({
+    ...current,
+    resumePunchIns: current.resumePunchIns.includes(timeKey)
+      ? current.resumePunchIns
+      : [...current.resumePunchIns, timeKey].sort()
+  }))
+}
+
+export function applyLocalPunchControl(logs = [], attendanceDate = '') {
+  const dateKey = toPunchControlDateKey(attendanceDate)
+  const store = getPunchControlStore()
+  const config = normalizePunchControlEntry(store[dateKey] || {})
+
+  const mappedLogs = Array.isArray(logs)
+    ? logs.map((log) => {
+      if (!log || String(log.punchType || '').toUpperCase() !== 'OUT') return log
+      if (hasExplicitPunchMode(log.source)) return log
+
+      const timeKey = toPunchControlTimeKey(log.punchTime)
+      const mappedMode = config.outModes[timeKey]
+      return {
+        ...log,
+        source: mappedMode === 'soft' ? 'SOFT_PUNCH_OUT' : 'FINAL_PUNCH_OUT'
+      }
+    })
+    : []
+
+  const hasRealPunchIn = mappedLogs.some((log) => String(log?.punchType || '').toUpperCase() === 'IN')
+  const virtualResumeLogs = hasRealPunchIn
+    ? config.resumePunchIns
+      .map((timeKey, index) => ({
+        uid: `virtual-resume-${dateKey || 'date'}-${index}-${timeKey}`,
+        userUid: '',
+        employeeUid: '',
+        attendanceUid: '',
+        attendanceDate: dateKey,
+        punchType: 'IN',
+        punchTime: timeKey,
+        isValid: true,
+        invalidReason: '',
+        source: 'RESUME_PUNCH_IN',
+        createdAt: timeKey
+      }))
+      .filter((virtualLog) => !mappedLogs.some((log) => (
+        String(log?.punchType || '').toUpperCase() === 'IN'
+          && toPunchControlTimeKey(log?.punchTime) === toPunchControlTimeKey(virtualLog.punchTime)
+          && String(log?.source || '').toUpperCase().includes('RESUME')
+      )))
+    : []
+
+  return [...mappedLogs, ...virtualResumeLogs].sort(
+    (left, right) => new Date(left?.punchTime || 0).getTime() - new Date(right?.punchTime || 0).getTime()
+  )
 }
 
 export function getTodayDateInput() {
@@ -246,19 +391,45 @@ export function getAttendanceSummary(records = []) {
 
 export function getPunchSessionState(logs = []) {
   const sortedLogs = [...logs].sort((left, right) => new Date(left.punchTime || 0).getTime() - new Date(right.punchTime || 0).getTime())
-  const inCount = sortedLogs.filter((log) => log.punchType === 'IN').length
-  const outCount = sortedLogs.filter((log) => log.punchType === 'OUT').length
   const lastLog = sortedLogs.at(-1) || null
+  const inLogs = sortedLogs.filter((log) => log.punchType === 'IN')
+  const outLogs = sortedLogs.filter((log) => log.punchType === 'OUT')
+  const isFinalPunchOut = Boolean(lastLog && lastLog.punchType === 'OUT' && String(lastLog.source || '').toUpperCase().includes('FINAL'))
+  const hasSoftPunchOut = Boolean(lastLog && lastLog.punchType === 'OUT' && String(lastLog.source || '').toUpperCase().includes('SOFT'))
+
+  let totalWorkedSeconds = 0
+  let activePunchIn = null
+
+  for (const log of sortedLogs) {
+    if (log.punchType === 'IN') {
+      activePunchIn = log
+      continue
+    }
+
+    if (log.punchType === 'OUT' && activePunchIn) {
+      totalWorkedSeconds += getElapsedSeconds(activePunchIn.punchTime, log.punchTime)
+      activePunchIn = null
+    }
+  }
+
+  const isClockedIn = Boolean(lastLog && lastLog.punchType === 'IN')
+  const canPunchOut = isClockedIn
+  const canPunchIn = (!sortedLogs.length || (Boolean(lastLog && lastLog.punchType === 'OUT') && !isFinalPunchOut))
 
   return {
-    canPunchIn: inCount === outCount,
-    canPunchOut: inCount > outCount && lastLog?.punchType === 'IN',
-    isClockedIn: inCount > outCount && lastLog?.punchType === 'IN',
+    canPunchIn,
+    canPunchOut,
+    isClockedIn,
+    isFinalPunchOut,
+    hasSoftPunchOut,
     totalPunches: sortedLogs.length,
-    firstPunchIn: sortedLogs.find((log) => log.punchType === 'IN')?.punchTime || null,
-    lastPunchOut: [...sortedLogs].reverse().find((log) => log.punchType === 'OUT')?.punchTime || null,
+    firstPunchIn: inLogs[0]?.punchTime || null,
+    activePunchIn: isClockedIn ? (activePunchIn?.punchTime || lastLog?.punchTime || null) : null,
+    lastPunchOut: [...outLogs].reverse().find(Boolean)?.punchTime || null,
+    totalWorkedHours: Number((totalWorkedSeconds / 3600).toFixed(2)),
+    workedSeconds: totalWorkedSeconds,
     lastLog,
-    elapsedSeconds: lastLog?.punchType === 'IN' ? getElapsedSeconds(sortedLogs.find((log) => log.punchType === 'IN')?.punchTime) : 0
+    logs: sortedLogs
   }
 }
 

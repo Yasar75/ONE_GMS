@@ -9,16 +9,19 @@ import { useMyPunchLogsQuery } from '../../../hooks/attendance/useMyPunchLogsQue
 import { useMyRegularizationsQuery } from '../../../hooks/attendance/useMyRegularizationsQuery.js'
 import { attendanceService } from '../../../api/services/attendance.service.js'
 import {
+  PUNCH_CONTROL_CHANGED_EVENT,
+  applyLocalPunchControl,
   downloadPunchLogsCsv,
   downloadPunchLogsExcel,
   formatDate,
   formatDateTime,
   formatHours,
   formatTime,
-  getElapsedSeconds,
   getLatestRegularizationStatus,
   getPunchSessionState,
   getTodayDateInput,
+  rememberPunchOutMode,
+  rememberSoftPunchResume,
   toDateTimeLocalValue
 } from '../../../utils/attendance.js'
 import { getErrorMessage } from '../../../utils/auth.js'
@@ -97,31 +100,53 @@ function RegularizationModal({ open, draft, onChange, onClose, onSubmit, isPendi
 export default function EmployeeAttendance() {
   const todayDate = getTodayDateInput()
   const queryClient = useQueryClient()
-  const { showStatus, runWithLoader } = useModal()
+  const { showStatus, runWithLoader, showConfirm } = useModal()
 
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedDate, setSelectedDate] = useState(todayDate)
   const [regularizationOpen, setRegularizationOpen] = useState(false)
   const [regularizationDraft, setRegularizationDraft] = useState(() => buildRegularizationDraft(todayDate, []))
+  const [punchControlVersion, setPunchControlVersion] = useState(0)
 
   const selectedLogsQuery = useMyPunchLogsQuery(selectedDate)
   const todayLogsQuery = useMyPunchLogsQuery(todayDate)
   const regularizationsQuery = useMyRegularizationsQuery()
 
-  const selectedLogs = selectedLogsQuery.data || []
-  const todayLogs = todayLogsQuery.data || []
+  const selectedLogsRaw = selectedLogsQuery.data || []
+  const todayLogsRaw = todayLogsQuery.data || []
+  const selectedLogs = useMemo(
+    () => applyLocalPunchControl(selectedLogsRaw, selectedDate),
+    [punchControlVersion, selectedDate, selectedLogsRaw]
+  )
+  const todayLogs = useMemo(
+    () => applyLocalPunchControl(todayLogsRaw, todayDate),
+    [punchControlVersion, todayDate, todayLogsRaw]
+  )
   const regularizations = regularizationsQuery.data || []
 
   const todaySession = useMemo(() => getPunchSessionState(todayLogs), [todayLogs])
   const selectedSession = useMemo(() => getPunchSessionState(selectedLogs), [selectedLogs])
   const latestRegularizationStatus = useMemo(() => getLatestRegularizationStatus(regularizations), [regularizations])
-  const attendanceStateLabel = todaySession.isClockedIn ? 'Clocked In' : todaySession.totalPunches > 0 ? 'Completed' : 'Ready'
-  const elapsedSeconds = useMemo(() => todaySession.isClockedIn ? getElapsedSeconds(todaySession.firstPunchIn) : (todaySession.firstPunchIn && todaySession.lastPunchOut ? getElapsedSeconds(todaySession.firstPunchIn, todaySession.lastPunchOut) : 0), [todaySession])
+  const attendanceStateLabel = todaySession.isClockedIn ? 'Clocked In' : todaySession.hasSoftPunchOut ? 'Paused' : todaySession.totalPunches > 0 ? 'Completed' : 'Ready'
+  const elapsedSeconds = useMemo(() => Number(todaySession.workedSeconds || 0), [todaySession.workedSeconds])
 
   useEffect(() => {
     if (!regularizationOpen) return
     setRegularizationDraft(buildRegularizationDraft(selectedDate, selectedLogs))
   }, [regularizationOpen, selectedDate, selectedLogs])
+
+  useEffect(() => {
+    const handlePunchControlChanged = (event) => {
+      const changedDate = String(event?.detail?.attendanceDate || '')
+      if (changedDate && changedDate !== todayDate && changedDate !== selectedDate) return
+      setPunchControlVersion((current) => current + 1)
+    }
+
+    window.addEventListener(PUNCH_CONTROL_CHANGED_EVENT, handlePunchControlChanged)
+    return () => {
+      window.removeEventListener(PUNCH_CONTROL_CHANGED_EVENT, handlePunchControlChanged)
+    }
+  }, [selectedDate, todayDate])
 
   const invalidateAttendanceState = async () => {
     await Promise.all([
@@ -141,10 +166,16 @@ export default function EmployeeAttendance() {
   })
 
   const punchOutMutation = useMutation({
-    mutationFn: attendanceService.punchOut,
-    onSuccess: async (result) => {
+    mutationFn: (mode = 'final') => attendanceService.punchOut(mode),
+    onSuccess: async (result, mode) => {
+      rememberPunchOutMode(todayDate, result?.lastPunchOut || new Date(), mode)
+      setPunchControlVersion((current) => current + 1)
       await invalidateAttendanceState()
-      showStatus({ type: 'success', title: 'Punch-out recorded', message: `${result.message} Total worked hours: ${formatHours(result.totalWorkedHours)}.` })
+      showStatus({
+        type: 'success',
+        title: String(mode).toLowerCase() === 'soft' ? 'Soft punch-out recorded' : 'Final punch-out recorded',
+        message: `${result.message} Total worked hours: ${formatHours(result.totalWorkedHours)}.`
+      })
     },
     onError: (error) => showStatus({ type: 'error', title: 'Punch-out failed', message: getErrorMessage(error, 'The system could not record your punch-out.') })
   })
@@ -160,6 +191,17 @@ export default function EmployeeAttendance() {
   })
 
   const handlePunchIn = async () => {
+    if (todaySession.hasSoftPunchOut && todaySession.canPunchIn) {
+      rememberSoftPunchResume(todayDate)
+      setPunchControlVersion((current) => current + 1)
+      showStatus({
+        type: 'success',
+        title: 'Timer resumed',
+        message: 'Your shift timer has resumed. Use Punch Out to pause again or finalize the day.'
+      })
+      return
+    }
+
     try {
       await punchInMutation.mutateAsync()
     } catch {
@@ -167,9 +209,26 @@ export default function EmployeeAttendance() {
     }
   }
 
-  const handlePunchOut = async () => {
+  const handleSoftPunchOut = async () => {
     try {
-      await punchOutMutation.mutateAsync()
+      await punchOutMutation.mutateAsync('soft')
+    } catch {
+      // handled in mutation callbacks
+    }
+  }
+
+  const handleFinalPunchOut = async () => {
+    const accepted = await showConfirm({
+      modalTitle: 'Final punch-out',
+      title: 'Finalize today’s attendance session?',
+      message: 'Final punch-out closes the day permanently. You will not be able to resume the timer after this step.',
+      confirmLabel: 'Final Punch Out',
+      cancelLabel: 'Keep Session Open'
+    })
+    if (!accepted) return
+
+    try {
+      await punchOutMutation.mutateAsync('final')
     } catch {
       // handled in mutation callbacks
     }
@@ -229,9 +288,10 @@ export default function EmployeeAttendance() {
                   elapsedSeconds={elapsedSeconds}
                   dateValue={todayDate}
                   onPunchIn={handlePunchIn}
-                  onPunchOut={handlePunchOut}
+                  onSoftPunchOut={handleSoftPunchOut}
+                  onFinalPunchOut={handleFinalPunchOut}
                   isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
-                  note={todaySession.isClockedIn ? 'You are currently clocked in. Close the session with punch out once your shift ends.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
+                  note={todaySession.isClockedIn ? 'You are currently clocked in. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
                   secondaryNote="You can generate and download your own logs from the attendance management tab."
                 />
               </CardShell>
@@ -271,9 +331,10 @@ export default function EmployeeAttendance() {
                   elapsedSeconds={elapsedSeconds}
                   dateValue={todayDate}
                   onPunchIn={handlePunchIn}
-                  onPunchOut={handlePunchOut}
+                  onSoftPunchOut={handleSoftPunchOut}
+                  onFinalPunchOut={handleFinalPunchOut}
                   isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
-                  note={todaySession.isClockedIn ? 'You are currently clocked in. Close the session with punch out once your shift ends.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
+                  note={todaySession.isClockedIn ? 'You are currently clocked in. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
                   secondaryNote="Employees and admins can both add their own time entries from this module."
                 />
               </CardShell>

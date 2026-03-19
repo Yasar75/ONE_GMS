@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { storage } from '../../utils/storage.js'
 
-const THEME_KEY = 'lms.ui.theme'
+const THEME_KEY = 'one_gms.ui.theme'
 const ThemeContext = createContext(null)
 
 export function ThemeProvider({ children }) {

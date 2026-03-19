@@ -1,4 +1,4 @@
-export const EMPLOYEE_STORAGE_KEY = 'lms.admin.employees.directory'
+export const EMPLOYEE_STORAGE_KEY = 'one_gms.admin.employees.directory'
 
 export const EMPLOYEE_POSITION_OPTIONS = []
 export const EMPLOYEE_DEPARTMENT_OPTIONS = []
