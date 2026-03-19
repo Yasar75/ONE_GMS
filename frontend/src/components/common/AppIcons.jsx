@@ -175,6 +175,26 @@ export function ShieldUserIcon({ className }) {
   )
 }
 
+export function LockClosedIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="5" y="11" width="14" height="10" rx="2.2" />
+      <path d="M8.5 11V8.5a3.5 3.5 0 1 1 7 0V11" />
+      <circle cx="12" cy="16" r="1.2" />
+    </svg>
+  )
+}
+
+export function LockOpenIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="5" y="11" width="14" height="10" rx="2.2" />
+      <path d="M9.2 11V8.7a3.5 3.5 0 0 1 6-2.3" />
+      <circle cx="12" cy="16" r="1.2" />
+    </svg>
+  )
+}
+
 export function BriefcaseIcon({ className }) {
   return (
     <svg {...baseProps(className)}>

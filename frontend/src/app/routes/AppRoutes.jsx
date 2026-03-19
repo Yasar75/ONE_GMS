@@ -18,6 +18,7 @@ import AdminLeaveManagement from '../../features/admin/pages/LeaveManagement.jsx
 
 import EmployeeAttendance from '../../features/employee/pages/Attendance.jsx'
 import EmployeeApplyLeave from '../../features/employee/pages/ApplyLeave.jsx'
+import ProfilePage from '../../features/employee/pages/Profile.jsx'
 
 export function AppRoutes() {
   return (
@@ -39,6 +40,7 @@ export function AppRoutes() {
           <Route path="/employee/dashboard" element={<EmployeeDashboard />} />
           <Route path="/employee/attendance" element={<EmployeeAttendance />} />
           <Route path="/employee/apply-leave" element={<EmployeeApplyLeave />} />
+          <Route path="/profile" element={<ProfilePage />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>

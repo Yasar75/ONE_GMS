@@ -11,5 +11,10 @@ export const authService = {
   async getCurrentUser() {
     const response = await http.get(endpoints.auth.me)
     return normalizeUserProfile(response.data)
+  },
+
+  async changePassword(payload) {
+    const response = await http.post(endpoints.auth.changePassword, payload)
+    return response.data
   }
 }

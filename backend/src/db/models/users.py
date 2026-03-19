@@ -28,6 +28,21 @@ class User(SQLModel, table=True):
     is_locked: bool = Field(default=False,sa_column=Column(sa.Boolean, nullable=False, server_default=sa.text("false")))
     locked_at: Optional[datetime] = Field(default=None,sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=True))
     locked_reason: Optional[str] = Field(default=None,sa_column=Column(pg.TEXT, nullable=True))
+    nickname: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
+    profile_image_url: Optional[str] = Field(default=None, sa_column=Column(pg.TEXT, nullable=True))
+    profile_image_public_id: Optional[str] = Field(default=None, sa_column=Column(pg.TEXT, nullable=True))
+    must_change_password: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean, nullable=False, server_default=sa.text("false")),
+    )
+    can_edit_profile_details: bool = Field(
+        default=True,
+        sa_column=Column(sa.Boolean, nullable=False, server_default=sa.text("true")),
+    )
+    profile_completed_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=True),
+    )
     first_login_at: Optional[datetime] = Field(default=None,sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=True))
     unlocked_at: Optional[datetime] = Field(default=None,sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=True))
     

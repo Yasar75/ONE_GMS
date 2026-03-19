@@ -25,6 +25,11 @@ export function normalizeUserProfile(profile) {
   const roleName = profile?.role_name ?? rawUser?.role_name ?? ''
   const firstName = rawUser.first_name ?? rawUser.firstName ?? rawUser.username ?? 'User'
   const lastName = rawUser.last_name ?? rawUser.lastName ?? ''
+  const nickname = rawUser.nickname ?? rawUser.nickName ?? ''
+  const displayName = nickname || firstName || rawUser.username || 'User'
+  const mustChangePassword = Boolean(profile?.must_change_password ?? rawUser?.must_change_password)
+  const mustCompleteProfile = Boolean(profile?.must_complete_profile ?? rawUser?.must_complete_profile)
+  const canEditProfileDetails = Boolean(profile?.can_edit_profile_details ?? rawUser?.can_edit_profile_details ?? true)
 
   return {
     id: rawUser.uid ?? rawUser.id ?? '',
@@ -34,11 +39,18 @@ export function normalizeUserProfile(profile) {
     firstName,
     lastName,
     fullName: [firstName, lastName].filter(Boolean).join(' '),
+    nickname,
+    displayName,
     role: normalizeRole(roleName),
     roleName: roleName || 'Employee',
     isVerified: Boolean(rawUser.is_verified ?? rawUser.isVerified),
     permissions: profile?.permissions ?? rawUser?.permissions ?? {},
-    avatarUrl: rawUser.avatarUrl ?? ''
+    avatarUrl: rawUser.profile_image_url ?? rawUser.avatarUrl ?? '',
+    profileImageUrl: rawUser.profile_image_url ?? rawUser.avatarUrl ?? '',
+    mustChangePassword,
+    mustCompleteProfile,
+    canEditProfileDetails,
+    profileCompletedAt: rawUser.profile_completed_at ?? rawUser.profileCompletedAt ?? null
   }
 }
 

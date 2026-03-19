@@ -46,7 +46,7 @@ class PasswordResetConfirmModel(BaseModel):
 
 
 class ChangePasswordModel(BaseModel):
-    current_password: str = Field(min_length=6)
+    current_password: Optional[str] = Field(default=None, min_length=6)
     new_password: str = Field(min_length=6)
     confirm_new_password: str = Field(min_length=6)
 

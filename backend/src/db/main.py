@@ -65,6 +65,12 @@ async def _ensure_employee_columns(conn) -> None:
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS hr_employee_uid UUID',
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS team_lead_employee_uid UUID',
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS coordinator_employee_uid UUID',
+        'ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(120)',
+        'ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_url TEXT',
+        'ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_public_id TEXT',
+        'ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false',
+        'ALTER TABLE users ADD COLUMN IF NOT EXISTS can_edit_profile_details BOOLEAN NOT NULL DEFAULT true',
+        'ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ',
     ]
     for stmt in alter_statements:
         await conn.execute(text(stmt))

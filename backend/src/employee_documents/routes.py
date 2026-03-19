@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 from src.db.main import get_session
 from .schema import (
     EmployeeDocumentRead,
@@ -10,7 +10,7 @@ from .schema import (
     EmployeeDocumentType,
 )
 from .service import EmployeeDocumentService
-from src.auth.dependencies import get_current_user,RoleChecker,PermissionChecker
+from src.auth.dependencies import get_current_user, PermissionChecker
 
 #role_checker = Depends(RoleChecker(["admin", "HR","Employee"]))
 employee_document_router = APIRouter()
@@ -23,7 +23,7 @@ async def upload_employee_document(
     document_type: EmployeeDocumentType = Form(...),
     name: str = Form(...),
     file: UploadFile = File(...),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user=Depends(get_current_user),
 ):
     document = await EmployeeDocumentService.upload_document(
@@ -40,23 +40,14 @@ async def upload_employee_document(
     }
 
 
-@employee_document_router.get("/{document_uid}",response_model=EmployeeDocumentRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
-def get_employee_document(
-    document_uid: uuid.UUID,
-    session: Session = Depends(get_session),
-    current_user=Depends(get_current_user),
-):
-    return EmployeeDocumentService.get_document_by_uid(session, document_uid)
-
-
 @employee_document_router.get("/employee/{employee_uid}",response_model=EmployeeDocumentListResponse,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
-def list_employee_documents(
+async def list_employee_documents(
     employee_uid: uuid.UUID,
     document_type: Optional[EmployeeDocumentType] = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user=Depends(get_current_user),
 ):
-    documents = EmployeeDocumentService.list_documents_by_employee(
+    documents = await EmployeeDocumentService.list_documents_by_employee(
         session=session,
         employee_uid=employee_uid,
         document_type=document_type,
@@ -67,15 +58,24 @@ def list_employee_documents(
     }
 
 
+@employee_document_router.get("/{document_uid}",response_model=EmployeeDocumentRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
+async def get_employee_document(
+    document_uid: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    return await EmployeeDocumentService.get_document_by_uid(session, document_uid)
+
+
 @employee_document_router.put("/{document_uid}",response_model=EmployeeDocumentUploadResponse,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "u"))])
-def update_employee_document_metadata(
+async def update_employee_document_metadata(
     document_uid: uuid.UUID,
     name: Optional[str] = Form(default=None),
     document_type: Optional[EmployeeDocumentType] = Form(default=None),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user=Depends(get_current_user),
 ):
-    document = EmployeeDocumentService.update_document_metadata(
+    document = await EmployeeDocumentService.update_document_metadata(
         session=session,
         document_uid=document_uid,
         name=name,
@@ -88,5 +88,5 @@ def update_employee_document_metadata(
 
 
 @employee_document_router.delete("/{document_uid}",status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "d"))])
-def delete_employee_document(document_uid: uuid.UUID,session: Session = Depends(get_session),current_user=Depends(get_current_user)):
-    return EmployeeDocumentService.delete_document(session, document_uid)
+async def delete_employee_document(document_uid: uuid.UUID,session: AsyncSession = Depends(get_session),current_user=Depends(get_current_user)):
+    return await EmployeeDocumentService.delete_document(session, document_uid)

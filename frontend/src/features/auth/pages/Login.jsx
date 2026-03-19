@@ -39,7 +39,11 @@ export default function Login() {
         autoCloseMs: 950,
         hideCloseButton: true,
         dismissible: false,
-        onClose: () => navigate('/dashboard', { replace: true })
+        onClose: () => {
+          const mustComplete = Boolean(result.user?.mustCompleteProfile)
+          const mustChangePassword = Boolean(result.user?.mustChangePassword)
+          navigate(mustComplete || mustChangePassword ? '/profile' : '/dashboard', { replace: true })
+        }
       })
     } catch (err) {
       showStatus({
