@@ -1,0 +1,43 @@
+:root {
+  --header-h: 64px;
+  --footer-h: 44px;
+  --sidebar-w: 272px;
+  --sidebar-w-collapsed: 78px;
+
+  --gm-blue: #2574dc;
+  --gm-orange: #ff8800;
+}
+
+// Smooth font rendering and default background
+html, body {
+  height: 100%;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// Subtle global gradient backdrop
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    135deg,
+    rgba(37, 116, 220, 0.16) 0%,
+    rgba(255, 136, 0, 0.12) 55%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  filter: saturate(110%);
+}
+
+[data-bs-theme="dark"] body::before {
+  background: linear-gradient(
+    135deg,
+    rgba(37, 116, 220, 0.22) 0%,
+    rgba(255, 136, 0, 0.16) 55%,
+    rgba(0, 0, 0, 0.2) 100%
+  );
+}

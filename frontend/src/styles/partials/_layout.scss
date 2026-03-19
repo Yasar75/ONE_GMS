@@ -1,0 +1,95 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(37, 116, 220, 0.55) rgba(15, 23, 42, 0.08);
+}
+
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background: linear-gradient(180deg, rgba(37, 116, 220, 0.72), rgba(255, 136, 0, 0.72));
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(37, 116, 220, 0.92), rgba(255, 136, 0, 0.92));
+  background-clip: padding-box;
+}
+
+.app-root {
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.app-content {
+  position: fixed;
+  top: var(--header-h);
+  right: 0;
+  bottom: var(--footer-h);
+  overflow: hidden;
+}
+
+.app-content-scroll {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.app-content.with-sidebar {
+  left: var(--sidebar-w);
+}
+
+.app-content.with-sidebar-collapsed {
+  left: var(--sidebar-w-collapsed);
+}
+
+.route-transition {
+  min-height: 100%;
+}
+
+.page-header-shell {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 0.25rem 10px 0.9rem;
+  background: linear-gradient(180deg, rgba(var(--bs-body-bg-rgb), 0.96) 0%, rgba(var(--bs-body-bg-rgb), 0.92) 70%, rgba(var(--bs-body-bg-rgb), 0) 100%);
+  backdrop-filter: blur(8px);
+  border-top-left-radius: 16PX;
+  border-top-right-radius: 16PX;
+}
+
+@media (max-width: 767.98px) {
+  .app-content {
+    top: calc(var(--header-h) + 56px);
+    left: 0 !important;
+  }
+
+  .page-header-shell {
+    top: 0;
+  }
+}
+
+.glass {
+  background: rgba(var(--bs-body-bg-rgb), 0.72);
+  border: 1px solid rgba(var(--bs-border-color-rgb), 0.55);
+  backdrop-filter: blur(14px);
+}
