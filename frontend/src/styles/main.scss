@@ -1,0 +1,39 @@
+// Bootstrap 5.3 + App theme (Sass)
+// ------------------------------------------------------------
+
+// Brand tokens
+$gm-blue: #2574dc;
+$gm-orange: #ff8800;
+
+// Bootstrap variable overrides (must be set *before* importing Bootstrap)
+$primary: $gm-blue;
+$secondary: $gm-orange;
+$border-radius-lg: 1rem;
+$border-radius-xl: 1.25rem;
+$box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+$box-shadow-lg: 0 18px 45px rgba(0, 0, 0, 0.16);
+
+// Add custom theme colors
+@import "bootstrap/scss/functions";
+@import "bootstrap/scss/variables";
+@import "bootstrap/scss/variables-dark";
+@import "bootstrap/scss/maps";
+
+$theme-colors: map-merge(
+  $theme-colors,
+  (
+    "gm-blue": $gm-blue,
+    "gm-orange": $gm-orange
+  )
+);
+
+// Bootstrap
+@import "bootstrap/scss/bootstrap";
+
+// App layers
+@import "./partials/tokens";
+@import "./partials/layout";
+@import "./partials/auth";
+@import "./partials/sidebar";
+@import "./partials/header";
+@import "./partials/components";

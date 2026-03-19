@@ -1,0 +1,48 @@
+# --- Python Standard ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environments ---
+venv/
+venv1/
+virtualenv/
+env/
+.venv/
+.venv1/
+.env/
+.env
+# --- Environment Variables (CRITICAL SECURITY) ---
+# Never commit your secrets
+.env
+.env.local
+.env.production
+
+# --- Database ---
+# Ignore local SQLite databases if you use them
+*.sqlite3
+*.db
+*.db-journal
+
+# --- Alembic (Migrations) ---
+# Note: You SHOULD commit the 'versions' folder, as that is your migration history.
+# Only ignore the compiled python files inside it.
+# alembic/migrations/__pycache__/
+# alembic/migrations/versions/__pycache__/
+# alembic/migrations/versions/*.py
+# But keep __init__.py
+# !alembic/migrations/versions/__init__.py
+migrations/__pycache__/
+migrations/versions/__pycache__/
+# migrations/versions/*.py
+# But keep __init__.py
+!migrations/versions/__init__.py
+
+# If you hardcode passwords in alembic.ini (bad practice), uncomment the line below:
+# alembic.ini
+
+# --- IDEs / Editors ---
+.vscode/
+.idea/
+.DS_Store
+
