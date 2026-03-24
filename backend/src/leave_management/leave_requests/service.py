@@ -14,6 +14,7 @@ from src.db.models.leave_management import (
     LeaveType,
 )
 from .schema import LeaveRequestCreate, LeaveRequestDecision
+from src.notification.employee_notifications import employee_notification_service
 from src.config import Config
 
 class LeaveRequestService:
@@ -30,6 +31,13 @@ class LeaveRequestService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found.")
         return employee
 
+    async def _get_employee_by_uid(self, session: AsyncSession, employee_uid: uuid.UUID):
+        stmt = select(Employee).where(Employee.uid == employee_uid)
+        employee = (await session.exec(stmt)).first()
+        if not employee:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Employee not found.")
+        return employee
+    
     async def _get_leave_type(self, session: AsyncSession, leave_type_uid: uuid.UUID):
         stmt = select(LeaveType).where(LeaveType.uid == leave_type_uid, LeaveType.is_active == True)  # noqa
         leave_type = (await session.exec(stmt)).first()
@@ -258,6 +266,19 @@ class LeaveRequestService:
 
         await session.commit()
         await session.refresh(leave_request)
+
+        ## Notification Mail to employee
+        employee = await self._get_employee_by_uid(session, leave_request.employee_uid)
+
+        try:
+            await employee_notification_service.send_leave_status_email(
+                employee_email=employee.email,
+                employee_name=f"{employee.first_name or ''} {employee.last_name or ''}".strip() or employee.employee_code,
+                status_value=leave_request.status.value,start_date=leave_request.start_date,
+                end_date=leave_request.end_date,applied_days=leave_request.applied_days,reviewer_note=leave_request.reviewer_note)
+        except Exception as e:
+            print(f"Failed to send leave approval email: {e}")
+
         return leave_request
 
     async def reject_leave(self, session: AsyncSession, leave_request_uid: uuid.UUID, email: str, data: LeaveRequestDecision, role_name: str = ""):
@@ -285,6 +306,19 @@ class LeaveRequestService:
 
         await session.commit()
         await session.refresh(leave_request)
+
+        ## Notification Mail to employee
+        employee = await self._get_employee_by_uid(session, leave_request.employee_uid)
+
+        try:
+            await employee_notification_service.send_leave_status_email(
+                employee_email=employee.email,
+                employee_name=f"{employee.first_name or ''} {employee.last_name or ''}".strip() or employee.employee_code,
+                status_value=leave_request.status.value,start_date=leave_request.start_date,
+                end_date=leave_request.end_date,applied_days=leave_request.applied_days,reviewer_note=leave_request.reviewer_note)
+        except Exception as e:
+            print(f"Failed to send leave rejection email: {e}")
+
         return leave_request
 
 ###### Manager Level Leave Approve and Reject function ################3

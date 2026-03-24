@@ -12,7 +12,7 @@ export function ProtectedRoute() {
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
-  const setupRequired = Boolean(user?.mustChangePassword || user?.mustCompleteProfile)
+  const setupRequired = !Boolean(user?.firstLoginAt) && Boolean(user?.firstLoginDeadlineAt || user?.mustChangePassword || user?.mustCompleteProfile)
   const onProfileRoute = location.pathname === '/profile'
   if (setupRequired && !onProfileRoute) {
     return <Navigate to="/profile" replace />

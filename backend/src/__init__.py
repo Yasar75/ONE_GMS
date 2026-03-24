@@ -7,6 +7,7 @@ from src.roles.routes import role_router
 from src.employee.routes import employee_router
 from src.employee_documents.routes import employee_document_router
 from src.employee_skill.routes import employee_skill_router
+from src.employees_family_details.routes import employee_family_detail_router
 from src.shift_roster.routes import shift_router
 from src.employee_shift.routes import employee_shift_router
 from src.employee_metadata.routes import employee_metadata_router
@@ -61,6 +62,7 @@ app.include_router(role_router, prefix=f"/api/{version}/roles", tags=["Roles"])
 app.include_router(employee_router, prefix=f"/api/{version}/employee", tags=["Employees"])
 app.include_router(employee_skill_router, prefix=f"/api/{version}/employee_skill", tags=["EmployeeSkill"])
 app.include_router(employee_document_router, prefix=f"/api/{version}/employee_documents", tags=["EmployeeDocuments"])
+app.include_router(employee_family_detail_router, prefix=f"/api/{version}/employee_documents", tags=["Employee Family Details"])
 app.include_router(employee_metadata_router, prefix=f"/api/{version}/employee-metadata", tags=["EmployeeMetadata"])
 
 ##Shift Roster router

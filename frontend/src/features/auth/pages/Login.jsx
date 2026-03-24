@@ -5,6 +5,7 @@ import logoUrl from '../../../assets/headerLogo.svg'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { getErrorMessage } from '../../../utils/auth.js'
+import { ROLES } from '../../../utils/role.js'
 import ThemeToggle from '../../../components/header/ThemeToggle.jsx'
 
 export default function Login() {
@@ -40,9 +41,10 @@ export default function Login() {
         hideCloseButton: true,
         dismissible: false,
         onClose: () => {
+          const isEmployee = result.user?.role === ROLES.EMPLOYEE
           const mustComplete = Boolean(result.user?.mustCompleteProfile)
           const mustChangePassword = Boolean(result.user?.mustChangePassword)
-          navigate(mustComplete || mustChangePassword ? '/profile' : '/dashboard', { replace: true })
+          navigate(isEmployee && (mustComplete || mustChangePassword) ? '/profile' : '/dashboard', { replace: true })
         }
       })
     } catch (err) {

@@ -150,6 +150,23 @@ export function applyLocalPunchControl(logs = [], attendanceDate = '') {
 
 export function getTodayDateInput() {
   const today = new Date()
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(today)
+
+    const year = parts.find((part) => part.type === 'year')?.value
+    const month = parts.find((part) => part.type === 'month')?.value
+    const day = parts.find((part) => part.type === 'day')?.value
+    if (year && month && day) return `${year}-${month}-${day}`
+  } catch {
+    // Fall back to local date only if timezone formatting is unavailable.
+  }
+
   const year = today.getFullYear()
   const month = String(today.getMonth() + 1).padStart(2, '0')
   const day = String(today.getDate()).padStart(2, '0')

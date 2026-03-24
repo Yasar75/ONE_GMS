@@ -4,12 +4,11 @@ import { endpoints } from '../endpoints.js'
 const DEFAULT_ROLE_MODULES = [
   'Roles',
   'Employee',
-  'Employee Requests',
   'Employee Documents',
   'Employee Skills',
+  'Profile Picture',
   'Shift Roster',
   'Assign Shift',
-  'Employee Leave Balance',
   'Employee Metadata',
   'Holiday Calender',
   'Leave Request',

@@ -10,7 +10,7 @@ export function RoleRedirect() {
     return <div className="text-muted">Loading session…</div>
   }
 
-  if (user?.mustCompleteProfile || user?.mustChangePassword) {
+  if (role === ROLES.EMPLOYEE && (user?.mustCompleteProfile || user?.mustChangePassword)) {
     return <Navigate to="/profile" replace />
   }
 

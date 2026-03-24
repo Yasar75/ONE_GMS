@@ -46,7 +46,7 @@ class PasswordResetConfirmModel(BaseModel):
 
 
 class ChangePasswordModel(BaseModel):
-    current_password: Optional[str] = Field(default=None, min_length=6)
+    current_password: str = Field(min_length=6)
     new_password: str = Field(min_length=6)
     confirm_new_password: str = Field(min_length=6)
 
@@ -60,3 +60,23 @@ class UserUnlockResponse(BaseModel):
     email: EmailStr
     is_locked: bool
     unlocked_at: Optional[datetime]
+
+
+class UserLockStatusRead(BaseModel):
+    uid: uuid.UUID
+    username: str | None = None
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+    role_id: uuid.UUID | None = None
+    is_verified: bool
+    is_locked: bool
+    locked_at: datetime | None = None
+    locked_reason: str | None = None
+    first_login_at: datetime | None = None
+    unlocked_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    class Config:
+        from_attributes = True

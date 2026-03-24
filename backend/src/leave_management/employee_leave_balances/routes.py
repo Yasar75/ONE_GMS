@@ -16,7 +16,7 @@ from .service import employee_leave_balance_service
 employee_leave_balance_router = APIRouter()
 access_token_bearer = AccessTokenBearer()
 role_checker = Depends(RoleChecker(["admin", "hr"]))
-module= "Employee Leave Balance"
+module= "Assign Leave"
 
 @employee_leave_balance_router.post("/generate",response_model=List[EmployeeLeaveBalanceRead],status_code=status.HTTP_201_CREATED,dependencies=[Depends(PermissionChecker(module, "c"))])
 async def generate_leave_balances(data: GenerateEmployeeLeaveBalanceRequest,session: AsyncSession = Depends(get_session),

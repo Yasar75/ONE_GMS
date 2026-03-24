@@ -1,185 +1,65 @@
 from typing import List
 import uuid
-
-import cloudinary
-import cloudinary.uploader
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, status,BackgroundTasks,HTTPException
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from src.auth.dependencies import AccessTokenBearer, PermissionChecker, get_current_user
-from src.config import Config
+from fastapi import UploadFile, File
+from src.auth.dependencies import AccessTokenBearer, RoleChecker,AdminOnly,PermissionChecker
 from src.db.main import get_session
-from src.db.models import Role, User
-from src.employee_documents.schema import EmployeeDocumentType
-from src.employee_documents.service import EmployeeDocumentService
 from src.errors import EmployeeNotFound
 from src.employee.service import EmployeeService
-from .schema import (
-    EmployeeBase,
-    EmployeeCreate,
-    EmployeeProfileEditLockRequest,
-    EmployeeProfileRead,
-    EmployeeProfileRequestRead,
-    EmployeeSelfProfileUpdate,
-    EmployeeUpdate,
-)
+from .schema import EmployeeBase, EmployeeCreate, EmployeeUpdate,EmployeeNickNameUpdate,EmployeeProfileImageResponse,EmployeeProfileRead, EmployeeProfileImageRead
 
 employee_router = APIRouter()
 employee_service = EmployeeService()
 access_token_bearer = AccessTokenBearer()
+role_checker = Depends(RoleChecker(["admin", "HR"]))
+adminonly= Depends(AdminOnly)
 module = "Employee"
-profile_requests_module = "Employee Requests"
-PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+
+profile_update_module= "Profile Picture"
+
+## Helper Function
+def _is_admin_from_token(token_details: dict) -> bool:
+    user_data = token_details.get("user", {}) if token_details else {}
+
+    possible_values = [user_data.get("role"),user_data.get("role_name"),user_data.get("user_role")]
+
+    for value in possible_values:
+        if isinstance(value, str) and value.strip().lower() == "admin":
+            return True
+
+    roles = user_data.get("roles")
+    if isinstance(roles, list):
+        for role in roles:
+            if isinstance(role, str) and role.strip().lower() == "admin":
+                return True
+
+    return False
+
+async def _ensure_self_or_admin(employee_uid: uuid.UUID,session: AsyncSession,token_details: dict) -> None:
+    employee = await employee_service.get_employee_by_uid(session, employee_uid)
+    current_user_uid = token_details.get("user", {}).get("user_uid")
+
+    if current_user_uid is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid token payload.")
+
+    is_admin = _is_admin_from_token(token_details)
+
+    if str(employee.user_uid) != str(current_user_uid) and not is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,detail="You are allowed to access/update only your own profile unless you are an admin.")
 
 
-def _configure_cloudinary() -> None:
-    cloudinary.config(
-        cloud_name=Config.CLOUDINARY_CLOUD_NAME,
-        api_key=Config.CLOUDINARY_API_KEY,
-        api_secret=Config.CLOUDINARY_API_SECRET,
-        secure=True,
-    )
-
-
-async def _validate_profile_image(file: UploadFile) -> None:
-    if not file:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Profile image file is required.")
-    if not str(file.content_type or "").startswith("image/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only image files are allowed for profile photo.")
-
-    file_data = await file.read()
-    file_size = len(file_data)
-    if file_size == 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded profile image is empty.")
-    if file_size > PROFILE_IMAGE_MAX_BYTES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Profile image must not exceed 5 MB.")
-    await file.seek(0)
-
-
-@employee_router.get("/profile/me", response_model=EmployeeProfileRead, status_code=status.HTTP_200_OK)
-async def get_my_profile(
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    return await employee_service.get_employee_profile_by_user_uid(session, current_user.uid)
-
-
-@employee_router.put("/profile/me", response_model=EmployeeProfileRead, status_code=status.HTTP_200_OK)
-async def update_my_profile(
-    payload: EmployeeSelfProfileUpdate,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    return await employee_service.update_self_profile(session, current_user, payload)
-
-
-@employee_router.post("/profile/me/photo", response_model=EmployeeProfileRead, status_code=status.HTTP_200_OK)
-async def upload_my_profile_photo(
-    file: UploadFile = File(...),
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    await _validate_profile_image(file)
-    _configure_cloudinary()
-
-    try:
-        upload_result = cloudinary.uploader.upload(
-            file.file,
-            resource_type="image",
-            folder=f"profile_images/{current_user.uid}",
-            public_id=f"profile_images/{current_user.uid}/avatar",
-            overwrite=True,
-            use_filename=False,
-            unique_filename=False,
-        )
-    except Exception as error:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Profile image upload failed: {str(error)}",
-        ) from error
-
-    image_url = upload_result.get("secure_url")
-    public_id = upload_result.get("public_id")
-    if not image_url:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Cloudinary did not return a profile image URL.")
-
-    return await employee_service.update_self_profile_photo(
-        session=session,
-        current_user=current_user,
-        image_url=image_url,
-        public_id=public_id,
-    )
-
-
-@employee_router.post("/profile/me/documents", response_model=EmployeeProfileRead, status_code=status.HTTP_200_OK)
-async def upload_my_profile_document(
-    document_type: EmployeeDocumentType = Form(...),
-    name: str = Form(...),
-    file: UploadFile = File(...),
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    employee = await employee_service.get_employee_by_user_uid(session, current_user.uid)
-    await EmployeeDocumentService.upload_document(
-        session=session,
-        current_user_uid=current_user.uid,
-        employee_uid=employee.uid,
-        document_type=document_type,
-        name=name,
-        file=file,
-    )
-    return await employee_service.get_employee_profile_by_user_uid(session, current_user.uid)
-
-
-@employee_router.get(
-    "/profile-requests",
-    response_model=List[EmployeeProfileRequestRead],
-    status_code=status.HTTP_200_OK,
-    dependencies=[Depends(PermissionChecker(profile_requests_module, "r"))],
-)
-async def list_profile_requests(session: AsyncSession = Depends(get_session)):
-    return await employee_service.list_profile_requests(session)
-
-
-@employee_router.put(
-    "/profile-requests/{employee_uid}/edit-lock",
-    response_model=EmployeeProfileRequestRead,
-    status_code=status.HTTP_200_OK,
-    dependencies=[Depends(PermissionChecker(profile_requests_module, "u"))],
-)
-async def update_profile_edit_lock(
-    employee_uid: uuid.UUID,
-    payload: EmployeeProfileEditLockRequest,
-    session: AsyncSession = Depends(get_session),
-):
-    return await employee_service.update_profile_edit_lock(
-        session=session,
-        employee_uid=employee_uid,
-        can_edit_profile_details=payload.can_edit_profile_details,
-    )
-
-
-@employee_router.get(
-    "/{employee_uid}/profile",
-    response_model=EmployeeProfileRead,
-    status_code=status.HTTP_200_OK,
-    dependencies=[Depends(PermissionChecker(module, "r"))],
-)
-async def get_employee_profile(employee_uid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    return await employee_service.get_employee_profile_by_employee_uid(session, employee_uid)
-
-
-@employee_router.get("/", response_model=List[EmployeeBase], status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(module, "r"))])
+@employee_router.get("/", response_model=List[EmployeeBase], status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
 async def get_all_employee(session: AsyncSession = Depends(get_session)):
     return await employee_service.get_all_employee(session)
 
 
-@employee_router.get("/{employee_uid}", response_model=EmployeeBase, status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(module, "r"))])
-async def get_employee_by_uid(employee_uid: uuid.UUID, session: AsyncSession = Depends(get_session)):
+@employee_router.get("/{employee_uid}", response_model=EmployeeBase, status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
+async def get_employee_by_uid(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session)):
     return await employee_service.get_employee_by_uid(session, employee_uid)
 
-
-@employee_router.post("", status_code=status.HTTP_201_CREATED, response_model=EmployeeBase, dependencies=[Depends(PermissionChecker(module, "c"))])
+    
+@employee_router.post("", status_code=status.HTTP_201_CREATED, response_model=EmployeeBase,dependencies=[Depends(PermissionChecker(module, "c"))]) 
 async def create_a_employee(
     employee_data: EmployeeCreate,
     bg_tasks: BackgroundTasks,
@@ -187,40 +67,62 @@ async def create_a_employee(
     token_details: dict = Depends(access_token_bearer),
 ):
     user_id = token_details.get("user", {}).get("user_uid")
-    new_employee = await employee_service.create_Employees(
-        employees_data=employee_data,
+    new_employee = await employee_service.create_Employees(employees_data=employee_data,
         user_uid=user_id,
         session=session,
-        bg_tasks=bg_tasks,
-    )
+        bg_tasks=bg_tasks,)
     return new_employee
 
 
-@employee_router.put("/{employee_uid}", response_model=EmployeeBase, dependencies=[Depends(PermissionChecker(module, "u"))])
-async def update_employee(
-    employee_uid: uuid.UUID,
-    employee_data: EmployeeUpdate,
-    session: AsyncSession = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    current_role = await session.get(Role, current_user.role_id)
-    if current_role and str(current_role.role_name or "").strip().lower() == "employee":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Employee users cannot update records through this endpoint. Use /employee/profile/me.",
-        )
 
+
+
+@employee_router.put("/{employee_uid}", response_model=EmployeeBase, dependencies=[Depends(PermissionChecker(module, "u"))])
+async def update_employee(employee_uid: uuid.UUID,employee_data: EmployeeUpdate,
+session: AsyncSession = Depends(get_session),_: dict = Depends(access_token_bearer),):
     return await employee_service.update_employee(session, employee_uid, employee_data)
 
 
-@employee_router.delete("/{employee_uid}", status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(module, "d"))])
-async def delete_employee(
-    employee_uid: str,
-    session: AsyncSession = Depends(get_session),
-    _: dict = Depends(access_token_bearer),
-):
+@employee_router.delete("/{employee_uid}",status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "d"))])
+async def delete_employee(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session),_: dict = Depends(access_token_bearer)):
     ok = await employee_service.delete_employee(employee_uid, session)
     if not ok:
         raise EmployeeNotFound()
 
-    return {"detail": "Deleted successfully"}
+    return {"detail": "Employee and linked user deleted successfully"}
+
+
+## Profile Picture related routes. #####
+
+# ----------------------------
+# Self or Admin only endpoints
+# ----------------------------
+
+@employee_router.get("/{employee_uid}/profile",response_model=EmployeeProfileRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(profile_update_module, "r"))])
+async def get_employee_profile(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
+    await _ensure_self_or_admin(employee_uid, session, token_details)
+    return await employee_service.get_profile_details(session, employee_uid)
+
+
+@employee_router.patch("/{employee_uid}/nick-name",response_model=EmployeeProfileRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(profile_update_module, "u"))])
+async def update_employee_nick_name(employee_uid: uuid.UUID,payload: EmployeeNickNameUpdate,session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
+    await _ensure_self_or_admin(employee_uid, session, token_details)
+    return await employee_service.update_nick_name(session=session,employee_uid=employee_uid,nick_name=payload.nick_name)
+
+
+@employee_router.post("/{employee_uid}/profile-image",response_model=EmployeeProfileRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(profile_update_module, "u"))])
+async def upload_employee_profile_image_route(employee_uid: uuid.UUID,file: UploadFile = File(...),session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
+    await _ensure_self_or_admin(employee_uid, session, token_details)
+    return await employee_service.upload_profile_image(session=session,employee_uid=employee_uid,file=file)
+
+
+@employee_router.delete("/{employee_uid}/profile-image",response_model=EmployeeProfileRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(profile_update_module, "u"))])
+async def delete_employee_profile_image_route(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
+    await _ensure_self_or_admin(employee_uid, session, token_details)
+    return await employee_service.delete_profile_image(session=session,employee_uid=employee_uid)
+
+
+@employee_router.get("/{employee_uid}/profile-image",response_model=EmployeeProfileImageRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(profile_update_module, "r"))])
+async def get_employee_profile_image(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
+    await _ensure_self_or_admin(employee_uid, session, token_details)
+    return await employee_service.get_profile_image(session, employee_uid)

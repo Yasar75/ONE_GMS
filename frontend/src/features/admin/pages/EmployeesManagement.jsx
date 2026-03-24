@@ -53,6 +53,7 @@ import {
   XIcon
 } from '../../../components/common/AppIcons.jsx'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
+import { authService } from '../../../api/services/auth.service.js'
 import { metadataService } from '../../../api/services/metadata.service.js'
 import { employeeService } from '../../../api/services/employee.service.js'
 
@@ -61,7 +62,7 @@ const TAB_ITEMS = [
   { key: 'entries', label: 'Employee Entries', helper: 'Directory, create, update, export' },
   // Reserved for future backend module support.
   // { key: 'mapping', label: 'Employee Mapping', helper: 'Reserved for future use' },
-  { key: 'requests', label: 'Employee Requests', helper: 'Profile edit lock or unlock controls' }
+  { key: 'requests', label: 'Employee Status', helper: 'Backend lock state and first-login status' }
 ]
 
 const EMPLOYEE_VIEW_TABS = [
@@ -78,7 +79,7 @@ const METADATA_SECTIONS = [
   { key: 'status', title: 'Status', description: 'Employment lifecycle statuses.' },
   { key: 'work_location', title: 'Work Location', description: 'Onsite, remote, hybrid, and future location modes.' },
   { key: 'employee_type', title: 'Employee Type', description: 'Engagement model such as full time or contract.' },
-  { key: 'gender', title: 'Gender', description: 'Gender values available in employee records.' },
+  // { key: 'gender', title: 'Gender', description: 'Gender values available in employee records.' },
   { key: 'blood_group', title: 'Blood Group', description: 'Blood group values available for employee records.' }
 ]
 
@@ -99,20 +100,26 @@ const ROLE_MODULE_ALIAS_MAP = {
   'Leave Requests': 'Leave Request',
   'Assign Leaves': 'Assign Leave',
   'Leave Type Entries': 'Leave Type',
-  'Leave Balance': 'Employee Leave Balance',
+  'Leave Balance': 'Assign Leave',
+  'Employee Leave Balance': 'Assign Leave',
+  'Employees Leave Balance': 'Assign Leave',
   'Metadata Entries': 'Employee Metadata',
   'Employees Entries': 'Employee',
   'Employee Request': 'Employee Requests',
   'Employees Request': 'Employee Requests',
+  'Profile': 'Profile Picture',
+  'Profile Image': 'Profile Picture',
+  'Profile Photo': 'Profile Picture',
   'Employees Skills': 'Employee Skills',
   'Employees Documents': 'Employee Documents'
 }
-const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administration', 'Employee', 'Attendance', 'Leave', 'Other']
+const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Employee', 'Attendance', 'Leave', 'Other']
 const ROLE_MODULE_VISUAL_CONFIG = [
   {
-    title: 'Administration',
+    title: 'Administrative',
     modules: [
-      { key: 'Roles', label: 'Roles' }
+      { key: 'Roles', label: 'Roles' },
+      { key: 'Profile Picture', label: 'Profile' }
     ]
   },
   {
@@ -122,7 +129,7 @@ const ROLE_MODULE_VISUAL_CONFIG = [
       { key: 'Employee', label: 'Employees Entries' },
       // Reserved for future backend module support.
       { key: 'Employee Mapping', label: 'Employee Mapping', hidden: true },
-      { key: 'Employee Requests', label: 'Employee Requests' },
+      { key: 'Employee Requests', label: 'Employee Status' },
       { key: 'Employee Skills', label: 'Employees Skills' },
       { key: 'Employee Documents', label: 'Employees Documents' }
     ]
@@ -143,8 +150,7 @@ const ROLE_MODULE_VISUAL_CONFIG = [
     modules: [
       { key: 'Holiday Calender', label: 'Holiday Calandar' },
       { key: 'Leave Type', label: 'Leave Type Entries' },
-      { key: 'Assign Leave', label: 'Assign Leaves' },
-      { key: 'Employee Leave Balance', label: 'Leave Balance' },
+      { key: 'Assign Leave', label: 'Assign Leave' },
       { key: 'Leave Request', label: 'Leave Requests' }
     ]
   }
@@ -265,6 +271,7 @@ function getRoleModuleGroupName(moduleName) {
   const configuredGroup = ROLE_MODULE_VISUAL_META.groupNameByKey[canonicalModuleName]
   if (configuredGroup) return configuredGroup
 
+  if (canonicalModuleName === 'Roles' || canonicalModuleName === 'Profile Picture') return 'Administrative'
   if (canonicalModuleName.startsWith('Employee')) return 'Employee'
   if (canonicalModuleName.startsWith('Attendance') || canonicalModuleName === 'Shift Roster' || canonicalModuleName === 'Assign Shift') return 'Attendance'
   if (canonicalModuleName === 'Holiday Calender' || canonicalModuleName === 'Leave Request' || canonicalModuleName === 'Leave Type' || canonicalModuleName === 'Assign Leave') return 'Leave'
@@ -740,32 +747,50 @@ function CellStack({ title, subtitle, meta = null, className = '' }) {
   )
 }
 
-function ActionButton({ icon, label, variant = 'view', onClick }) {
+function ActionButton({ icon, label, variant = 'view', onClick, disabled = false }) {
   return (
-    <button type="button" className={`employee-action-btn employee-action-btn-${variant}`} onClick={onClick} aria-label={label} title={label}>
+    <button
+      type="button"
+      className={`employee-action-btn employee-action-btn-${variant}`}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+    >
       {icon}
       <span>{label}</span>
     </button>
   )
 }
 
-function ProfileLockToggleButton({ canEditProfileDetails, onClick }) {
-  const isUnlocked = Boolean(canEditProfileDetails)
-  const label = isUnlocked ? 'Lock Edit' : 'Unlock Edit'
-
+function AccountLockToggle({ isLocked, label, onClick, disabled = false }) {
   return (
     <button
       type="button"
-      className={`employee-lock-toggle ${isUnlocked ? 'is-unlocked' : 'is-locked'}`}
+      className={`employee-lock-toggle ${isLocked ? 'is-locked' : 'is-unlocked'}`.trim()}
       onClick={onClick}
-      aria-label={label}
+      disabled={disabled}
       title={label}
+      aria-label={label}
     >
-      <span className="employee-lock-toggle-icon">
-        {isUnlocked ? <LockOpenIcon /> : <LockClosedIcon />}
+      <span className="employee-lock-toggle-content">
+        <span className="employee-lock-toggle-icon">
+          {isLocked ? <LockClosedIcon /> : <LockOpenIcon />}
+        </span>
+        <span className="employee-lock-toggle-label">{label}</span>
       </span>
-      <span className="employee-lock-toggle-label">{label}</span>
     </button>
+  )
+}
+
+function AccountStateIndicator({ label, tone = 'unlocked' }) {
+  const icon = tone === 'unlocked' ? <LockOpenIcon /> : <LockClosedIcon />
+
+  return (
+    <div className={`employee-lock-state-indicator is-${tone}`.trim()} title={label} aria-label={label}>
+      <span className="employee-lock-state-indicator-icon">{icon}</span>
+      <span className="employee-lock-state-indicator-label">{label}</span>
+    </div>
   )
 }
 
@@ -1284,7 +1309,9 @@ export default function AdminEmployees() {
   const { addEmployee, bulkAddEmployees, updateEmployee, deleteEmployee } = useEmployeeDirectoryActions()
   const {
     data: profileRequests = [],
-    isFetching: profileRequestsFetching
+    isFetching: profileRequestsFetching,
+    isError: profileRequestsErrorState,
+    error: profileRequestsError
   } = useQuery({
     queryKey: ['employees', 'profile-requests'],
     queryFn: employeeService.getProfileRequests,
@@ -1351,6 +1378,7 @@ export default function AdminEmployees() {
     teamLeadName: employeeNameDirectory.get(String(employee.teamLeadEmployeeUid || '')) || '',
     coordinatorName: employeeNameDirectory.get(String(employee.coordinatorEmployeeUid || '')) || ''
   })), [employeesData, roleDirectory, employeeNameDirectory])
+  const employeeDirectoryByUid = useMemo(() => new Map(employees.map((employee) => [String(employee.uid), employee])), [employees])
 
   const positionValues = useMemo(() => mergeOptionValues(
     EMPLOYEE_POSITION_OPTIONS,
@@ -1461,6 +1489,19 @@ export default function AdminEmployees() {
     const mapped = employees.filter((employee) => employee.managerEmployeeUid || employee.hrEmployeeUid || employee.teamLeadEmployeeUid || employee.coordinatorEmployeeUid).length
     return { active, inactive, onsite, remote, hybrid, mapped }
   }, [employees])
+
+  const profileRequestMetrics = useMemo(() => {
+    const now = Date.now()
+    const locked = profileRequests.filter((entry) => entry.isBackendLocked).length
+    const unlocked = profileRequests.filter((entry) => !entry.isBackendLocked).length
+    const pendingFirstLogin = profileRequests.filter((entry) => !entry.firstLoginAt).length
+    const expiredWindow = profileRequests.filter((entry) => {
+      const deadline = Date.parse(entry.firstLoginDeadlineAt || '')
+      return !entry.firstLoginAt && Number.isFinite(deadline) && deadline < now
+    }).length
+
+    return { locked, unlocked, pendingFirstLogin, expiredWindow }
+  }, [profileRequests])
 
   const employeeMappingOptions = useMemo(() => {
     const base = [
@@ -1845,42 +1886,57 @@ export default function AdminEmployees() {
     }
   }
 
-  async function handleToggleProfileEditLock(requestEntry) {
-    const nextEditState = !requestEntry.canEditProfileDetails
-    const actionLabel = nextEditState ? 'unlock' : 'lock'
+  async function refreshProfileSetupRecords() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['employees', 'directory'] }),
+      queryClient.invalidateQueries({ queryKey: ['employees', 'lookup-directory'] }),
+      queryClient.invalidateQueries({ queryKey: ['employees', 'profile-requests'] })
+    ])
+  }
+
+  async function handleUnlockUserAccount(requestEntry) {
+    if (!requestEntry?.email) {
+      showStatus({ type: 'error', title: 'Account unlock failed', message: 'This user does not have a valid email address to unlock.' })
+      return
+    }
+
+    const requiresBackendUnlock = Boolean(requestEntry?.isBackendLocked)
+    if (!requiresBackendUnlock) {
+      showStatus({ type: 'error', title: 'User already unlocked', message: `${requestEntry.fullName || requestEntry.email} is already unlocked in the backend.` })
+      return
+    }
 
     const accepted = await showConfirm({
-      modalTitle: `${nextEditState ? 'Unlock' : 'Lock'} Profile Editing`,
-      title: `${nextEditState ? 'Unlock' : 'Lock'} profile details for ${requestEntry.fullName}?`,
-      message: nextEditState
-        ? 'Employee will be able to edit profile details again until they submit updates.'
-        : 'Employee profile details will be locked. Nickname, profile picture, and password remain editable.'
+      modalTitle: 'Unlock User Account',
+      title: `Unlock ${requestEntry.fullName || requestEntry.email}?`,
+      message: 'This will call the backend unlock-user API by email.',
+      note: 'Manual lock or deactivate is no longer available here. Backend controls the 48-hour auto-lock flow.'
     })
     if (!accepted) return
 
     try {
       await runWithLoader(
         async () => {
-          await employeeService.updateProfileEditLock(requestEntry.employeeUid, nextEditState)
-          await queryClient.invalidateQueries({ queryKey: ['employees', 'profile-requests'] })
+          await authService.unlockUser(requestEntry.email)
+          await refreshProfileSetupRecords()
         },
         {
-          title: `${nextEditState ? 'Unlocking' : 'Locking'} profile`,
-          message: `Applying profile edit ${actionLabel} state for ${requestEntry.fullName}.`,
+          title: 'Unlocking account',
+          message: `Restoring backend account access for ${requestEntry.fullName || requestEntry.email}.`,
           minVisibleMs: 550
         }
       )
 
       showStatus({
         type: 'success',
-        title: `Profile ${nextEditState ? 'unlocked' : 'locked'}`,
-        message: `${requestEntry.fullName} profile detail editing is now ${nextEditState ? 'enabled' : 'disabled'}.`
+        title: 'Account unlocked',
+        message: `${requestEntry.fullName || requestEntry.email} has been unlocked through the backend.`
       })
     } catch (error) {
       showStatus({
         type: 'error',
-        title: 'Profile request update failed',
-        message: error?.response?.data?.detail || error?.message || 'Could not update profile request state.'
+        title: 'Account unlock failed',
+        message: error?.response?.data?.detail || error?.message || 'Could not unlock this account.'
       })
     }
   }
@@ -2140,61 +2196,110 @@ export default function AdminEmployees() {
           <div className="card-body d-flex flex-column gap-3">
             <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
               <div>
-                <div className="fw-semibold">Employee Requests</div>
-                <div className="text-muted small">Lock or unlock profile detail editing for employee users.</div>
+                <div className="fw-semibold">Employee Status Controls</div>
+                <div className="text-muted small">Live backend account status for all users. Accounts are auto-locked after 48 hours only if first login was not completed, and admin can unlock by email.</div>
               </div>
               <div className="small text-muted">Records: <strong>{profileRequests.length}</strong></div>
             </div>
+
+            <div className="row g-3">
+              <div className="col-12 col-sm-6 col-xl-3">
+                <DirectoryMetricCard title="Locked Accounts" value={profileRequestMetrics.locked} helper="Users currently locked by backend account state." tone="orange" />
+              </div>
+              <div className="col-12 col-sm-6 col-xl-3">
+                <DirectoryMetricCard title="Unlocked Accounts" value={profileRequestMetrics.unlocked} helper="Users currently available to sign in." tone="blue" />
+              </div>
+              <div className="col-12 col-sm-6 col-xl-3">
+                <DirectoryMetricCard title="Pending First Login" value={profileRequestMetrics.pendingFirstLogin} helper="Users who have not completed first sign-in yet." tone="teal" />
+              </div>
+              <div className="col-12 col-sm-6 col-xl-3">
+                <DirectoryMetricCard title="48 Hr Window Crossed" value={profileRequestMetrics.expiredWindow} helper="Accounts that crossed the 48-hour first-login window." tone="purple" />
+              </div>
+            </div>
+
+            {profileRequestsErrorState ? (
+              <div className="alert alert-warning mb-0">
+                {profileRequestsError?.response?.data?.detail || profileRequestsError?.message || 'Employee status records could not be loaded from the backend.'}
+              </div>
+            ) : null}
 
             <div className="table-responsive employee-table-wrap">
               <table className="table align-middle mb-0 employee-table employee-table-dense">
                 <thead>
                   <tr>
-                    <th>Employee</th>
-                    <th>Email</th>
-                    <th>Status</th>
-                    <th>Profile Completion</th>
-                    <th>Password</th>
-                    <th>Edit Lock</th>
-                    <th>Account</th>
+                    <th>Employee (Code)</th>
+                    <th>Email (Username)</th>
+                    <th>User Status (Verification)</th>
+                    <th>Account Status</th>
+                    <th>Lock Details</th>
+                    <th>First Login</th>
                     <th className="text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {profileRequests.length ? profileRequests.map((entry) => (
-                    <tr key={entry.employeeUid}>
-                      <td className="employee-cell-wrap">
-                        <CellStack title={entry.fullName || '—'} subtitle={entry.employeeCode || '—'} />
-                      </td>
-                      <td className="employee-cell-wrap">{entry.email || '—'}</td>
-                      <td className="employee-cell-wrap"><EmployeeBadge value={entry.status || '—'} type="status" /></td>
-                      <td className="employee-cell-wrap">
-                        {entry.profileCompletedAt ? formatDate(entry.profileCompletedAt) : <span className="text-muted">Pending</span>}
-                      </td>
-                      <td className="employee-cell-wrap">
-                        <EmployeeBadge value={entry.mustChangePassword ? 'Default' : 'Updated'} type="workLocation" />
-                      </td>
-                      <td className="employee-cell-wrap">
-                        <EmployeeBadge value={entry.canEditProfileDetails ? 'Unlocked' : 'Locked'} type={entry.canEditProfileDetails ? 'workLocation' : 'status'} />
-                      </td>
-                      <td className="employee-cell-wrap">
-                        <EmployeeBadge value={entry.isLocked ? 'Locked' : 'Active'} type="status" />
-                      </td>
-                      <td className="employee-actions-cell">
-                        <div className="employee-action-cluster">
-                          <ProfileLockToggleButton
-                            canEditProfileDetails={entry.canEditProfileDetails}
-                            onClick={() => handleToggleProfileEditLock(entry)}
+                  {profileRequests.length ? profileRequests.map((entry) => {
+                    const verificationLabel = entry.isVerified ? 'Verified' : 'Unverified'
+                    const accountTimestampLabel = entry.isBackendLocked ? 'Locked At' : 'Unlocked At'
+                    const accountTimestampValue = entry.isBackendLocked
+                      ? (entry.lockedAt ? formatDate(entry.lockedAt) : '—')
+                      : (entry.unlockedAt ? formatDate(entry.unlockedAt) : '—')
+                    const actionContent = entry.isBackendLocked
+                      ? <AccountLockToggle isLocked label="Unlock Account" onClick={() => handleUnlockUserAccount(entry)} />
+                      : <AccountStateIndicator label="Already Unlocked" tone="unlocked" />
+
+                    return (
+                      <tr key={entry.rowKey || entry.employeeUid || entry.userUid || entry.email}>
+                        <td className="employee-cell-wrap">
+                          <CellStack title={entry.fullName || '—'} subtitle={entry.employeeCode || entry.username || entry.email || '—'} />
+                        </td>
+                        <td className="employee-cell-wrap">
+                          <CellStack
+                            title={entry.email || '—'}
+                            subtitle={entry.username || '—'}
                           />
-                        </div>
-                      </td>
-                    </tr>
-                  )) : (
+                        </td>
+                        <td className="employee-cell-wrap">
+                          <CellStack
+                            title={(
+                              <div className="employee-badge-stack employee-status-badge-stack">
+                                <EmployeeBadge value={entry.status || '—'} type="status" />
+                                <EmployeeBadge value={verificationLabel} type="status" />
+                              </div>
+                            )}
+                          />
+                        </td>
+                        <td className="employee-cell-wrap">
+                          <CellStack
+                            title={<EmployeeBadge value={entry.accountState || (entry.isBackendLocked ? 'Locked' : 'Unlocked')} type="status" />}
+                            subtitle={`${accountTimestampLabel}: ${accountTimestampValue}`}
+                          />
+                        </td>
+                        <td className="employee-cell-wrap">
+                          <CellStack
+                            title={entry.lockedReason || '—'}
+                            subtitle={entry.lockedReason ? 'Backend locked_reason' : 'No backend lock reason provided.'}
+                            meta={entry.isStatusLocked ? `Linked employee status is ${entry.status || 'Inactive'}.` : null}
+                          />
+                        </td>
+                        <td className="employee-cell-wrap">
+                          <CellStack
+                            title={entry.firstLoginAt ? formatDate(entry.firstLoginAt) : <EmployeeBadge value="Pending" type="status" />}
+                            subtitle={entry.firstLoginAt ? 'First login completed' : 'No login recorded yet'}
+                          />
+                        </td>
+                        <td className="employee-actions-cell">
+                          <div className="employee-profile-setup-actions">
+                            {actionContent}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  }) : (
                     <tr>
-                      <td colSpan="8">
+                      <td colSpan="7">
                         <div className="employee-empty-state text-center py-4">
-                          <div className="fw-semibold mb-1">No employee requests found.</div>
-                          <div className="text-muted small">Employee profile request records will appear here.</div>
+                          <div className="fw-semibold mb-1">No employee status records found.</div>
+                          <div className="text-muted small">Backend lock status and first-login records will appear here.</div>
                         </div>
                       </td>
                     </tr>
@@ -2202,7 +2307,7 @@ export default function AdminEmployees() {
                 </tbody>
               </table>
             </div>
-            {profileRequestsFetching ? <div className="text-muted small">Refreshing employee requests…</div> : null}
+            {profileRequestsFetching ? <div className="text-muted small">Refreshing employee status records…</div> : null}
           </div>
         </div>
       ) : null}
@@ -2320,6 +2425,12 @@ export default function AdminEmployees() {
                     <div className="col-12 col-md-6"><strong>Date of Joining:</strong> {formatDate(previewEmployee.joinDate)}</div>
                     <div className="col-12 col-md-6"><strong>Work Location:</strong> {previewEmployee.workLocation || '—'}</div>
                     <div className="col-12 col-md-6"><strong>Employee Type:</strong> {previewEmployee.employeeType || '—'}</div>
+                    <div className="col-12 col-md-6">
+                      <strong>Skills:</strong>{' '}
+                      {previewEmployeeProfile?.skills?.length
+                        ? previewEmployeeProfile.skills.map((entry) => entry.skill).join(', ')
+                        : '—'}
+                    </div>
                     <div className="col-12 col-md-6"><strong>Manager:</strong> {previewEmployee.managerName || '—'}</div>
                     <div className="col-12 col-md-6"><strong>HR:</strong> {previewEmployee.hrEmployeeName || '—'}</div>
                     <div className="col-12 col-md-6"><strong>Lead:</strong> {previewEmployee.teamLeadName || '—'}</div>
@@ -2330,17 +2441,30 @@ export default function AdminEmployees() {
                 {previewEmployeeTab === 'additional' ? (
                   <div className="row g-2">
                     <div className="col-12 col-md-6"><strong>Gender:</strong> {previewEmployee.gender || '—'}</div>
+                    <div className="col-12 col-md-6"><strong>Caste:</strong> {previewEmployee.caste || '—'}</div>
                     <div className="col-12 col-md-6"><strong>Date of Birth:</strong> {formatDate(previewEmployee.dateOfBirth)}</div>
                     <div className="col-12 col-md-6"><strong>Age:</strong> {formatEmployeeAge(previewEmployee.dateOfBirth)}</div>
-                    <div className="col-12 col-md-6">
-                      <strong>Skills:</strong>{' '}
-                      {previewEmployeeProfile?.skills?.length
-                        ? previewEmployeeProfile.skills.map((entry) => entry.skill).join(', ')
-                        : '—'}
-                    </div>
                     <div className="col-12 col-md-6"><strong>Blood Group:</strong> {previewEmployee.bloodGroup || '—'}</div>
                     <div className="col-12 col-md-6"><strong>Emergency Contact:</strong> {previewEmployee.emergencyContact || '—'}</div>
                     <div className="col-12"><strong>Address:</strong> {previewEmployee.address || '—'}</div>
+                    <div className="col-12">
+                      <strong>Family Details:</strong>{' '}
+                      {previewEmployeeProfile?.familyDetails?.length ? (
+                        previewEmployeeProfile.familyDetails
+                          .map((detail) => {
+                            const base = [detail.relation, detail.fullName].filter(Boolean).join(': ')
+                            const extras = [
+                              detail.phone || '',
+                              detail.occupation || '',
+                              detail.isDependent ? 'Dependent' : '',
+                              detail.dateOfBirth ? formatDate(detail.dateOfBirth) : ''
+                            ].filter(Boolean)
+                            return extras.length ? `${base} (${extras.join(', ')})` : base
+                          })
+                          .filter(Boolean)
+                          .join(' • ')
+                      ) : '—'}
+                    </div>
                   </div>
                 ) : null}
 
