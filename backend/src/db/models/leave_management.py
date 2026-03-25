@@ -41,7 +41,7 @@ class LeaveType(SQLModel, table=True):
     __tablename__ = "leave_types"
 
     uid: uuid.UUID = Field(sa_column=Column(pg.UUID(as_uuid=True), primary_key=True, nullable=False, default=uuid.uuid4))
-    code: LeaveTypeCode = Field(sa_column=Column(pg.ENUM(LeaveTypeCode, name="leave_type_code", create_type=True), nullable=False))
+    code: str = Field(sa_column=Column(pg.VARCHAR(100),nullable=False))
     name: str = Field(sa_column=Column(pg.VARCHAR(100), nullable=False))
     annual_days: Decimal = Field(default=Decimal("0.00"),sa_column=Column(Numeric(6, 2), nullable=False, server_default="0"))
     auto_allocate: bool = Field(default=True,sa_column=Column(Boolean, nullable=False, server_default=sa.text("true")))

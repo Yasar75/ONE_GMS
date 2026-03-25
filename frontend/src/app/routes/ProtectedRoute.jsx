@@ -1,6 +1,8 @@
 import React from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../providers/AuthProvider.jsx'
+import { isProfileSetupRequired } from '../../utils/auth.js'
+import { canAccessAppPath, resolveHomePath } from '../../utils/permissions.js'
 
 export function ProtectedRoute() {
   const { isAuthenticated, isAuthReady, user } = useAuth()
@@ -12,10 +14,14 @@ export function ProtectedRoute() {
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
 
-  const setupRequired = Boolean(user?.mustChangePassword || user?.mustCompleteProfile)
+  const setupRequired = isProfileSetupRequired(user)
   const onProfileRoute = location.pathname === '/profile'
   if (setupRequired && !onProfileRoute) {
     return <Navigate to="/profile" replace />
+  }
+
+  if (!onProfileRoute && !canAccessAppPath(user, location.pathname)) {
+    return <Navigate to={resolveHomePath(user)} replace />
   }
 
   return <Outlet />

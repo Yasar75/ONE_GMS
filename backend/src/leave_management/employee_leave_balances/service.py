@@ -69,40 +69,34 @@ class EmployeeLeaveBalanceService:
             emp_stmt = emp_stmt.where(Employee.uid == data.employee_uid)
 
         employees = (await session.exec(emp_stmt)).all()
-        leave_types = (await session.exec(select(LeaveType).where(LeaveType.is_active == True))).all()
+
+        leave_types = (await session.exec(select(LeaveType).where(LeaveType.is_active == True,LeaveType.auto_allocate == True))).all()
 
         if not employees:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Employee not found.")
 
+        if not leave_types:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="No active auto-allocatable leave types found.")
+
         response_rows = []
+        created_count = 0
 
         for employee in employees:
             if not employee.join_date:
                 continue
 
+            existing_stmt = select(EmployeeLeaveBalance.leave_type_uid).where(
+                EmployeeLeaveBalance.employee_uid == employee.uid,
+                EmployeeLeaveBalance.year == data.year)
+            existing_leave_type_ids = set((await session.exec(existing_stmt)).all())
+
             for leave_type in leave_types:
-                if not leave_type.auto_allocate:
+                if leave_type.uid in existing_leave_type_ids:
                     continue
 
-                existing_stmt = select(EmployeeLeaveBalance).where(
-                    EmployeeLeaveBalance.employee_uid == employee.uid,
-                    EmployeeLeaveBalance.leave_type_uid == leave_type.uid,
-                    EmployeeLeaveBalance.year == data.year,
-                )
-                existing = (await session.exec(existing_stmt)).first()
+                annual_allocation = self._calculate_prorated_leave(annual_days=leave_type.annual_days,joining_date=employee.join_date,year=data.year)
 
-                if existing:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="This Leave type already generated for this year")
-
-                annual_allocation = self._calculate_prorated_leave(
-                    annual_days=leave_type.annual_days,
-                    joining_date=employee.join_date,
-                    year=data.year,
-                )
-
-                carry_forward_in = await self._calculate_carry_forward(
-                    session, employee.uid, leave_type, data.year
-                )
+                carry_forward_in = await self._calculate_carry_forward(session=session,employee_uid=employee.uid,leave_type=leave_type,year=data.year)
 
                 balance = EmployeeLeaveBalance(
                     user_uid=user_uid,
@@ -119,6 +113,13 @@ class EmployeeLeaveBalanceService:
                 )
                 session.add(balance)
                 response_rows.append(balance)
+                created_count += 1
+
+        if created_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="All auto-allocatable leave types are already assigned for the selected employee(s) and year.",
+            )
 
         await session.commit()
 
@@ -150,7 +151,7 @@ class EmployeeLeaveBalanceService:
             }
             for row in response_rows
         ]
-
+    
     async def manual_grant_leave(self,session: AsyncSession,data: ManualGrantLeaveBalanceRequest,user_uid: uuid.UUID):
         leave_type = (await session.exec(select(LeaveType).where(LeaveType.uid == data.leave_type_uid))).first()
         if not leave_type:

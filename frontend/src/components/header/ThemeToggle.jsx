@@ -20,15 +20,28 @@ function MoonIcon() {
 
 export default function ThemeToggle() {
   const { theme, toggleTheme } = useTheme()
+  const isDark = theme === 'dark'
+
   return (
     <button
       type="button"
-      className="theme-toggle"
+      className={`theme-toggle ${isDark ? 'is-dark' : 'is-light'}`}
       onClick={toggleTheme}
       aria-label="Toggle light/dark"
-      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
-      <span className="knob">{theme === 'dark' ? <MoonIcon /> : <SunIcon />}</span>
+      <span className="theme-toggle-option theme-toggle-option-light" aria-hidden="true">
+        <SunIcon />
+      </span>
+      <span className="theme-toggle-option theme-toggle-option-dark" aria-hidden="true">
+        <MoonIcon />
+      </span>
+      <span className="theme-toggle-thumb" aria-hidden="true">
+        <span className="theme-toggle-thumb-glow" />
+        <span className="theme-toggle-thumb-icon">
+          {isDark ? <MoonIcon /> : <SunIcon />}
+        </span>
+      </span>
     </button>
   )
 }

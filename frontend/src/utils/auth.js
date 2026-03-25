@@ -1,23 +1,47 @@
 import { ROLES } from './role.js'
 
 export const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000
+export const DEFAULT_EMPLOYEE_PASSWORD = 'Welcome@123'
 
 export const AUTH_STORAGE_KEYS = {
   user: 'one_gms.auth.user',
   accessToken: 'one_gms.auth.token',
   refreshToken: 'one_gms.auth.refreshToken',
   lastActivityAt: 'one_gms.auth.lastActivityAt',
-  rememberedLogin: 'one_gms.auth.rememberedLogin'
+  rememberedLogin: 'one_gms.auth.rememberedLogin',
+  passwordSetupEmail: 'one_gms.auth.passwordSetupEmail'
+}
+
+export function isProfileSetupRequired(user) {
+  return Boolean(user?.mustChangePassword || user?.mustCompleteProfile)
 }
 
 export function normalizeRole(roleName) {
   const raw = String(roleName ?? '').trim().toLowerCase()
 
-  if (['admin', 'hr', 'superadmin', 'super_admin'].includes(raw)) {
+  if (raw === 'admin') {
     return ROLES.ADMIN
   }
 
   return ROLES.EMPLOYEE
+}
+
+function deriveFirstLoginDeadline(profile, rawUser) {
+  const explicitDeadline = profile?.first_login_deadline_at
+    ?? profile?.firstLoginDeadlineAt
+    ?? rawUser?.first_login_deadline_at
+    ?? rawUser?.firstLoginDeadlineAt
+
+  if (explicitDeadline) return explicitDeadline
+
+  const firstLoginAt = rawUser?.first_login_at ?? rawUser?.firstLoginAt
+  const createdAt = rawUser?.created_at ?? rawUser?.createdAt
+  if (firstLoginAt || !createdAt) return null
+
+  const createdDate = new Date(createdAt)
+  if (Number.isNaN(createdDate.getTime())) return null
+
+  return new Date(createdDate.getTime() + (48 * 60 * 60 * 1000)).toISOString()
 }
 
 export function normalizeUserProfile(profile) {
@@ -25,11 +49,21 @@ export function normalizeUserProfile(profile) {
   const roleName = profile?.role_name ?? rawUser?.role_name ?? ''
   const firstName = rawUser.first_name ?? rawUser.firstName ?? rawUser.username ?? 'User'
   const lastName = rawUser.last_name ?? rawUser.lastName ?? ''
-  const nickname = rawUser.nickname ?? rawUser.nickName ?? ''
+  const nickname = rawUser.nickname ?? rawUser.nick_name ?? rawUser.nickName ?? ''
   const displayName = nickname || firstName || rawUser.username || 'User'
   const mustChangePassword = Boolean(profile?.must_change_password ?? rawUser?.must_change_password)
   const mustCompleteProfile = Boolean(profile?.must_complete_profile ?? rawUser?.must_complete_profile)
   const canEditProfileDetails = Boolean(profile?.can_edit_profile_details ?? rawUser?.can_edit_profile_details ?? true)
+  const canEditProfilePictureRaw = profile?.can_edit_profile_picture
+    ?? profile?.can_edit_profile_photo
+    ?? profile?.can_upload_profile_image
+    ?? profile?.can_upload_profile_photo
+    ?? rawUser?.can_edit_profile_picture
+    ?? rawUser?.can_edit_profile_photo
+    ?? rawUser?.can_upload_profile_image
+    ?? rawUser?.can_upload_profile_photo
+  const canEditProfilePicture = canEditProfilePictureRaw == null ? null : Boolean(canEditProfilePictureRaw)
+  const firstLoginDeadlineAt = deriveFirstLoginDeadline(profile, rawUser)
 
   return {
     id: rawUser.uid ?? rawUser.id ?? '',
@@ -43,14 +77,24 @@ export function normalizeUserProfile(profile) {
     displayName,
     role: normalizeRole(roleName),
     roleName: roleName || 'Employee',
+    roleId: rawUser.role_id ?? rawUser.roleId ?? '',
     isVerified: Boolean(rawUser.is_verified ?? rawUser.isVerified),
+    isLocked: Boolean(rawUser.is_locked ?? rawUser.isLocked),
+    lockedAt: rawUser.locked_at ?? rawUser.lockedAt ?? null,
+    lockedReason: rawUser.locked_reason ?? rawUser.lockedReason ?? '',
+    firstLoginAt: rawUser.first_login_at ?? rawUser.firstLoginAt ?? null,
+    unlockedAt: rawUser.unlocked_at ?? rawUser.unlockedAt ?? null,
+    createdAt: rawUser.created_at ?? rawUser.createdAt ?? null,
+    updatedAt: rawUser.updated_at ?? rawUser.updatedAt ?? null,
     permissions: profile?.permissions ?? rawUser?.permissions ?? {},
-    avatarUrl: rawUser.profile_image_url ?? rawUser.avatarUrl ?? '',
-    profileImageUrl: rawUser.profile_image_url ?? rawUser.avatarUrl ?? '',
+    avatarUrl: rawUser.profile_image_url ?? rawUser.profile_image ?? rawUser.avatarUrl ?? '',
+    profileImageUrl: rawUser.profile_image_url ?? rawUser.profile_image ?? rawUser.avatarUrl ?? '',
     mustChangePassword,
     mustCompleteProfile,
     canEditProfileDetails,
-    profileCompletedAt: rawUser.profile_completed_at ?? rawUser.profileCompletedAt ?? null
+    canEditProfilePicture,
+    profileCompletedAt: rawUser.profile_completed_at ?? rawUser.profileCompletedAt ?? null,
+    firstLoginDeadlineAt
   }
 }
 

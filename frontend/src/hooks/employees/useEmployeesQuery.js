@@ -4,10 +4,11 @@ import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '
 
 const queryKey = ['employees', 'directory']
 
-export function useEmployeesQuery() {
+export function useEmployeesQuery(enabled = true) {
   return useQuery({
     queryKey,
     queryFn: () => withPersistentCache(queryKey, employeeService.getDirectory),
+    enabled,
     initialData: () => readCachedQuery(queryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
     staleTime: 2 * 60 * 1000,

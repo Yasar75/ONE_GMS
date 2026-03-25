@@ -2,13 +2,13 @@ import React from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../app/providers/AuthProvider.jsx'
 import { getNavItems } from './NavItems.jsx'
-import logoLight from '../../assets/headerLogo.svg'
-import logoDark from '../../assets/headerLogo_white.svg'
+import logoLight from '../../asserts/headerLogo.svg'
+import logoDark from '../../asserts/headerLogo_white.svg'
 import { useTheme } from '../../app/providers/ThemeProvider.jsx'
 
 export default function TopNavbar() {
   const { user } = useAuth()
-  const items = getNavItems(user?.role)
+  const items = getNavItems(user)
   const { theme } = useTheme()
   const logoUrl = theme === 'dark' ? logoDark : logoLight
 

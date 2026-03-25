@@ -31,6 +31,8 @@ class Employee(SQLModel, table=True):
     employee_code: str = Field(sa_column=Column(pg.VARCHAR(20), nullable=False, unique=True))
     first_name: str = Field(sa_column=Column(pg.VARCHAR(120), nullable=False))
     last_name: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
+    nick_name: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
+    profile_image: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     position: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
     department: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
     email: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(255), unique=True, nullable=True))
@@ -138,4 +140,25 @@ class EmployeeAchievement(SQLModel, table=True):
 
 
 ## Family Details (Spouse and Child,Parents)
-## Account Details
+
+
+class EmployeeFamilyDetail(SQLModel, table=True):
+    __tablename__ = "employee_family_details"
+
+    uid: uuid.UUID = Field(sa_column=Column(pg.UUID(as_uuid=True), primary_key=True, nullable=False, default=uuid.uuid4))
+    user_uid: uuid.UUID = Field(foreign_key="users.uid", nullable=False, index=True)
+    employee_uid: uuid.UUID = Field(sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="CASCADE"),nullable=False,index=True))
+    relation: str = Field(sa_column=Column(pg.VARCHAR(100), nullable=False, index=True))
+    full_name: str = Field(sa_column=Column(pg.VARCHAR(150), nullable=False))
+    date_of_birth: Optional[date] = Field(default=None)
+    phone: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(20), nullable=True))
+    occupation: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
+    is_dependent: bool = Field(default=False, nullable=False)
+    address: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    remarks: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+
+    created_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=datetime.utcnow))
+
+    def __repr__(self):
+        return f"{self.employee_uid} - {self.relation} - {self.full_name}"

@@ -14,7 +14,7 @@ from src.db.models import (
     ShiftRoster,
 )
 from src.db.models import AttendanceStatus, RegularizationStatus
-
+from src.notification.employee_notifications import employee_notification_service
 
 class AttendanceRegularizationService:
     @staticmethod
@@ -49,6 +49,13 @@ class AttendanceRegularizationService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found.")
         return employee
 
+    async def _get_employee_by_uid(self, session: AsyncSession, employee_uid: uuid.UUID):
+        stmt = select(Employee).where(Employee.uid == employee_uid)
+        employee = (await session.exec(stmt)).first()
+        if not employee:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Employee not found.")
+        return employee
+    
     async def _get_active_employee_shifts(self,session: AsyncSession,employee_uid: uuid.UUID) -> Sequence[Tuple[EmployeeShift, ShiftRoster]]:
         stmt = (select(EmployeeShift, ShiftRoster).join(ShiftRoster, EmployeeShift.shift_uid == ShiftRoster.uid).where(
                 EmployeeShift.employee_uid == employee_uid,EmployeeShift.is_active == True,ShiftRoster.is_active == True))
@@ -211,6 +218,24 @@ class AttendanceRegularizationService:
 
         await session.commit()
         await session.refresh(regularization)
+
+        ## Send notification to the employee
+        employee = await self._get_employee_by_uid(session, regularization.employee_uid)
+
+        try:
+            await employee_notification_service.send_regularization_status_email(
+                employee_email=employee.email,
+                employee_name=f"{employee.first_name or ''} {employee.last_name or ''}".strip() or employee.employee_code,
+                status_value=regularization.status.value,
+                regularization_date=regularization.regularization_date,
+                requested_punch_in=regularization.requested_punch_in,
+                requested_punch_out=regularization.requested_punch_out,
+                requested_worked_hours=regularization.requested_worked_hours,
+                reviewer_note=regularization.reviewer_note,
+            )
+        except Exception as e:
+            print(f"Failed to send regularization approval email: {e}")
+
         return regularization
 
     async def reject_regularization(self, session: AsyncSession, regularization_uid: uuid.UUID, manager_email: str, data):
@@ -248,6 +273,24 @@ class AttendanceRegularizationService:
 
         await session.commit()
         await session.refresh(regularization)
+
+        ## Send notification to the employee
+        employee = await self._get_employee_by_uid(session, regularization.employee_uid)
+
+        try:
+            await employee_notification_service.send_regularization_status_email(
+                employee_email=employee.email,
+                employee_name=f"{employee.first_name or ''} {employee.last_name or ''}".strip() or employee.employee_code,
+                status_value=regularization.status.value,
+                regularization_date=regularization.regularization_date,
+                requested_punch_in=regularization.requested_punch_in,
+                requested_punch_out=regularization.requested_punch_out,
+                requested_worked_hours=regularization.requested_worked_hours,
+                reviewer_note=regularization.reviewer_note,
+            )
+        except Exception as e:
+            print(f"Failed to send regularization reject email: {e}")
+
         return regularization
 
 

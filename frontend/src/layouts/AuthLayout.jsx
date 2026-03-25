@@ -1,7 +1,7 @@
 import React from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import logoLight from '../assets/headerLogo.svg'
-import logoDark from '../assets/headerLogo_white.svg'
+import logoLight from '../asserts/headerLogo.svg'
+import logoDark from '../asserts/headerLogo_white.svg'
 import { useTheme } from '../app/providers/ThemeProvider.jsx'
 
 export function AuthLayout() {

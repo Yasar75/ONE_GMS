@@ -100,71 +100,25 @@ class EmployeeUpdate(BaseModel):
     role_type: Optional[uuid.UUID] = None
 
 
-class EmployeeSkillSummary(BaseModel):
-    uid: uuid.UUID
-    skill: str
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class EmployeeDocumentSummary(BaseModel):
-    uid: uuid.UUID
-    document_type: str
-    name: str
-    file_url: Optional[str] = None
-    upload_date: Optional[date] = None
-    file_format: Optional[str] = None
-    file_size: Optional[int] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
+###### Upload Profile Image and Nick Name ###########3
 class EmployeeProfileRead(BaseModel):
-    employee: Optional[EmployeeBase] = None
-    nickname: Optional[str] = None
-    profile_image_url: Optional[str] = None
-    can_edit_profile_details: bool = True
-    profile_completed_at: Optional[datetime] = None
-    must_change_password: bool = False
-    skills: List[EmployeeSkillSummary] = PydField(default_factory=list)
-    documents: List[EmployeeDocumentSummary] = PydField(default_factory=list)
+    model_config = ConfigDict(from_attributes=True)
+
+    uid: uuid.UUID
+    nick_name: Optional[str] = None
+    profile_image: Optional[str] = None
 
 
-class EmployeeSelfProfileUpdate(BaseModel):
-    first_name: Optional[str] = PydField(default=None, max_length=120)
-    last_name: Optional[str] = PydField(default=None, max_length=120)
-    position: Optional[str] = PydField(default=None, max_length=120)
-    department: Optional[str] = PydField(default=None, max_length=120)
-    email: Optional[EmailStr] = None
-    phone: Optional[str] = PydField(default=None, max_length=50)
-    join_date: Optional[date] = None
-    birth_date: Optional[date] = None
-    address: Optional[str] = None
-    gender: Optional[str] = None
-    caste: Optional[str] = None
-    emergency_contact: Optional[str] = None
-    blood_group: Optional[str] = PydField(default=None, max_length=10)
-    employee_type: Optional[EmployeeType] = None
-    work_location: Optional[str] = PydField(default=None, max_length=120)
-    nickname: Optional[str] = PydField(default=None, max_length=120)
-    skills: Optional[List[str]] = None
+class EmployeeNickNameUpdate(BaseModel):
+    nick_name: Optional[str] = PydField(default=None, max_length=120)
 
 
-class EmployeeProfileEditLockRequest(BaseModel):
-    can_edit_profile_details: bool
-
-
-class EmployeeProfileRequestRead(BaseModel):
+class EmployeeProfileImageResponse(BaseModel):
+    detail: str
     employee_uid: uuid.UUID
-    user_uid: uuid.UUID
-    employee_code: str
-    full_name: str
-    email: Optional[EmailStr] = None
-    status: EmployeeStatus
-    can_edit_profile_details: bool
-    profile_completed_at: Optional[datetime] = None
-    must_change_password: bool = False
-    is_locked: bool = False
-    locked_reason: Optional[str] = None
+    profile_image: Optional[str] = None
+    nick_name: Optional[str] = None
 
-
+class EmployeeProfileImageRead(BaseModel):
+    uid: uuid.UUID
+    profile_image: Optional[str] = None

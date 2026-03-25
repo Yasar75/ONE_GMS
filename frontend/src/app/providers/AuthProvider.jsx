@@ -4,12 +4,13 @@ import { useNavigate } from 'react-router-dom'
 import { storage } from '../../utils/storage.js'
 import { ROLES } from '../../utils/role.js'
 import { authService } from '../../api/services/auth.service.js'
-import { AUTH_STORAGE_KEYS, SESSION_IDLE_TIMEOUT_MS } from '../../utils/auth.js'
+import { AUTH_STORAGE_KEYS, DEFAULT_EMPLOYEE_PASSWORD, SESSION_IDLE_TIMEOUT_MS } from '../../utils/auth.js'
 import { dashboardService } from '../../api/services/dashboard.service.js'
 import { employeeService } from '../../api/services/employee.service.js'
 import { attendanceService } from '../../api/services/attendance.service.js'
 import { getTodayDateInput } from '../../utils/attendance.js'
 import { useModal } from './ModalProvider.jsx'
+import { canAccessAppPath, isAdminBypassUser, resolveDashboardVariant } from '../../utils/permissions.js'
 
 const AuthContext = createContext(null)
 const ACTIVITY_EVENTS = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart']
@@ -24,6 +25,46 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => storage.get(AUTH_STORAGE_KEYS.accessToken, null))
   const [refreshToken, setRefreshToken] = useState(() => storage.get(AUTH_STORAGE_KEYS.refreshToken, null))
 
+  const hydrateEmployeeSetupState = useCallback(async (baseUser) => {
+    if (!baseUser) return baseUser
+
+    const passwordSetupEmail = String(storage.get(AUTH_STORAGE_KEYS.passwordSetupEmail, '') || '').trim().toLowerCase()
+    const mustChangePassword = Boolean(baseUser.email) && passwordSetupEmail === String(baseUser.email).trim().toLowerCase()
+
+    try {
+      const profile = await employeeService.getMyProfile()
+      const hasEmployeeLink = Boolean(profile?.employee?.uid)
+      const setupIncomplete = hasEmployeeLink && (!profile?.skills?.length || !profile?.documents?.length)
+      const nickname = profile?.nickname ?? baseUser.nickname ?? ''
+      const fallbackFirstName = profile?.employee?.firstName || baseUser.firstName || 'User'
+
+      return {
+        ...baseUser,
+        nickname,
+        displayName: nickname || fallbackFirstName,
+        avatarUrl: profile?.profileImageUrl || baseUser.avatarUrl || '',
+        profileImageUrl: profile?.profileImageUrl || baseUser.profileImageUrl || '',
+        canEditProfileDetails: isAdminBypassUser(baseUser) ? true : setupIncomplete,
+        canEditProfilePicture: baseUser.canEditProfilePicture ?? null,
+        mustCompleteProfile: setupIncomplete,
+        mustChangePassword,
+        profileCompletedAt: profile?.profileCompletedAt ?? baseUser.profileCompletedAt ?? null,
+        firstLoginDeadlineAt: profile?.firstLoginDeadlineAt ?? baseUser.firstLoginDeadlineAt ?? null
+      }
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        return {
+          ...baseUser,
+          mustChangePassword
+        }
+      }
+      return {
+        ...baseUser,
+        mustChangePassword
+      }
+    }
+  }, [])
+
   const syncCurrentUser = useCallback((nextUser) => {
     if (!nextUser) return
     storage.set(AUTH_STORAGE_KEYS.user, nextUser)
@@ -33,7 +74,7 @@ export function AuthProvider({ children }) {
 
   const sessionQuery = useQuery({
     queryKey: ['auth', 'me'],
-    queryFn: authService.getCurrentUser,
+    queryFn: async () => hydrateEmployeeSetupState(await authService.getCurrentUser()),
     enabled: Boolean(token),
     retry: false,
     staleTime: 5 * 60 * 1000
@@ -130,19 +171,43 @@ export function AuthProvider({ children }) {
     if (!nextUser) return
 
     const todayDate = getTodayDateInput()
+    const dashboardVariant = resolveDashboardVariant(nextUser)
+    const canAccessEmployeeDirectory = canAccessAppPath(nextUser, '/admin/employees-management')
+    const canAccessAttendanceManagement = canAccessAppPath(nextUser, '/admin/attendance-management')
+    const canAccessSelfAttendance = canAccessAppPath(nextUser, '/employee/attendance') || canAccessAppPath(nextUser, '/employee/dashboard')
 
-    if (nextUser.role === ROLES.ADMIN) {
-      await Promise.all([
-        client.prefetchQuery({
-          queryKey: ['dashboard', 'admin'],
-          queryFn: dashboardService.getAdminDashboard,
-          staleTime: 5 * 60 * 1000
-        }),
-        client.prefetchQuery({
-          queryKey: ['employees', 'directory'],
-          queryFn: employeeService.getDirectory,
-          staleTime: 5 * 60 * 1000
-        }),
+    const prefetchTasks = []
+
+    if (dashboardVariant === 'management') {
+      prefetchTasks.push(client.prefetchQuery({
+        queryKey: ['dashboard', 'admin'],
+        queryFn: dashboardService.getAdminDashboard,
+        staleTime: 5 * 60 * 1000
+      }))
+      client.removeQueries({ queryKey: ['dashboard', 'employee'], exact: true })
+    }
+
+    if (dashboardVariant === 'employee') {
+      prefetchTasks.push(client.prefetchQuery({
+        queryKey: ['dashboard', 'employee'],
+        queryFn: dashboardService.getEmployeeDashboard,
+        staleTime: 5 * 60 * 1000
+      }))
+      client.removeQueries({ queryKey: ['dashboard', 'admin'], exact: true })
+    }
+
+    if (canAccessEmployeeDirectory) {
+      prefetchTasks.push(client.prefetchQuery({
+        queryKey: ['employees', 'directory'],
+        queryFn: employeeService.getDirectory,
+        staleTime: 5 * 60 * 1000
+      }))
+    } else {
+      client.removeQueries({ queryKey: ['employees'], exact: false })
+    }
+
+    if (canAccessAttendanceManagement) {
+      prefetchTasks.push(
         client.prefetchQuery({
           queryKey: ['attendance', 'admin', 'directory'],
           queryFn: () => attendanceService.getDirectoryAttendance(),
@@ -153,30 +218,25 @@ export function AuthProvider({ children }) {
           queryFn: attendanceService.getManagerPendingRegularizations,
           staleTime: 30 * 1000
         })
-      ])
-      client.removeQueries({ queryKey: ['dashboard', 'employee'], exact: true })
-      return
+      )
     }
 
-    await Promise.all([
-      client.prefetchQuery({
-        queryKey: ['dashboard', 'employee'],
-        queryFn: dashboardService.getEmployeeDashboard,
-        staleTime: 5 * 60 * 1000
-      }),
-      client.prefetchQuery({
-        queryKey: ['attendance', 'employee', 'my-logs', todayDate],
-        queryFn: () => attendanceService.getMyPunchLogs(todayDate),
-        staleTime: 30 * 1000
-      }),
-      client.prefetchQuery({
-        queryKey: ['attendance', 'employee', 'regularizations', 'mine'],
-        queryFn: attendanceService.getMyRegularizations,
-        staleTime: 60 * 1000
-      })
-    ])
-    client.removeQueries({ queryKey: ['dashboard', 'admin'], exact: true })
-    client.removeQueries({ queryKey: ['employees'], exact: false })
+    if (canAccessSelfAttendance) {
+      prefetchTasks.push(
+        client.prefetchQuery({
+          queryKey: ['attendance', 'employee', 'my-logs', todayDate],
+          queryFn: () => attendanceService.getMyPunchLogs(todayDate),
+          staleTime: 30 * 1000
+        }),
+        client.prefetchQuery({
+          queryKey: ['attendance', 'employee', 'regularizations', 'mine'],
+          queryFn: attendanceService.getMyRegularizations,
+          staleTime: 60 * 1000
+        })
+      )
+    }
+
+    await Promise.all(prefetchTasks)
   }, [queryClient])
 
   const login = useCallback(async ({ email, password, role }) => {
@@ -187,7 +247,16 @@ export function AuthProvider({ children }) {
       storage.set(AUTH_STORAGE_KEYS.refreshToken, loginResult.refresh_token)
       storage.set(AUTH_STORAGE_KEYS.lastActivityAt, Date.now())
 
-      const profile = await authService.getCurrentUser()
+      const currentUser = await authService.getCurrentUser()
+      const requiresPasswordSetup = password === DEFAULT_EMPLOYEE_PASSWORD
+
+      if (requiresPasswordSetup) {
+        storage.set(AUTH_STORAGE_KEYS.passwordSetupEmail, String(currentUser.email || '').trim().toLowerCase())
+      } else {
+        storage.remove(AUTH_STORAGE_KEYS.passwordSetupEmail)
+      }
+
+      const profile = await hydrateEmployeeSetupState(currentUser)
 
       if (role && profile.role !== role) {
         clearAuthState()
@@ -205,7 +274,7 @@ export function AuthProvider({ children }) {
       clearAuthState()
       throw error
     }
-  }, [clearAuthState, prefetchRoleDependencies, scheduleIdleTimeout, syncCurrentUser])
+  }, [clearAuthState, hydrateEmployeeSetupState, prefetchRoleDependencies, scheduleIdleTimeout, syncCurrentUser])
 
   const logout = useCallback(async (reason = 'manual') => {
     if (reason === 'idle') {

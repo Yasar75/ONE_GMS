@@ -21,7 +21,7 @@ function LockIcon({ locked }) {
 
 export default function Sidebar({ ui }) {
   const { user } = useAuth()
-  const items = getNavItems(user?.role)
+  const items = getNavItems(user)
   const expanded = ui.sidebarExpanded
 
   return (

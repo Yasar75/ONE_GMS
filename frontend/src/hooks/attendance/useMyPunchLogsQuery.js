@@ -1,18 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
 import { attendanceService } from '../../api/services/attendance.service.js'
-import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '../../utils/queryCache.js'
 
-export function useMyPunchLogsQuery(attendanceDate) {
+export function useMyPunchLogsQuery(attendanceDate, enabled = true) {
   const queryKey = ['attendance', 'employee', 'my-logs', attendanceDate]
 
   return useQuery({
     queryKey,
-    queryFn: () => withPersistentCache(queryKey, () => attendanceService.getMyPunchLogs(attendanceDate)),
-    enabled: Boolean(attendanceDate),
-    initialData: () => readCachedQuery(queryKey),
-    initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
-    staleTime: 30 * 1000,
+    queryFn: () => attendanceService.getMyPunchLogs(attendanceDate),
+    enabled: Boolean(attendanceDate) && enabled,
+    staleTime: 5 * 1000,
     gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true
   })
 }

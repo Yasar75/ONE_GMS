@@ -12,7 +12,7 @@ access_token_bearer = AccessTokenBearer()
 #role_checker = Depends(RoleChecker(["admin", "HR"]))
 employee_shift_router = APIRouter()
 employee_shift_service = EmployeeShiftService()
-module="Employee Shift"
+module="Assign Shift"
 ## Get all employee's shift Details.
 @employee_shift_router.get("/", response_model=List[EmployeeShiftRead], status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(module, "r"))])
 async def get_all_employees_shift(session: AsyncSession = Depends(get_session)):

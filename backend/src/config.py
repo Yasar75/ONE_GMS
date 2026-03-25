@@ -52,9 +52,9 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME:str
     CLOUDINARY_API_KEY:str
     CLOUDINARY_API_SECRET:str
-    ALLOWED_EXTENSIONS:ClassVar[Set[str]] = set()
-    ALLOWED_MIME_TYPES:ClassVar[Set[str]] = set()
-    MAX_FILE_SIZE:str
+    ALLOWED_EXTENSIONS:str
+    ALLOWED_MIME_TYPES:str
+    MAX_FILE_SIZE:int
 
     ## SendGrid mail service.
     APIKEY: str
