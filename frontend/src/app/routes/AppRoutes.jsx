@@ -7,24 +7,25 @@ import { RoleRedirect } from './RoleRedirect.jsx'
 import { AuthLayout } from '../../layouts/AuthLayout.jsx'
 import { AppLayout } from '../../layouts/AppLayout.jsx'
 
-import Login from '../../features/auth/pages/Login.jsx'
+import Login from '../../modules/auth/pages/Login.jsx'
+import ResetPassword from '../../modules/auth/pages/ResetPassword.jsx'
 
-import AdminDashboard from '../../features/dashboard/admin/AdminDashboard.jsx'
-import EmployeeDashboard from '../../features/dashboard/employee/EmployeeDashboard.jsx'
+import Dashboard from '../../modules/dashboard/pages/Dashboard.jsx'
 
-import AdminEmployees from '../../features/admin/pages/EmployeesManagement.jsx'
-import AdminAttendance from '../../features/admin/pages/AttendanceManagement.jsx'
-import AdminLeaveManagement from '../../features/admin/pages/LeaveManagement.jsx'
+import EmployeesManagement from '../../modules/employee/pages/EmployeesManagement.jsx'
+import AttendanceManagement from '../../modules/attendance/pages/AttendanceManagement.jsx'
+import LeaveManagement from '../../modules/leave/pages/LeaveManagement.jsx'
 
-import EmployeeAttendance from '../../features/employee/pages/Attendance.jsx'
-import EmployeeApplyLeave from '../../features/employee/pages/ApplyLeave.jsx'
-import ProfilePage from '../../features/employee/pages/Profile.jsx'
+import MarkAttendance from '../../modules/attendance/pages/MarkAttendance.jsx'
+import ApplyLeave from '../../modules/leave/pages/ApplyLeave.jsx'
+import ProfilePage from '../../modules/employee/components/Profile.jsx'
 
 export function AppRoutes() {
   return (
     <Routes>
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
       </Route>
 
       <Route element={<ProtectedRoute />}>
@@ -32,14 +33,14 @@ export function AppRoutes() {
           <Route path="/" element={<RoleRedirect />} />
           <Route path="/dashboard" element={<RoleRedirect />} />
 
-          <Route path="/admin/dashboard" element={<AdminDashboard />} />
-          <Route path="/admin/employees-management" element={<AdminEmployees />} />
-          <Route path="/admin/attendance-management" element={<AdminAttendance />} />
-          <Route path="/admin/leave-management" element={<AdminLeaveManagement />} />
+          <Route path="/admin/dashboard" element={<Dashboard />} />
+          <Route path="/admin/employees-management" element={<EmployeesManagement />} />
+          <Route path="/admin/attendance-management" element={<AttendanceManagement />} />
+          <Route path="/admin/leave-management" element={<LeaveManagement />} />
 
-          <Route path="/employee/dashboard" element={<EmployeeDashboard />} />
-          <Route path="/employee/attendance" element={<EmployeeAttendance />} />
-          <Route path="/employee/apply-leave" element={<EmployeeApplyLeave />} />
+          <Route path="/employee/dashboard" element={<Dashboard />} />
+          <Route path="/employee/attendance" element={<MarkAttendance />} />
+          <Route path="/employee/apply-leave" element={<ApplyLeave />} />
           <Route path="/profile" element={<ProfilePage />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

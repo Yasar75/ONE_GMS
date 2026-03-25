@@ -73,19 +73,21 @@ export const EMPLOYEE_IMPORT_TEMPLATE_SAMPLE_ROWS = [
   ]
 ]
 
+const DEFAULT_PHONE_LOCAL_LENGTH_RULE = Object.freeze({ minLength: 6, maxLength: 15 })
+
 export const PHONE_COUNTRY_OPTIONS = [
-  { countryCode: 'IN', label: 'India', dialCode: '+91' },
-  { countryCode: 'AE', label: 'UAE', dialCode: '+971' },
-  { countryCode: 'SA', label: 'Saudi Arabia', dialCode: '+966' },
-  { countryCode: 'US', label: 'United States', dialCode: '+1' },
-  { countryCode: 'CA', label: 'Canada', dialCode: '+1' },
-  { countryCode: 'GB', label: 'United Kingdom', dialCode: '+44' },
-  { countryCode: 'AU', label: 'Australia', dialCode: '+61' },
-  { countryCode: 'SG', label: 'Singapore', dialCode: '+65' },
-  { countryCode: 'MY', label: 'Malaysia', dialCode: '+60' },
-  { countryCode: 'DE', label: 'Germany', dialCode: '+49' },
-  { countryCode: 'FR', label: 'France', dialCode: '+33' },
-  { countryCode: 'ZA', label: 'South Africa', dialCode: '+27' }
+  { countryCode: 'IN', label: 'India', dialCode: '+91', localMinLength: 10, localMaxLength: 10 },
+  { countryCode: 'AE', label: 'UAE', dialCode: '+971', localMinLength: 9, localMaxLength: 9 },
+  { countryCode: 'SA', label: 'Saudi Arabia', dialCode: '+966', localMinLength: 9, localMaxLength: 9 },
+  { countryCode: 'US', label: 'United States', dialCode: '+1', localMinLength: 10, localMaxLength: 10 },
+  { countryCode: 'CA', label: 'Canada', dialCode: '+1', localMinLength: 10, localMaxLength: 10 },
+  { countryCode: 'GB', label: 'United Kingdom', dialCode: '+44', localMinLength: 10, localMaxLength: 10 },
+  { countryCode: 'AU', label: 'Australia', dialCode: '+61', localMinLength: 9, localMaxLength: 9 },
+  { countryCode: 'SG', label: 'Singapore', dialCode: '+65', localMinLength: 8, localMaxLength: 8 },
+  { countryCode: 'MY', label: 'Malaysia', dialCode: '+60', localMinLength: 9, localMaxLength: 10 },
+  { countryCode: 'DE', label: 'Germany', dialCode: '+49', localMinLength: 10, localMaxLength: 11 },
+  { countryCode: 'FR', label: 'France', dialCode: '+33', localMinLength: 9, localMaxLength: 9 },
+  { countryCode: 'ZA', label: 'South Africa', dialCode: '+27', localMinLength: 9, localMaxLength: 9 }
 ]
 
 export function normalizeEmployee(record) {
@@ -335,6 +337,25 @@ export function getStatusOptions(records = []) {
 
 export function getPhoneCountryOption(dialCode) {
   return PHONE_COUNTRY_OPTIONS.find((option) => option.dialCode === dialCode) || PHONE_COUNTRY_OPTIONS[0]
+}
+
+export function getPhoneCountryLengthRule(dialCode) {
+  const option = getPhoneCountryOption(dialCode)
+  const minLength = Number.isInteger(option.localMinLength) ? option.localMinLength : DEFAULT_PHONE_LOCAL_LENGTH_RULE.minLength
+  const maxLength = Number.isInteger(option.localMaxLength) ? option.localMaxLength : DEFAULT_PHONE_LOCAL_LENGTH_RULE.maxLength
+
+  return {
+    ...option,
+    minLength,
+    maxLength,
+    isExactLength: minLength === maxLength
+  }
+}
+
+export function formatPhoneLengthRule(ruleOrDialCode) {
+  const rule = typeof ruleOrDialCode === 'string' ? getPhoneCountryLengthRule(ruleOrDialCode) : ruleOrDialCode
+  if (!rule) return `${DEFAULT_PHONE_LOCAL_LENGTH_RULE.minLength} to ${DEFAULT_PHONE_LOCAL_LENGTH_RULE.maxLength} digits`
+  return rule.isExactLength ? `${rule.minLength} digits` : `${rule.minLength} to ${rule.maxLength} digits`
 }
 
 export function getDefaultPhoneCountryOption() {

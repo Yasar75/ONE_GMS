@@ -4,10 +4,11 @@ import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '
 
 const queryKey = ['attendance', 'admin', 'regularizations', 'pending']
 
-export function usePendingRegularizationsQuery() {
+export function usePendingRegularizationsQuery(enabled = true) {
   return useQuery({
     queryKey,
     queryFn: () => withPersistentCache(queryKey, attendanceService.getManagerPendingRegularizations),
+    enabled,
     initialData: () => readCachedQuery(queryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
     staleTime: 45 * 1000,

@@ -3,6 +3,8 @@ export const endpoints = {
     login: '/api/v1/auth/login',
     me: '/api/v1/auth/me',
     refresh: '/api/v1/auth/refresh_token',
+    requestPasswordReset: '/api/v1/auth/password-forget-request',
+    confirmPasswordReset: (token) => `/api/v1/auth/password-forget-confirm/${token}`,
     changePassword: '/api/v1/auth/change-password',
     unlockUser: '/api/v1/auth/unlock-user',
     lockedUsers: '/api/v1/auth/locked-users',
@@ -15,6 +17,7 @@ export const endpoints = {
   employee: {
     list: '/api/v1/employee/',
     create: '/api/v1/employee',
+    me: '/api/v1/employee/me/record',
     detail: (employeeUid) => `/api/v1/employee/${employeeUid}`,
     profile: {
       byEmployee: (employeeUid) => `/api/v1/employee/${employeeUid}/profile`,
@@ -25,16 +28,20 @@ export const endpoints = {
   employeeSkill: {
     list: '/api/v1/employee_skill/',
     create: '/api/v1/employee_skill',
+    byEmployee: (employeeUid) => `/api/v1/employee_skill/employee/${employeeUid}`,
     detail: (skillUid) => `/api/v1/employee_skill/${skillUid}`
   },
   employeeDocuments: {
-    upload: '/api/v1/employee_documents/upload',
-    detail: (documentUid) => `/api/v1/employee_documents/${documentUid}`,
-    byEmployee: (employeeUid) => `/api/v1/employee_documents/employee/${employeeUid}`
+    upload: '/api/v1/employee_documents-upload/upload',
+    detail: (documentUid) => `/api/v1/employee_documents-upload/${documentUid}`,
+    replaceFile: (documentUid) => `/api/v1/employee_documents-upload/${documentUid}/replace-file`,
+    byEmployee: (employeeUid) => `/api/v1/employee_documents-upload/employee/${employeeUid}`
   },
   employeeFamily: {
     list: '/api/v1/employee_documents/',
-    create: '/api/v1/employee_documents/'
+    create: '/api/v1/employee_documents/',
+    byEmployee: (employeeUid) => `/api/v1/employee_documents/employee/${employeeUid}`,
+    detail: (familyUid) => `/api/v1/employee_documents/${familyUid}`
   },
   employeeMetadata: {
     list: '/api/v1/employee-metadata/',

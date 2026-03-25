@@ -1,19 +1,19 @@
 import React from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../providers/AuthProvider.jsx'
-import { ROLES } from '../../utils/role.js'
+import { isProfileSetupRequired } from '../../utils/auth.js'
+import { resolveHomePath } from '../../utils/permissions.js'
 
 export function RoleRedirect() {
-  const { role, isAuthReady, user } = useAuth()
+  const { isAuthReady, user } = useAuth()
 
   if (!isAuthReady) {
     return <div className="text-muted">Loading session…</div>
   }
 
-  if (role === ROLES.EMPLOYEE && (user?.mustCompleteProfile || user?.mustChangePassword)) {
+  if (isProfileSetupRequired(user)) {
     return <Navigate to="/profile" replace />
   }
 
-  if (role === ROLES.ADMIN) return <Navigate to="/admin/dashboard" replace />
-  return <Navigate to="/employee/dashboard" replace />
+  return <Navigate to={resolveHomePath(user)} replace />
 }

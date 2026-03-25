@@ -4,10 +4,11 @@ import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '
 
 const queryKey = ['attendance', 'employee', 'regularizations', 'mine']
 
-export function useMyRegularizationsQuery() {
+export function useMyRegularizationsQuery(enabled = true) {
   return useQuery({
     queryKey,
     queryFn: () => withPersistentCache(queryKey, attendanceService.getMyRegularizations),
+    enabled,
     initialData: () => readCachedQuery(queryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
     staleTime: 60 * 1000,

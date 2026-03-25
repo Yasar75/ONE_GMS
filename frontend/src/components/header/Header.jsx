@@ -2,9 +2,9 @@ import React from 'react'
 import ThemeToggle from './ThemeToggle.jsx'
 import ProfileWidget from './ProfileWidget.jsx'
 import HeaderPunchCard from './HeaderPunchCard.jsx'
-import logoLight from '../../assets/headerLogo.svg'
-import logoDark from '../../assets/headerLogo_white.svg'
-import faviconPng from '../../assets/favicon.png'
+import logoLight from '../../asserts/headerLogo.svg'
+import logoDark from '../../asserts/headerLogo_white.svg'
+import faviconPng from '../../asserts/favicon.png'
 import { useTheme } from '../../app/providers/ThemeProvider.jsx'
 
 export default function Header({ ui }) {

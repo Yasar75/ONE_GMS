@@ -71,6 +71,11 @@ function deriveFirstLoginDeadline(record) {
 function normalizeAccountStatus(record) {
   if (!record) return null
 
+  const canEditProfilePictureRaw = record?.can_edit_profile_picture
+    ?? record?.can_edit_profile_photo
+    ?? record?.can_upload_profile_image
+    ?? record?.can_upload_profile_photo
+
   return {
     uid: record?.uid || '',
     email: record?.email || '',
@@ -82,7 +87,10 @@ function normalizeAccountStatus(record) {
     unlockedAt: record?.unlocked_at || record?.unlockedAt || null,
     createdAt: record?.created_at || record?.createdAt || null,
     updatedAt: record?.updated_at || record?.updatedAt || null,
-    firstLoginDeadlineAt: deriveFirstLoginDeadline(record)
+    firstLoginDeadlineAt: deriveFirstLoginDeadline(record),
+    nickname: record?.nickname || record?.nick_name || '',
+    profileImageUrl: record?.profile_image_url || record?.profile_image || '',
+    canEditProfilePicture: canEditProfilePictureRaw == null ? null : Boolean(canEditProfilePictureRaw)
   }
 }
 
@@ -178,8 +186,8 @@ function buildProfileBundle({ employee = null, profileDetails = null, skills = [
 
   return {
     employee,
-    nickname: profileDetails?.nickname || profileDetails?.nick_name || '',
-    profileImageUrl: profileDetails?.profile_image_url || profileDetails?.profile_image || '',
+    nickname: profileDetails?.nickname || profileDetails?.nick_name || account?.nickname || '',
+    profileImageUrl: profileDetails?.profile_image_url || profileDetails?.profile_image || account?.profileImageUrl || '',
     skills: normalizedSkills,
     documents: normalizedDocuments,
     familyDetails: normalizedFamilyDetails,
@@ -196,6 +204,7 @@ function buildProfileBundle({ employee = null, profileDetails = null, skills = [
       ?? profileDetails?.can_edit_profile_photo
       ?? profileDetails?.can_upload_profile_image
       ?? profileDetails?.can_upload_profile_photo
+      ?? account?.canEditProfilePicture
       ?? null,
     mustChangePassword: false
   }
@@ -310,6 +319,33 @@ async function getEmployeeProfileDetails(employeeUid) {
   return response.data || {}
 }
 
+async function resolveEmployeeRecordFromFallback(rawUser = {}) {
+  const cachedEmployee = findEmployeeForUser(readCachedEmployeeDirectoryRecords(), rawUser)
+  if (cachedEmployee) return upsertCachedEmployeeRecord(cachedEmployee)
+
+  try {
+    const directoryRecords = await getEmployeeDirectoryRecords({ allowCacheFallback: true })
+    const directoryEmployee = findEmployeeForUser(directoryRecords, rawUser)
+    if (directoryEmployee) return upsertCachedEmployeeRecord(directoryEmployee)
+  } catch {
+    // Ignore secondary lookup failures and fall back to the caller's missing-state handling.
+  }
+
+  return null
+}
+
+async function getCurrentEmployeeRecord({ allowMissing = false, rawUser = null } = {}) {
+  try {
+    const response = await http.get(endpoints.employee.me)
+    return upsertCachedEmployeeRecord(response.data)
+  } catch (error) {
+    if (allowMissing && [401, 403, 404].includes(Number(error?.response?.status || 0))) {
+      return resolveEmployeeRecordFromFallback(rawUser || {})
+    }
+    throw error
+  }
+}
+
 export const employeeService = {
   async getLookupDirectory() {
     return getEmployeeDirectoryRecords()
@@ -336,12 +372,26 @@ export const employeeService = {
   },
 
   async listEmployeeSkills(employeeUid = null) {
-    const response = await http.get(endpoints.employeeSkill.list)
-    const items = Array.isArray(response.data) ? response.data : []
-    const normalizedItems = items.map((entry) => normalizeEmployeeSkillRecord(entry)).filter((entry) => entry.uid)
-    return employeeUid
-      ? normalizedItems.filter((entry) => String(entry.employeeUid) === String(employeeUid))
-      : normalizedItems
+    try {
+      const response = employeeUid
+        ? await http.get(endpoints.employeeSkill.byEmployee(employeeUid))
+        : await http.get(endpoints.employeeSkill.list)
+      const items = Array.isArray(response.data) ? response.data : []
+      const normalizedItems = items.map((entry) => normalizeEmployeeSkillRecord(entry)).filter((entry) => entry.uid)
+      return employeeUid
+        ? normalizedItems.filter((entry) => String(entry.employeeUid) === String(employeeUid))
+        : normalizedItems
+    } catch (error) {
+      if (!employeeUid || ![404, 405].includes(Number(error?.response?.status || 0))) {
+        throw error
+      }
+
+      const response = await http.get(endpoints.employeeSkill.list)
+      const items = Array.isArray(response.data) ? response.data : []
+      return items
+        .map((entry) => normalizeEmployeeSkillRecord(entry))
+        .filter((entry) => entry.uid && String(entry.employeeUid) === String(employeeUid))
+    }
   },
 
   async syncEmployeeSkills(employeeUid, nextSkills = [], currentSkills = []) {
@@ -378,10 +428,10 @@ export const employeeService = {
   async uploadEmployeeProfilePhoto(employeeUid, file) {
     const formData = new FormData()
     formData.append('file', file)
-    await http.post(endpoints.employee.profile.photo(employeeUid), formData, {
+    const response = await http.post(endpoints.employee.profile.photo(employeeUid), formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
-    return employeeService.getEmployeeProfile(employeeUid)
+    return response.data || {}
   },
 
   async uploadEmployeeDocument({ employeeUid, documentType, name, file }) {
@@ -391,11 +441,36 @@ export const employeeService = {
     formData.append('name', name)
     formData.append('file', file)
 
-    await http.post(endpoints.employeeDocuments.upload, formData, {
+    const response = await http.post(endpoints.employeeDocuments.upload, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
 
-    return employeeService.getEmployeeProfile(employeeUid)
+    return normalizeEmployeeDocumentRecord(response.data?.data || response.data)
+  },
+
+  async updateEmployeeDocument(documentUid, { documentType, name }) {
+    const formData = new FormData()
+    if (name != null) formData.append('name', String(name || '').trim())
+    if (documentType != null) formData.append('document_type', documentType)
+
+    const response = await http.put(endpoints.employeeDocuments.detail(documentUid), formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+
+    return normalizeEmployeeDocumentRecord(response.data?.data || response.data)
+  },
+
+  async replaceEmployeeDocumentFile(documentUid, { file, documentType = null, name = null }) {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (name != null) formData.append('name', String(name || '').trim())
+    if (documentType != null) formData.append('document_type', documentType)
+
+    const response = await http.put(endpoints.employeeDocuments.replaceFile(documentUid), formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+
+    return normalizeEmployeeDocumentRecord(response.data?.data || response.data)
   },
 
   async listEmployeeDocuments(employeeUid) {
@@ -405,7 +480,9 @@ export const employeeService = {
   },
 
   async listEmployeeFamilyDetails(employeeUid = null) {
-    const response = await http.get(endpoints.employeeFamily.list)
+    const response = employeeUid
+      ? await http.get(endpoints.employeeFamily.byEmployee(employeeUid))
+      : await http.get(endpoints.employeeFamily.list)
     const items = Array.isArray(response.data?.items)
       ? response.data.items
       : (Array.isArray(response.data) ? response.data : [])
@@ -430,27 +507,35 @@ export const employeeService = {
     return normalizeEmployeeFamilyDetailRecord(response.data)
   },
 
+  async updateEmployeeFamilyDetail(familyUid, payload) {
+    const response = await http.put(endpoints.employeeFamily.detail(familyUid), {
+      relation: payload.relation,
+      full_name: payload.fullName,
+      date_of_birth: payload.dateOfBirth || null,
+      phone: payload.phone || null,
+      occupation: payload.occupation || null,
+      is_dependent: Boolean(payload.isDependent),
+      address: payload.address || null,
+      remarks: payload.remarks || null
+    })
+    return normalizeEmployeeFamilyDetailRecord(response.data)
+  },
+
+  async deleteEmployeeFamilyDetail(familyUid) {
+    await http.delete(endpoints.employeeFamily.detail(familyUid))
+    return familyUid
+  },
+
   async deleteEmployeeDocument(documentUid) {
     await http.delete(endpoints.employeeDocuments.detail(documentUid))
     return documentUid
   },
 
-  async getMyProfile() {
+  async getMyProfile({ seedEmployee = null } = {}) {
     const rawUser = await getRawCurrentUser()
     const account = normalizeAccountStatus(rawUser)
-    let employee = null
-
-    try {
-      const employees = await getEmployeeDirectoryRecords({ allowCacheFallback: true })
-      employee = findEmployeeForUser(employees, rawUser)
-    } catch (error) {
-      const fallbackDirectory = readCachedEmployeeDirectoryRecords()
-      employee = findEmployeeForUser(fallbackDirectory, rawUser)
-
-      if (!employee && ![401, 403, 404].includes(Number(error?.response?.status || 0))) {
-        throw error
-      }
-    }
+    const employee = await getCurrentEmployeeRecord({ allowMissing: true, rawUser })
+      || (seedEmployee?.uid ? upsertCachedEmployeeRecord(seedEmployee) : null)
 
     if (!employee) {
       return buildProfileBundle({

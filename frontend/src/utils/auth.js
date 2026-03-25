@@ -12,10 +12,14 @@ export const AUTH_STORAGE_KEYS = {
   passwordSetupEmail: 'one_gms.auth.passwordSetupEmail'
 }
 
+export function isProfileSetupRequired(user) {
+  return Boolean(user?.mustChangePassword || user?.mustCompleteProfile)
+}
+
 export function normalizeRole(roleName) {
   const raw = String(roleName ?? '').trim().toLowerCase()
 
-  if (['admin', 'hr', 'superadmin', 'super_admin'].includes(raw)) {
+  if (raw === 'admin') {
     return ROLES.ADMIN
   }
 

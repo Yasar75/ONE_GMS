@@ -7,8 +7,9 @@ export default function ProfileWidget() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const displayName = user?.nickname || user?.firstName || user?.username || 'User'
+  const userName = user?.username || 'User'
   const initials = String(displayName || 'U').charAt(0).toUpperCase()
-  const role = roleLabel(user?.role)
+  const role = String(user?.roleName || '').trim() || roleLabel(user?.role)
 
   return (
     <div className="dropdown">
@@ -22,7 +23,7 @@ export default function ProfileWidget() {
         </span>
       </button>
       <ul className="dropdown-menu dropdown-menu-end">
-        <li><span className="dropdown-item-text small text-muted">Signed in as {displayName}</span></li>
+        <li><span className="dropdown-item-text small text-muted">Username: {userName}</span></li>
         <li><hr className="dropdown-divider" /></li>
         <li><button className="dropdown-item" onClick={() => navigate('/profile')}>Profile</button></li>
         <li><button className="dropdown-item" onClick={logout}>Logout</button></li>

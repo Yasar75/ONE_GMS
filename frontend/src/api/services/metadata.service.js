@@ -5,6 +5,7 @@ const DEFAULT_ROLE_MODULES = [
   'Roles',
   'Employee',
   'Employee Documents',
+  'Employee Family Details',
   'Employee Skills',
   'Profile Picture',
   'Shift Roster',
@@ -46,7 +47,10 @@ function normalizeRoleEntry(record) {
 }
 
 function normalizeRoleModules(value) {
-  return Array.from(new Set((Array.isArray(value) ? value : [])
+  return Array.from(new Set([
+    ...(Array.isArray(value) ? value : []),
+    ...DEFAULT_ROLE_MODULES
+  ]
     .filter(Boolean)
     .map((moduleName) => String(moduleName).trim())
     .filter(Boolean)))
@@ -94,10 +98,9 @@ export const metadataService = {
   async getRoleModules() {
     try {
       const response = await http.get(endpoints.roles.modules)
-      const modules = normalizeRoleModules(response.data)
-      return modules.length ? modules : DEFAULT_ROLE_MODULES
+      return normalizeRoleModules(response.data)
     } catch (error) {
-      return DEFAULT_ROLE_MODULES
+      return normalizeRoleModules(DEFAULT_ROLE_MODULES)
     }
   },
 

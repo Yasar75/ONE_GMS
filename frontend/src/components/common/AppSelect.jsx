@@ -20,6 +20,7 @@ function normalizeOptions(options) {
 export default function AppSelect({
   value,
   onChange,
+  onBlur,
   options,
   placeholder = 'Select option',
   name,
@@ -46,6 +47,23 @@ export default function AppSelect({
   const selectedOptions = useMemo(() => normalizedOptions.filter((option) => selectedValues.includes(String(option.value))), [normalizedOptions, selectedValues])
   const selectedOption = !multiple ? normalizedOptions.find((option) => String(option.value) === String(value ?? '')) : null
   const shouldCloseOnSelect = closeOnSelect ?? !multiple
+
+  const emitBlur = () => {
+    if (typeof onBlur !== 'function') return
+
+    const nextValue = multiple ? selectedValues : value
+    if (name) {
+      onBlur({
+        target: {
+          name,
+          value: nextValue
+        }
+      })
+      return
+    }
+
+    onBlur(nextValue)
+  }
 
   useEffect(() => {
     if (!isOpen) return undefined
@@ -120,7 +138,14 @@ export default function AppSelect({
   }, [hideSelectedDescription, multiple, selectedOption, selectedOptions])
 
   return (
-    <div ref={rootRef} className={`app-select ${isOpen ? 'is-open' : ''} ${disabled ? 'is-disabled' : ''} ${invalid ? 'is-invalid' : ''} ${multiple ? 'is-multiple' : ''} ${className}`.trim()}>
+    <div
+      ref={rootRef}
+      className={`app-select ${isOpen ? 'is-open' : ''} ${disabled ? 'is-disabled' : ''} ${invalid ? 'is-invalid' : ''} ${multiple ? 'is-multiple' : ''} ${className}`.trim()}
+      onBlurCapture={(event) => {
+        if (rootRef.current?.contains(event.relatedTarget)) return
+        emitBlur()
+      }}
+    >
       <button
         ref={buttonRef}
         type="button"

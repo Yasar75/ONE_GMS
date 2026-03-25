@@ -1,17 +1,32 @@
-import { ROLES } from '../../utils/role.js'
+import { canAccessAppPath, resolveDashboardVariant } from '../../utils/permissions.js'
 
-export function getNavItems(role) {
-  if (role === ROLES.ADMIN) {
-    return [
-      { label: 'Dashboard', to: '/admin/dashboard', icon: '🏠' },
-      { label: 'Employees Management', to: '/admin/employees-management', icon: '👥' },
-      { label: 'Attendance Management', to: '/admin/attendance-management', icon: '🕒' },
-      { label: 'Leave Management', to: '/admin/leave-management', icon: '🗓️' }
-    ]
+export function getNavItems(user) {
+  const dashboardVariant = resolveDashboardVariant(user)
+  const items = []
+
+  if (dashboardVariant === 'management') {
+    items.push({ label: 'Dashboard', to: '/admin/dashboard', icon: '🏠' })
+    if (canAccessAppPath(user, '/admin/employees-management')) {
+      items.push({ label: 'Employees Management', to: '/admin/employees-management', icon: '👥' })
+    }
+    if (canAccessAppPath(user, '/admin/attendance-management')) {
+      items.push({ label: 'Attendance Management', to: '/admin/attendance-management', icon: '🕒' })
+    }
+    if (canAccessAppPath(user, '/admin/leave-management')) {
+      items.push({ label: 'Leave Management', to: '/admin/leave-management', icon: '🗓️' })
+    }
+    return items
   }
-  return [
-    { label: 'Dashboard', to: '/employee/dashboard', icon: '🏠' },
-    { label: 'Attendance', to: '/employee/attendance', icon: '🕒' },
-    { label: 'Apply Leave', to: '/employee/apply-leave', icon: '🗓️' }
-  ]
+
+  if (dashboardVariant === 'employee') {
+    items.push({ label: 'Dashboard', to: '/employee/dashboard', icon: '🏠' })
+  }
+  if (canAccessAppPath(user, '/employee/attendance')) {
+    items.push({ label: 'Attendance', to: '/employee/attendance', icon: '🕒' })
+  }
+  if (canAccessAppPath(user, '/employee/apply-leave')) {
+    items.push({ label: 'Apply Leave', to: '/employee/apply-leave', icon: '🗓️' })
+  }
+
+  return items
 }

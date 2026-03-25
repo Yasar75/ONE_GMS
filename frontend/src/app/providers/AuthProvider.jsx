@@ -10,6 +10,7 @@ import { employeeService } from '../../api/services/employee.service.js'
 import { attendanceService } from '../../api/services/attendance.service.js'
 import { getTodayDateInput } from '../../utils/attendance.js'
 import { useModal } from './ModalProvider.jsx'
+import { canAccessAppPath, isAdminBypassUser, resolveDashboardVariant } from '../../utils/permissions.js'
 
 const AuthContext = createContext(null)
 const ACTIVITY_EVENTS = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart']
@@ -43,7 +44,7 @@ export function AuthProvider({ children }) {
         displayName: nickname || fallbackFirstName,
         avatarUrl: profile?.profileImageUrl || baseUser.avatarUrl || '',
         profileImageUrl: profile?.profileImageUrl || baseUser.profileImageUrl || '',
-        canEditProfileDetails: baseUser.role === ROLES.ADMIN ? true : setupIncomplete,
+        canEditProfileDetails: isAdminBypassUser(baseUser) ? true : setupIncomplete,
         canEditProfilePicture: baseUser.canEditProfilePicture ?? null,
         mustCompleteProfile: setupIncomplete,
         mustChangePassword,
@@ -170,19 +171,43 @@ export function AuthProvider({ children }) {
     if (!nextUser) return
 
     const todayDate = getTodayDateInput()
+    const dashboardVariant = resolveDashboardVariant(nextUser)
+    const canAccessEmployeeDirectory = canAccessAppPath(nextUser, '/admin/employees-management')
+    const canAccessAttendanceManagement = canAccessAppPath(nextUser, '/admin/attendance-management')
+    const canAccessSelfAttendance = canAccessAppPath(nextUser, '/employee/attendance') || canAccessAppPath(nextUser, '/employee/dashboard')
 
-    if (nextUser.role === ROLES.ADMIN) {
-      await Promise.all([
-        client.prefetchQuery({
-          queryKey: ['dashboard', 'admin'],
-          queryFn: dashboardService.getAdminDashboard,
-          staleTime: 5 * 60 * 1000
-        }),
-        client.prefetchQuery({
-          queryKey: ['employees', 'directory'],
-          queryFn: employeeService.getDirectory,
-          staleTime: 5 * 60 * 1000
-        }),
+    const prefetchTasks = []
+
+    if (dashboardVariant === 'management') {
+      prefetchTasks.push(client.prefetchQuery({
+        queryKey: ['dashboard', 'admin'],
+        queryFn: dashboardService.getAdminDashboard,
+        staleTime: 5 * 60 * 1000
+      }))
+      client.removeQueries({ queryKey: ['dashboard', 'employee'], exact: true })
+    }
+
+    if (dashboardVariant === 'employee') {
+      prefetchTasks.push(client.prefetchQuery({
+        queryKey: ['dashboard', 'employee'],
+        queryFn: dashboardService.getEmployeeDashboard,
+        staleTime: 5 * 60 * 1000
+      }))
+      client.removeQueries({ queryKey: ['dashboard', 'admin'], exact: true })
+    }
+
+    if (canAccessEmployeeDirectory) {
+      prefetchTasks.push(client.prefetchQuery({
+        queryKey: ['employees', 'directory'],
+        queryFn: employeeService.getDirectory,
+        staleTime: 5 * 60 * 1000
+      }))
+    } else {
+      client.removeQueries({ queryKey: ['employees'], exact: false })
+    }
+
+    if (canAccessAttendanceManagement) {
+      prefetchTasks.push(
         client.prefetchQuery({
           queryKey: ['attendance', 'admin', 'directory'],
           queryFn: () => attendanceService.getDirectoryAttendance(),
@@ -193,30 +218,25 @@ export function AuthProvider({ children }) {
           queryFn: attendanceService.getManagerPendingRegularizations,
           staleTime: 30 * 1000
         })
-      ])
-      client.removeQueries({ queryKey: ['dashboard', 'employee'], exact: true })
-      return
+      )
     }
 
-    await Promise.all([
-      client.prefetchQuery({
-        queryKey: ['dashboard', 'employee'],
-        queryFn: dashboardService.getEmployeeDashboard,
-        staleTime: 5 * 60 * 1000
-      }),
-      client.prefetchQuery({
-        queryKey: ['attendance', 'employee', 'my-logs', todayDate],
-        queryFn: () => attendanceService.getMyPunchLogs(todayDate),
-        staleTime: 30 * 1000
-      }),
-      client.prefetchQuery({
-        queryKey: ['attendance', 'employee', 'regularizations', 'mine'],
-        queryFn: attendanceService.getMyRegularizations,
-        staleTime: 60 * 1000
-      })
-    ])
-    client.removeQueries({ queryKey: ['dashboard', 'admin'], exact: true })
-    client.removeQueries({ queryKey: ['employees'], exact: false })
+    if (canAccessSelfAttendance) {
+      prefetchTasks.push(
+        client.prefetchQuery({
+          queryKey: ['attendance', 'employee', 'my-logs', todayDate],
+          queryFn: () => attendanceService.getMyPunchLogs(todayDate),
+          staleTime: 30 * 1000
+        }),
+        client.prefetchQuery({
+          queryKey: ['attendance', 'employee', 'regularizations', 'mine'],
+          queryFn: attendanceService.getMyRegularizations,
+          staleTime: 60 * 1000
+        })
+      )
+    }
+
+    await Promise.all(prefetchTasks)
   }, [queryClient])
 
   const login = useCallback(async ({ email, password, role }) => {

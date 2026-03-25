@@ -39,6 +39,16 @@ export const authService = {
     return response.data
   },
 
+  async requestPasswordReset(email) {
+    const response = await http.post(endpoints.auth.requestPasswordReset, { email })
+    return response.data
+  },
+
+  async confirmPasswordReset(token, payload) {
+    const response = await http.post(endpoints.auth.confirmPasswordReset(token), payload)
+    return response.data
+  },
+
   async getCurrentUser() {
     const response = await http.get(endpoints.auth.me)
     return normalizeUserProfile(response.data)

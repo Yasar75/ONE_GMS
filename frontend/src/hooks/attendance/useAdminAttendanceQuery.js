@@ -4,10 +4,11 @@ import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '
 
 const queryKey = ['attendance', 'admin', 'directory']
 
-export function useAdminAttendanceQuery() {
+export function useAdminAttendanceQuery(enabled = true) {
   return useQuery({
     queryKey,
     queryFn: () => withPersistentCache(queryKey, () => attendanceService.getDirectoryAttendance()),
+    enabled,
     initialData: () => readCachedQuery(queryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
     staleTime: 2 * 60 * 1000,
