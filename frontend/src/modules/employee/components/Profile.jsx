@@ -38,7 +38,6 @@ import {
 import {
   PERMISSION_ACTIONS,
   PERMISSION_MODULES,
-  buildPermissionLookup,
   hasAnyModulePermission,
   hasModulePermission,
   isAdminBypassUser
@@ -535,12 +534,11 @@ export default function ProfilePage() {
     || basicDetailsDraft.position
     || basicDetailsDraft.department
   )
-  const permissionLookup = useMemo(() => buildPermissionLookup(user?.permissions), [user?.permissions])
-  const hasSkillWritePermission = hasAnyModulePermission(permissionLookup, PERMISSION_MODULES.employeeSkills, SETUP_WRITE_PERMISSION_ACTIONS)
-  const hasDocumentWritePermission = hasAnyModulePermission(permissionLookup, PERMISSION_MODULES.employeeDocuments, SETUP_WRITE_PERMISSION_ACTIONS)
-  const hasFamilyDetailWritePermission = hasAnyModulePermission(permissionLookup, PERMISSION_MODULES.employeeFamilyDetails, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
-  const hasFamilyDetailDeletePermission = hasModulePermission(permissionLookup, PERMISSION_MODULES.employeeFamilyDetails, PERMISSION_ACTIONS.delete)
-  const hasBasicDetailWritePermission = hasModulePermission(permissionLookup, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
+  const hasSkillWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.employeeSkills, SETUP_WRITE_PERMISSION_ACTIONS)
+  const hasDocumentWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.employeeDocuments, SETUP_WRITE_PERMISSION_ACTIONS)
+  const hasFamilyDetailWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.employeeFamilyDetails, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
+  const hasFamilyDetailDeletePermission = hasModulePermission(user, PERMISSION_MODULES.employeeFamilyDetails, PERMISSION_ACTIONS.delete)
+  const hasBasicDetailWritePermission = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
   const documentItems = profile?.documents || []
   const selectedDocument = useMemo(() => documentItems.find((document) => String(document.uid) === String(selectedDocumentUid)) || null, [documentItems, selectedDocumentUid])
   const familyDetailItems = profile?.familyDetails || []
@@ -569,13 +567,13 @@ export default function ProfilePage() {
     return !areFamilyDetailsEqual(buildFamilyDetailPayload(familyDetailDraft), buildComparableFamilyDetail(selectedFamilyDetail))
   }, [familyDetailDraft, selectedFamilyDetail])
   const mustCompleteProfile = hasLinkedEmployee && !profile?.profileCompletedAt
-  const canEditBasicDetails = hasLinkedEmployee && hasBasicDetailWritePermission
+  const canEditBasicDetails = hasLinkedEmployee && (isAdminUser || hasBasicDetailWritePermission)
   const hasProfilePicturePermission = isAdminUser
-    || Boolean(profile?.canEditProfilePicture ?? hasModulePermission(permissionLookup, PERMISSION_MODULES.profilePicture, PERMISSION_ACTIONS.update))
-  const canEditSkills = hasLinkedEmployee && hasSkillWritePermission
-  const canManageDocuments = hasLinkedEmployee && hasDocumentWritePermission
+    || Boolean(profile?.canEditProfilePicture ?? hasModulePermission(user, PERMISSION_MODULES.profilePicture, PERMISSION_ACTIONS.update))
+  const canEditSkills = hasLinkedEmployee && (isAdminUser || hasSkillWritePermission)
+  const canManageDocuments = hasLinkedEmployee && (isAdminUser || hasDocumentWritePermission)
   const canUploadDocuments = canManageDocuments
-  const canManageFamilyDetails = hasLinkedEmployee && hasFamilyDetailWritePermission
+  const canManageFamilyDetails = hasLinkedEmployee && (isAdminUser || hasFamilyDetailWritePermission)
   const canUpdateProfileFields = hasLinkedEmployee && (canEditBasicDetails || canEditSkills || canManageDocuments || canManageFamilyDetails)
   const canEditProfilePhoto = hasLinkedEmployee && (isAdminUser || hasProfilePicturePermission)
   const showCombinedProfileAction = isAdminUser || !profile?.profileCompletedAt || canEditBasicDetails
@@ -1358,7 +1356,7 @@ export default function ProfilePage() {
             <div className="profile-hero-title">{profileDraft.nickname || profileDraft.first_name || user?.firstName || 'User'}</div>
             <div className="text-muted small">
               {isAdminUser
-                ? 'Admin accounts can manage basic details, skills, documents, and password from one workspace.'
+                ? 'Admin accounts can manage basic details, skills, family details, documents, and password from one workspace.'
                 : 'Basic details are loaded from the employee directory. During onboarding the setup sections submit together, and after onboarding each section can be managed separately.'}
             </div>
             {firstLoginSetupRequired && firstLoginDeadlineLabel ? (
@@ -1543,7 +1541,9 @@ export default function ProfilePage() {
                   <div className="text-muted small">
                     {showSectionActions
                       ? 'Use the role-enabled section actions below to manage skills, family details, and documents separately.'
-                      : 'Changed profile sections will be submitted together from this workspace based on your role-matrix access.'}
+                      : (isAdminUser
+                        ? 'Admin updates for basic details, skills, family details, and documents can be submitted together from this workspace.'
+                        : 'Changed profile sections will be submitted together from this workspace based on your role-matrix access.')}
                   </div>
                 </div>
                 <div className="row g-3">
@@ -1781,7 +1781,9 @@ export default function ProfilePage() {
                     <div className="text-muted small">
                       {queuedProfileSections.length
                         ? `Changed sections: ${queuedProfileSections.join(', ')}.`
-                        : 'Only changed sections allowed by your role matrix will be queued from this card.'}
+                        : (isAdminUser
+                          ? 'Changed profile sections from this card will be submitted together.'
+                          : 'Only changed sections allowed by your role matrix will be queued from this card.')}
                     </div>
                     <button type="button" className="btn btn-primary profile-action-btn" onClick={handleProfileUpdate} disabled={!canSubmitProfileUpdate}>
                       Update Profile
