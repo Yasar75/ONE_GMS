@@ -54,24 +54,24 @@ class EmployeeCreate(BaseModel):
     employee_code: str = PydField(max_length=20)
     first_name: str = PydField(max_length=120)
     last_name: str = PydField(max_length=120)
-    position: Optional[str] = PydField(default=None, max_length=120)
-    department: Optional[str] = PydField(default=None, max_length=120)
-    email: Optional[EmailStr] = None
-    phone: Optional[str] = PydField(default=None, max_length=50)
-    join_date: Optional[date] = None
+    position: Optional[str] = " "
+    department: Optional[str] = " "
+    email: Optional[EmailStr] = " "
+    phone: Optional[str] = " "
+    join_date: Optional[date] = " "
     status: EmployeeStatus = EmployeeStatus.Active
-    birth_date: Optional[date] = None
-    address: Optional[str] = None
-    gender: Optional[str] 
-    caste: Optional[str] 
-    emergency_contact: Optional[str] = None
-    blood_group: Optional[str] = PydField(default=None, max_length=10)
-    employee_type: Optional[EmployeeType] = None
-    work_location: Optional[str] = PydField(default=None, max_length=120)
-    manager_employee_uid: Optional[uuid.UUID] = None
-    hr_employee_uid: Optional[uuid.UUID] = None
-    team_lead_employee_uid: Optional[uuid.UUID] = None
-    coordinator_employee_uid: Optional[uuid.UUID] = None
+    birth_date: Optional[date] = " "
+    address: Optional[str] = " "
+    gender: Optional[str] = " "
+    caste: Optional[str] = " "
+    emergency_contact: Optional[str] = " "
+    blood_group: Optional[str] = " "
+    employee_type: Optional[EmployeeType] = " "
+    work_location: Optional[str] = " "
+    manager_employee_uid: Optional[uuid.UUID] = " "
+    hr_employee_uid: Optional[uuid.UUID] = " "
+    team_lead_employee_uid: Optional[uuid.UUID] = " "
+    coordinator_employee_uid: Optional[uuid.UUID] = " "
     role_type: uuid.UUID
 
 
@@ -79,26 +79,25 @@ class EmployeeUpdate(BaseModel):
     employee_code: Optional[str] = PydField(default=None, max_length=20)
     first_name: Optional[str] = PydField(default=None, max_length=120)
     last_name: Optional[str] = PydField(default=None, max_length=120)
-    position: Optional[str] = PydField(default=None, max_length=120)
-    department: Optional[str] = PydField(default=None, max_length=120)
-    email: Optional[EmailStr] = None
-    phone: Optional[str] = PydField(default=None, max_length=50)
-    join_date: Optional[date] = None
-    status: Optional[EmployeeStatus] = None
-    birth_date: Optional[date] = None
-    address: Optional[str] = None
-    gender: Optional[str] 
-    caste: Optional[str] 
-    emergency_contact: Optional[str] = None
-    blood_group: Optional[str] = PydField(default=None, max_length=10)
-    employee_type: Optional[EmployeeType] = None
-    work_location: Optional[str] = PydField(default=None, max_length=120)
-    manager_employee_uid: Optional[uuid.UUID] = None
-    hr_employee_uid: Optional[uuid.UUID] = None
-    team_lead_employee_uid: Optional[uuid.UUID] = None
-    coordinator_employee_uid: Optional[uuid.UUID] = None
-    role_type: Optional[uuid.UUID] = None
-
+    position: Optional[str] = " "
+    department: Optional[str] = " "
+    email: Optional[EmailStr] = " "
+    phone: Optional[str] = " "
+    join_date: Optional[date] = " "
+    status: Optional[EmployeeStatus] = " "
+    birth_date: Optional[date] = " "
+    address: Optional[str] = " "
+    gender: Optional[str] = " "
+    caste: Optional[str] = " "
+    emergency_contact: Optional[str] = " "
+    blood_group: Optional[str] = " "
+    employee_type: Optional[EmployeeType] = " "
+    work_location: Optional[str] = " "
+    manager_employee_uid: Optional[uuid.UUID] = " "
+    hr_employee_uid: Optional[uuid.UUID] = " "
+    team_lead_employee_uid: Optional[uuid.UUID] = " "
+    coordinator_employee_uid: Optional[uuid.UUID] = " "
+    role_type: Optional[uuid.UUID] = " "
 
 ###### Upload Profile Image and Nick Name ###########3
 class EmployeeProfileRead(BaseModel):
@@ -116,9 +115,9 @@ class EmployeeNickNameUpdate(BaseModel):
 class EmployeeProfileImageResponse(BaseModel):
     detail: str
     employee_uid: uuid.UUID
-    profile_image: Optional[str] = None
-    nick_name: Optional[str] = None
+    profile_image: Optional[str] = " "
+    nick_name: Optional[str] = " "
 
 class EmployeeProfileImageRead(BaseModel):
     uid: uuid.UUID
-    profile_image: Optional[str] = None
+    profile_image: Optional[str] = " "

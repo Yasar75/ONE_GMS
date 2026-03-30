@@ -43,6 +43,12 @@ export const endpoints = {
     byEmployee: (employeeUid) => `/api/v1/employee_documents/employee/${employeeUid}`,
     detail: (familyUid) => `/api/v1/employee_documents/${familyUid}`
   },
+  employeeWorkExperience: {
+    list: '/api/v1/employee_work_experience/',
+    create: '/api/v1/employee_work_experience/',
+    byEmployee: (employeeUid) => `/api/v1/employee_work_experience/employee/${employeeUid}`,
+    detail: (experienceUid) => `/api/v1/employee_work_experience/${experienceUid}`
+  },
   employeeMetadata: {
     list: '/api/v1/employee-metadata/',
     create: '/api/v1/employee-metadata/',

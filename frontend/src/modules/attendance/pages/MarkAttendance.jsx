@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../../../components/common/PageHeader.jsx'
 import CardShell from '../../../components/common/CardShell.jsx'
@@ -11,6 +11,7 @@ import { TableBadge, TableCellStack } from '../../../components/common/TablePrim
 import { useMyPunchLogsQuery } from '../../../hooks/attendance/useMyPunchLogsQuery.js'
 import { useMyRegularizationsQuery } from '../../../hooks/attendance/useMyRegularizationsQuery.js'
 import { attendanceService } from '../../../api/services/attendance.service.js'
+import { employeeService } from '../../../api/services/employee.service.js'
 import {
   PUNCH_CONTROL_CHANGED_EVENT,
   applyLocalPunchControl,
@@ -84,6 +85,15 @@ function buildRegularizationErrors(draft) {
   }
 }
 
+function formatShiftWindow(shift) {
+  const start = shift?.startTime ? formatTime(shift.startTime) : ''
+  const end = shift?.endTime ? formatTime(shift.endTime) : ''
+  if (!start && !end) return 'Schedule not available'
+  if (!start) return end
+  if (!end) return start
+  return `${start} - ${end}`
+}
+
 function RegularizationModal({ open, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit, isPending }) {
   return (
     <ModalFrame
@@ -136,10 +146,12 @@ export default function MarkAttendance() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { showStatus, runWithLoader, showConfirm } = useModal()
   const { user } = useAuth()
-  const canViewAttendanceTab = hasModuleVisibility(user, [...PERMISSION_MODULES.attendance, ...PERMISSION_MODULES.attendanceLogs])
-  const canViewRegularizationTab = hasModuleVisibility(user, PERMISSION_MODULES.attendanceRegularization)
-  const canSelfPunch = hasModulePermission(user, PERMISSION_MODULES.attendance, PERMISSION_ACTIONS.create)
-  const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.attendanceRegularization, PERMISSION_ACTIONS.create)
+  const canViewAttendanceLogs = hasModulePermission(user, PERMISSION_MODULES.myAttendancePreview, PERMISSION_ACTIONS.read)
+  const canSelfPunch = hasModulePermission(user, PERMISSION_MODULES.myAttendancePreview, PERMISSION_ACTIONS.create)
+  const canViewMyShift = hasModulePermission(user, PERMISSION_MODULES.myShift, PERMISSION_ACTIONS.read)
+  const canViewAttendanceTab = canViewAttendanceLogs || canSelfPunch
+  const canViewRegularizationTab = hasModuleVisibility(user, PERMISSION_MODULES.manageRegularization)
+  const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
 
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'attendance')
@@ -149,9 +161,34 @@ export default function MarkAttendance() {
   const [regularizationTouched, setRegularizationTouched] = useState({})
   const [punchControlVersion, setPunchControlVersion] = useState(0)
 
-  const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canViewAttendanceTab)
-  const todayLogsQuery = useMyPunchLogsQuery(todayDate, canViewAttendanceTab)
+  const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canViewAttendanceLogs || canSelfPunch)
+  const todayLogsQuery = useMyPunchLogsQuery(todayDate, canViewAttendanceLogs || canSelfPunch)
   const regularizationsQuery = useMyRegularizationsQuery(canViewRegularizationTab)
+  const currentEmployeeQuery = useQuery({
+    queryKey: ['employees', 'me', 'record', 'attendance'],
+    queryFn: () => employeeService.getCurrentEmployee(),
+    enabled: canViewMyShift,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false
+  })
+  const currentEmployeeUid = String(currentEmployeeQuery.data?.uid || user?.employeeUid || '')
+  const myShiftAssignmentQuery = useQuery({
+    queryKey: ['attendance', 'employee', 'my-shift', currentEmployeeUid],
+    queryFn: () => attendanceService.getEmployeeShiftAssignmentByEmployee(currentEmployeeUid),
+    enabled: canViewMyShift && Boolean(currentEmployeeUid),
+    retry: false,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false
+  })
+  const myShiftRosterQuery = useQuery({
+    queryKey: ['attendance', 'employee', 'my-shift-roster'],
+    queryFn: async () => attendanceService.getShiftRoster().catch(() => []),
+    enabled: canViewMyShift,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false
+  })
 
   const selectedLogsRaw = selectedLogsQuery.data || []
   const todayLogsRaw = todayLogsQuery.data || []
@@ -193,6 +230,20 @@ export default function MarkAttendance() {
   const todaySession = useMemo(() => getPunchSessionState(todayLogs), [todayLogs])
   const selectedSession = useMemo(() => getPunchSessionState(selectedLogs), [selectedLogs])
   const latestRegularizationStatus = useMemo(() => getLatestRegularizationStatus(regularizations), [regularizations])
+  const myShiftDetails = useMemo(() => {
+    const assignment = myShiftAssignmentQuery.data
+    if (!assignment) return null
+
+    const shift = (myShiftRosterQuery.data || []).find((entry) => String(entry.uid) === String(assignment.shiftUid)) || null
+    return {
+      ...assignment,
+      shiftName: shift?.name || 'Assigned shift',
+      shiftCode: shift?.code || (assignment.shiftUid ? String(assignment.shiftUid).slice(0, 8).toUpperCase() : '—'),
+      shiftWindow: formatShiftWindow(shift),
+      shiftActive: shift?.isActive ?? null,
+      hasRosterDetails: Boolean(shift)
+    }
+  }, [myShiftAssignmentQuery.data, myShiftRosterQuery.data])
   const attendanceStateLabel = todaySession.isClockedIn ? 'Clocked In' : todaySession.hasSoftPunchOut ? 'Paused' : todaySession.totalPunches > 0 ? 'Completed' : 'Ready'
   const elapsedSeconds = useMemo(() => Number(todaySession.workedSeconds || 0), [todaySession.workedSeconds])
   const regularizationErrors = useMemo(() => buildRegularizationErrors(regularizationDraft), [regularizationDraft])
@@ -406,27 +457,63 @@ export default function MarkAttendance() {
       {activeTab === 'attendance' ? (
         <>
           <div className="row g-3">
-            {canSelfPunch ? (
+            {canSelfPunch || canViewMyShift ? (
               <div className="col-12 col-lg-5">
-                <CardShell title="Punch In / Punch Out">
-                  <PunchSessionCard
-                    title="Today’s attendance actions"
-                    attendanceStateLabel={attendanceStateLabel}
-                    session={{ ...todaySession, totalWorkedHours: null }}
-                    elapsedSeconds={elapsedSeconds}
-                    dateValue={todayDate}
-                    onPunchIn={handlePunchIn}
-                    onSoftPunchOut={handleSoftPunchOut}
-                    onFinalPunchOut={handleFinalPunchOut}
-                    isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
-                    note={todaySession.isClockedIn ? 'You are currently clocked in. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
-                    secondaryNote="Employees and admins can both add their own time entries from this module."
-                  />
-                </CardShell>
+                <div className="d-flex flex-column gap-3">
+                  {canViewMyShift ? (
+                    <CardShell title="My Shift">
+                      {currentEmployeeQuery.isLoading || myShiftAssignmentQuery.isLoading ? (
+                        <div className="text-muted small">Loading assigned shift details…</div>
+                      ) : currentEmployeeQuery.isError ? (
+                        <div className="attendance-note-card mb-0">
+                          Your employee record could not be resolved for shift lookup.
+                        </div>
+                      ) : myShiftAssignmentQuery.isError ? (
+                        <div className="attendance-note-card mb-0">
+                          Assigned shift details are currently unavailable from the backend.
+                        </div>
+                      ) : myShiftDetails ? (
+                        <div className="d-flex flex-column gap-3">
+                          <div className="attendance-log-strip mb-0">
+                            <div><div className="attendance-detail-label">Shift</div><div className="attendance-detail-value">{myShiftDetails.shiftName}</div></div>
+                            <div><div className="attendance-detail-label">Code</div><div className="attendance-detail-value">{myShiftDetails.shiftCode}</div></div>
+                            <div><div className="attendance-detail-label">Status</div><div className="attendance-detail-value">{myShiftDetails.isActive ? 'Assigned' : 'Inactive'}</div></div>
+                          </div>
+                          <div className="attendance-note-card mb-0">
+                            Scheduled window: <strong>{myShiftDetails.shiftWindow}</strong>.
+                            {!myShiftDetails.hasRosterDetails ? ' Full shift timing is not returned by the current My Shift API, so this card is showing the linked assignment only.' : ''}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="attendance-note-card mb-0">
+                          No active shift has been assigned yet. Once an admin assigns one, it will appear here above the punch card.
+                        </div>
+                      )}
+                    </CardShell>
+                  ) : null}
+
+                  {canSelfPunch ? (
+                    <CardShell title="Punch In / Punch Out">
+                      <PunchSessionCard
+                        title="Today’s attendance actions"
+                        attendanceStateLabel={attendanceStateLabel}
+                        session={{ ...todaySession, totalWorkedHours: null }}
+                        elapsedSeconds={elapsedSeconds}
+                        dateValue={todayDate}
+                        onPunchIn={handlePunchIn}
+                        onSoftPunchOut={handleSoftPunchOut}
+                        onFinalPunchOut={handleFinalPunchOut}
+                        isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
+                        note={todaySession.isClockedIn ? 'You are currently clocked in. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
+                        secondaryNote="Employees and admins can both add their own time entries from this module."
+                      />
+                    </CardShell>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
-            <div className={`col-12 ${canSelfPunch ? 'col-lg-7' : ''}`.trim()}>
+            <div className={`col-12 ${canSelfPunch || canViewMyShift ? 'col-lg-7' : ''}`.trim()}>
               <CardShell title="Daily Log Inspector" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.xls`)} align="end" />}>
                 <div className="attendance-toolbar mb-3">
                   <div className="employee-toolbar-left">

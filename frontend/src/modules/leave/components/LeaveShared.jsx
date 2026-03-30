@@ -679,17 +679,22 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const { showToast } = useToast()
   const calendarImportRef = useRef(null)
   const isManagementWorkspace = workspaceType === 'management'
-  const canViewHolidayTab = hasModuleVisibility(user, PERMISSION_MODULES.holidayCalendar)
-  const canViewManagementTab = isManagementWorkspace && hasModuleVisibility(user, [...PERMISSION_MODULES.leaveType, ...PERMISSION_MODULES.assignLeave])
-  const canViewApplyTab = hasModuleVisibility(user, PERMISSION_MODULES.leaveRequest)
   const canCreateHolidayEntries = hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, PERMISSION_ACTIONS.create)
   const canUpdateHolidayEntries = hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, PERMISSION_ACTIONS.update)
   const canDeleteHolidayEntries = hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, PERMISSION_ACTIONS.delete)
+  const canReadHolidayCalendar = hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, PERMISSION_ACTIONS.read)
+  const canViewHolidayTab = canReadHolidayCalendar || canCreateHolidayEntries || canUpdateHolidayEntries || canDeleteHolidayEntries
+  const canViewManagementTab = isManagementWorkspace && hasModuleVisibility(user, [...PERMISSION_MODULES.leaveType, ...PERMISSION_MODULES.assignLeave])
+  const canViewLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.read)
+  const canViewMyLeaveBalance = hasModulePermission(user, PERMISSION_MODULES.myLeaveBalance, PERMISSION_ACTIONS.read)
+  const canViewManageLeaveQueue = isManagementWorkspace && hasModulePermission(user, PERMISSION_MODULES.manageLeave, PERMISSION_ACTIONS.read)
   const canCreateLeaveType = hasModulePermission(user, PERMISSION_MODULES.leaveType, PERMISSION_ACTIONS.create)
   const canUpdateLeaveType = hasModulePermission(user, PERMISSION_MODULES.leaveType, PERMISSION_ACTIONS.update)
   const canManageAllocations = hasAnyModulePermission(user, PERMISSION_MODULES.assignLeave, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
   const canCreateLeaveRequest = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.create)
-  const canReviewLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.update)
+  const canReviewLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.manageLeave, PERMISSION_ACTIONS.create)
+  const canAccessManageLeaveQueue = canViewManageLeaveQueue || canReviewLeaveRequests
+  const canViewApplyTab = canCreateLeaveRequest || canViewLeaveRequests || canViewMyLeaveBalance || canAccessManageLeaveQueue
   const resolvedTabs = Array.isArray(tabs) && tabs.length
     ? tabs
     : (isManagementWorkspace
@@ -744,7 +749,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(holidaysQueryKey, () => leaveService.getHolidayCalendar(Number(selectedYear))),
     initialData: () => readCachedQuery(holidaysQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(holidaysQueryKey),
-    enabled: canViewHolidayTab,
+    enabled: canReadHolidayCalendar,
     staleTime: 60 * 1000,
     gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false
@@ -755,7 +760,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(leaveTypesQueryKey, leaveService.getLeaveTypes),
     initialData: () => readCachedQuery(leaveTypesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(leaveTypesQueryKey),
-    enabled: canViewManagementTab || canViewApplyTab,
+    enabled: canViewManagementTab || canCreateLeaveRequest || canViewLeaveRequests || canViewMyLeaveBalance || canAccessManageLeaveQueue,
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false
@@ -766,7 +771,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(employeesQueryKey, employeeService.getLookupDirectory),
     initialData: () => readCachedQuery(employeesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(employeesQueryKey),
-    enabled: isManagementWorkspace && (canViewManagementTab || canViewApplyTab),
+    enabled: isManagementWorkspace && (canViewManagementTab || canAccessManageLeaveQueue),
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false
@@ -817,7 +822,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(myRequestsQueryKey, leaveService.getMyLeaveRequests),
     initialData: () => readCachedQuery(myRequestsQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(myRequestsQueryKey),
-    enabled: canViewApplyTab,
+    enabled: canViewLeaveRequests || canCreateLeaveRequest,
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
@@ -847,7 +852,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(myBalancesQueryKey, () => leaveService.getMyLeaveBalances(currentEmployeeUid, Number(selectedYear))),
     initialData: () => readCachedQuery(myBalancesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(myBalancesQueryKey),
-    enabled: canViewApplyTab && Boolean(currentEmployeeUid),
+    enabled: canViewMyLeaveBalance && Boolean(currentEmployeeUid),
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
@@ -859,7 +864,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(employeeBalancesQueryKey, () => leaveService.getEmployeeLeaveBalances(selectedEmployeeUid, Number(selectedYear))),
     initialData: () => readCachedQuery(employeeBalancesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(employeeBalancesQueryKey),
-    enabled: Boolean(isManagementWorkspace && selectedEmployeeUid),
+    enabled: Boolean(isManagementWorkspace && canViewMyLeaveBalance && selectedEmployeeUid),
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
@@ -871,7 +876,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(pendingRequestsQueryKey, leaveService.getPendingLeaveRequests),
     initialData: () => readCachedQuery(pendingRequestsQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(pendingRequestsQueryKey),
-    enabled: isManagementWorkspace && canViewApplyTab,
+    enabled: canAccessManageLeaveQueue,
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
@@ -884,7 +889,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(leavePreviewQueryKey, () => leaveService.previewLeaveDays(leaveForm.startDate, leaveForm.endDate)),
     initialData: () => readCachedQuery(leavePreviewQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(leavePreviewQueryKey),
-    enabled: previewEnabled && canViewApplyTab,
+    enabled: previewEnabled && (canViewLeaveRequests || canCreateLeaveRequest),
     retry: 0,
     staleTime: 30 * 1000,
     gcTime: 10 * 60 * 1000,
@@ -935,23 +940,27 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
         return {
           value: leaveType.uid,
           label: `${leaveType.name} (${leaveType.code})`,
-          description: balance
+          description: !canViewMyLeaveBalance
+            ? 'Balance visibility depends on your role access.'
+            : (balance
             ? `Available ${formatLeaveDays(balance.availableBalance)} of ${formatLeaveDays(entitlementDays)} days`
-            : 'Not allocated for the selected policy year yet'
+            : 'Not allocated for the selected policy year yet')
         }
       })
 
     return mappedOptions.sort((left, right) => String(left.label || '').localeCompare(String(right.label || '')))
-  }, [leaveTypes, requestBalanceByLeaveType])
+  }, [canViewMyLeaveBalance, leaveTypes, requestBalanceByLeaveType])
   const selectedRequestBalance = useMemo(() => requestBalanceByLeaveType.get(String(leaveForm.leaveTypeUid)) || null, [leaveForm.leaveTypeUid, requestBalanceByLeaveType])
   const selectedRequestLeaveType = useMemo(() => leaveTypeMap.get(leaveForm.leaveTypeUid) || null, [leaveForm.leaveTypeUid, leaveTypeMap])
-  const selectedRequestHasLedger = Boolean(selectedRequestBalance)
+  const canValidateRequestBalance = canViewMyLeaveBalance
+  const selectedRequestHasLedger = canValidateRequestBalance ? Boolean(selectedRequestBalance) : true
   const requestedAppliedDays = Number(leavePreviewQuery.data?.appliedDays || 0)
-  const missingRequestBalanceMessage = leaveForm.leaveTypeUid && !selectedRequestHasLedger
+  const missingRequestBalanceMessage = canValidateRequestBalance && leaveForm.leaveTypeUid && !selectedRequestHasLedger
     ? `${selectedRequestLeaveType ? `${selectedRequestLeaveType.name} (${selectedRequestLeaveType.code})` : 'Selected leave type'} is not allocated for policy year ${selectedYear} yet. Please contact the leave management team or generate/grant the leave balance first.`
     : ''
   const insufficientLeaveBalance = Boolean(
-    selectedRequestHasLedger
+    canValidateRequestBalance
+    && selectedRequestHasLedger
     && previewEnabled
     && leavePreviewQuery.data
     && requestedAppliedDays > Number(selectedRequestBalance.availableBalance || 0)
@@ -1979,43 +1988,45 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             </div>
           </CardShell>
 
-          <CardShell className="leave-section-card leave-section-card--ledger" title={`Balance Ledger${selectedEmployee ? ` • ${selectedEmployee.fullName}` : ''}`}>
-            <PaginatedTable rows={sortedEmployeeBalances}>
-              {({ rows: paginatedRows }) => (
-                <table className="table employee-table workspace-table align-middle mb-0">
-                  <thead>
-                    <tr>
-                      <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Opening" sortKey="opening" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Annual" sortKey="annual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Carry Forward" sortKey="carryForward" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Manual" sortKey="manual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Used" sortKey="used" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Pending" sortKey="pending" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Available" sortKey="available" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedEmployeeUid ? (paginatedRows.length ? paginatedRows.map((balance) => {
-                      const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
-                      return (
-                        <tr key={balance.uid}>
-                          <td>{leaveType ? `${leaveType.name} (${leaveType.code})` : balance.leaveTypeUid}</td>
-                          <td>{formatLeaveDays(balance.openingBalance)}</td>
-                          <td>{formatLeaveDays(balance.annualAllocation)}</td>
-                          <td>{formatLeaveDays(balance.carryForwardIn)}</td>
-                          <td>{formatLeaveDays(balance.manualGranted)}</td>
-                          <td>{formatLeaveDays(balance.usedDays)}</td>
-                          <td>{formatLeaveDays(balance.pendingDays)}</td>
-                          <td className="fw-semibold">{formatLeaveDays(balance.availableBalance)}</td>
-                        </tr>
-                      )
-                    }) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No balance ledger exists for this employee and year yet. Assign a leave type to start building the ledger.</div></td></tr>) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">Choose an employee first to inspect the assigned leave balances.</div></td></tr>}
-                  </tbody>
-                </table>
-              )}
-            </PaginatedTable>
-          </CardShell>
+          {canViewMyLeaveBalance ? (
+            <CardShell className="leave-section-card leave-section-card--ledger" title={`Balance Ledger${selectedEmployee ? ` • ${selectedEmployee.fullName}` : ''}`}>
+              <PaginatedTable rows={sortedEmployeeBalances}>
+                {({ rows: paginatedRows }) => (
+                  <table className="table employee-table workspace-table align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Opening" sortKey="opening" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Annual" sortKey="annual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Carry Forward" sortKey="carryForward" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Manual" sortKey="manual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Used" sortKey="used" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Pending" sortKey="pending" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Available" sortKey="available" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedEmployeeUid ? (paginatedRows.length ? paginatedRows.map((balance) => {
+                        const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
+                        return (
+                          <tr key={balance.uid}>
+                            <td>{leaveType ? `${leaveType.name} (${leaveType.code})` : balance.leaveTypeUid}</td>
+                            <td>{formatLeaveDays(balance.openingBalance)}</td>
+                            <td>{formatLeaveDays(balance.annualAllocation)}</td>
+                            <td>{formatLeaveDays(balance.carryForwardIn)}</td>
+                            <td>{formatLeaveDays(balance.manualGranted)}</td>
+                            <td>{formatLeaveDays(balance.usedDays)}</td>
+                            <td>{formatLeaveDays(balance.pendingDays)}</td>
+                            <td className="fw-semibold">{formatLeaveDays(balance.availableBalance)}</td>
+                          </tr>
+                        )
+                      }) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No balance ledger exists for this employee and year yet. Assign a leave type to start building the ledger.</div></td></tr>) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">Choose an employee first to inspect the assigned leave balances.</div></td></tr>}
+                    </tbody>
+                  </table>
+                )}
+              </PaginatedTable>
+            </CardShell>
+          ) : null}
         </>
       ) : null}
 
@@ -2039,136 +2050,143 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             )}
           </div>
 
-          <CardShell title="Leave Request Planner">
-            <div className="row g-3">
-              <div className="col-12 col-md-3">
-                <label className="form-label">Policy Year</label>
-                <AppSelect value={selectedYear} onChange={(value) => setSelectedYear(String(value))} options={yearOptions} />
-              </div>
-              <div className="col-12 col-md-3">
-                <label className="form-label">Leave Type</label>
-                <AppSelect name="leaveTypeUid" value={leaveForm.leaveTypeUid} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} options={requestLeaveTypeOptions} placeholder="Select leave type" invalid={Boolean(leaveFormTouched.leaveTypeUid && leaveFormErrors.leaveTypeUid)} />
-                {leaveFormTouched.leaveTypeUid && leaveFormErrors.leaveTypeUid ? <div className="invalid-feedback d-block">{leaveFormErrors.leaveTypeUid}</div> : null}
-              </div>
-              <div className="col-12 col-md-3">
-                <label className="form-label">Start Date</label>
-                <input className={`form-control${leaveFormTouched.startDate && leaveFormErrors.startDate ? ' is-invalid' : ''}`} type="date" name="startDate" value={leaveForm.startDate} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} />
-                {leaveFormTouched.startDate && leaveFormErrors.startDate ? <div className="invalid-feedback d-block">{leaveFormErrors.startDate}</div> : null}
-              </div>
-              <div className="col-12 col-md-3">
-                <label className="form-label">End Date</label>
-                <input className={`form-control${leaveFormTouched.endDate && leaveFormErrors.endDate ? ' is-invalid' : ''}`} type="date" name="endDate" value={leaveForm.endDate} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} min={leaveForm.startDate || undefined} />
-                {leaveFormTouched.endDate && leaveFormErrors.endDate ? <div className="invalid-feedback d-block">{leaveFormErrors.endDate}</div> : null}
-              </div>
-              <div className="col-12">
-                <label className="form-label">Reason</label>
-                <textarea className={`form-control${leaveFormTouched.reason && leaveFormErrors.reason ? ' is-invalid' : ''}`} rows="4" name="reason" value={leaveForm.reason} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} placeholder="Capture the business context for the leave request." />
-                {leaveFormTouched.reason && leaveFormErrors.reason ? <div className="invalid-feedback d-block">{leaveFormErrors.reason}</div> : null}
-              </div>
-              <div className="col-12 col-lg-8">
-                <div className="leave-preview-card h-100">
-                  <div className="leave-preview-card__title">Leave Day Preview</div>
-                  {previewEnabled && leavePreviewQuery.data ? (
-                    <div className="leave-preview-grid">
-                      <div><span>Applied Days</span><strong>{formatLeaveDays(leavePreviewQuery.data.appliedDays)}</strong></div>
-                      <div><span>Calendar Days</span><strong>{leavePreviewQuery.data.totalCalendarDays}</strong></div>
-                      <div><span>Weekends Excluded</span><strong>{leavePreviewQuery.data.excludedWeekends.length}</strong></div>
-                      <div><span>Holidays Excluded</span><strong>{leavePreviewQuery.data.excludedHolidays.length}</strong></div>
-                    </div>
-                  ) : (
-                    <div className="small text-muted">Choose a valid start and end date to preview applied leave days.</div>
-                  )}
-                  {leavePreviewQuery.isError ? <div className="text-danger small mt-2">{getErrorMessage(leavePreviewQuery.error)}</div> : null}
-                  {missingRequestBalanceMessage ? <div className="alert alert-warning mt-3 mb-0">{missingRequestBalanceMessage}</div> : null}
-                  {insufficientLeaveBalanceMessage ? <div className="alert alert-warning mt-3 mb-0">{insufficientLeaveBalanceMessage}</div> : null}
+          {(canViewLeaveRequests || canCreateLeaveRequest) ? (
+            <CardShell title="Leave Request Planner">
+              <div className="row g-3">
+                <div className="col-12 col-md-3">
+                  <label className="form-label">Policy Year</label>
+                  <AppSelect value={selectedYear} onChange={(value) => setSelectedYear(String(value))} options={yearOptions} />
                 </div>
-              </div>
-              <div className="col-12 col-lg-4 d-flex align-items-end">
-                <div className="leave-preview-card w-100 h-100 d-flex flex-column justify-content-between">
-                  <div>
-                    <div className="leave-preview-card__title">Submission Guidance</div>
-                    <div className="small text-muted">The request uses the backend leave preview API, which excludes weekends and active holidays before submission.</div>
-                    {selectedRequestBalance ? <div className="small text-muted mt-2">Available balance for the selected leave type: <strong>{formatLeaveDays(selectedRequestBalance.availableBalance)}</strong> day(s).</div> : null}
-                    {missingRequestBalanceMessage ? <div className="text-warning small mt-2">{missingRequestBalanceMessage}</div> : null}
-                    {insufficientLeaveBalanceMessage ? <div className="text-warning small mt-2">{insufficientLeaveBalanceMessage}</div> : null}
+                <div className="col-12 col-md-3">
+                  <label className="form-label">Leave Type</label>
+                  <AppSelect name="leaveTypeUid" value={leaveForm.leaveTypeUid} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} options={requestLeaveTypeOptions} placeholder="Select leave type" invalid={Boolean(leaveFormTouched.leaveTypeUid && leaveFormErrors.leaveTypeUid)} />
+                  {leaveFormTouched.leaveTypeUid && leaveFormErrors.leaveTypeUid ? <div className="invalid-feedback d-block">{leaveFormErrors.leaveTypeUid}</div> : null}
+                </div>
+                <div className="col-12 col-md-3">
+                  <label className="form-label">Start Date</label>
+                  <input className={`form-control${leaveFormTouched.startDate && leaveFormErrors.startDate ? ' is-invalid' : ''}`} type="date" name="startDate" value={leaveForm.startDate} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} />
+                  {leaveFormTouched.startDate && leaveFormErrors.startDate ? <div className="invalid-feedback d-block">{leaveFormErrors.startDate}</div> : null}
+                </div>
+                <div className="col-12 col-md-3">
+                  <label className="form-label">End Date</label>
+                  <input className={`form-control${leaveFormTouched.endDate && leaveFormErrors.endDate ? ' is-invalid' : ''}`} type="date" name="endDate" value={leaveForm.endDate} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} min={leaveForm.startDate || undefined} />
+                  {leaveFormTouched.endDate && leaveFormErrors.endDate ? <div className="invalid-feedback d-block">{leaveFormErrors.endDate}</div> : null}
+                </div>
+                <div className="col-12">
+                  <label className="form-label">Reason</label>
+                  <textarea className={`form-control${leaveFormTouched.reason && leaveFormErrors.reason ? ' is-invalid' : ''}`} rows="4" name="reason" value={leaveForm.reason} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} placeholder="Capture the business context for the leave request." />
+                  {leaveFormTouched.reason && leaveFormErrors.reason ? <div className="invalid-feedback d-block">{leaveFormErrors.reason}</div> : null}
+                </div>
+                <div className="col-12 col-lg-8">
+                  <div className="leave-preview-card h-100">
+                    <div className="leave-preview-card__title">Leave Day Preview</div>
+                    {previewEnabled && leavePreviewQuery.data ? (
+                      <div className="leave-preview-grid">
+                        <div><span>Applied Days</span><strong>{formatLeaveDays(leavePreviewQuery.data.appliedDays)}</strong></div>
+                        <div><span>Calendar Days</span><strong>{leavePreviewQuery.data.totalCalendarDays}</strong></div>
+                        <div><span>Weekends Excluded</span><strong>{leavePreviewQuery.data.excludedWeekends.length}</strong></div>
+                        <div><span>Holidays Excluded</span><strong>{leavePreviewQuery.data.excludedHolidays.length}</strong></div>
+                      </div>
+                    ) : (
+                      <div className="small text-muted">Choose a valid start and end date to preview applied leave days.</div>
+                    )}
+                    {leavePreviewQuery.isError ? <div className="text-danger small mt-2">{getErrorMessage(leavePreviewQuery.error)}</div> : null}
+                    {missingRequestBalanceMessage ? <div className="alert alert-warning mt-3 mb-0">{missingRequestBalanceMessage}</div> : null}
+                    {insufficientLeaveBalanceMessage ? <div className="alert alert-warning mt-3 mb-0">{insufficientLeaveBalanceMessage}</div> : null}
                   </div>
-                  <button type="button" className="btn btn-primary w-100 mt-3" disabled={!canCreateLeaveRequest || !currentEmployeeUid || !leaveForm.leaveTypeUid || !leaveForm.startDate || !leaveForm.endDate || !previewEnabled || !selectedRequestHasLedger || insufficientLeaveBalance || requestedAppliedDays <= 0} onClick={submitLeaveRequest}>Submit Request</button>
+                </div>
+                <div className="col-12 col-lg-4 d-flex align-items-end">
+                  <div className="leave-preview-card w-100 h-100 d-flex flex-column justify-content-between">
+                    <div>
+                      <div className="leave-preview-card__title">Submission Guidance</div>
+                      <div className="small text-muted">The request uses the backend leave preview API, which excludes weekends and active holidays before submission.</div>
+                      {selectedRequestBalance ? <div className="small text-muted mt-2">Available balance for the selected leave type: <strong>{formatLeaveDays(selectedRequestBalance.availableBalance)}</strong> day(s).</div> : null}
+                      {!canViewMyLeaveBalance ? <div className="small text-muted mt-2">Leave balance visibility is not enabled for your role. The backend will validate availability when you submit the request.</div> : null}
+                      {missingRequestBalanceMessage ? <div className="text-warning small mt-2">{missingRequestBalanceMessage}</div> : null}
+                      {insufficientLeaveBalanceMessage ? <div className="text-warning small mt-2">{insufficientLeaveBalanceMessage}</div> : null}
+                    </div>
+                    <button type="button" className="btn btn-primary w-100 mt-3" disabled={!canCreateLeaveRequest || !currentEmployeeUid || !leaveForm.leaveTypeUid || !leaveForm.startDate || !leaveForm.endDate || !previewEnabled || !selectedRequestHasLedger || insufficientLeaveBalance || requestedAppliedDays <= 0} onClick={submitLeaveRequest}>Submit Request</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </CardShell>
+            </CardShell>
+          ) : null}
 
-          <CardShell title="My Leave Balance">
-            {!currentEmployeeUid && !isResolvingCurrentEmployee ? <div className="alert alert-warning mb-0">Your leave balance could not be resolved from the current account yet. Once your account has at least one linked attendance, regularization, or leave request record, the balance ledger will load here automatically.</div> : myBalancesQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myBalancesQuery.error, 'Your leave balance could not be loaded.')}</div> : (
-              <PaginatedTable rows={sortedMyBalances}>
-                {({ rows: paginatedRows }) => (
-                  <table className="table employee-table workspace-table align-middle mb-0">
-                    <thead>
-                      <tr>
-                        <th><SortableHeader label="Leave" sortKey="leave" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                        <th><SortableHeader label="Allocated" sortKey="allocated" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                        <th><SortableHeader label="Used" sortKey="used" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                        <th><SortableHeader label="Pending" sortKey="pending" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                        <th><SortableHeader label="Available" sortKey="available" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedRows.length ? paginatedRows.map((balance) => {
-                        const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
-                        return (
-                          <tr key={balance.uid}>
-                            <td><TableCellStack title={leaveType ? leaveType.name : balance.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
-                            <td><TableBadge value={formatLeaveDays(getBalanceEntitlementDays(balance))} tone="blue" /></td>
-                            <td><TableBadge value={formatLeaveDays(balance.usedDays)} tone="danger" /></td>
-                            <td><TableBadge value={formatLeaveDays(balance.pendingDays)} tone="orange" /></td>
-                            <td><TableBadge value={formatLeaveDays(balance.availableBalance)} tone="success" /></td>
-                          </tr>
-                        )
-                      }) : <tr><td colSpan="5"><div className="employee-empty-state text-center py-5 text-muted">No leave balance is available for the selected year yet.</div></td></tr>}
-                    </tbody>
-                  </table>
-                )}
-              </PaginatedTable>
-            )}
-          </CardShell>
+          {canViewMyLeaveBalance ? (
+            <CardShell title="My Leave Balance">
+              {!currentEmployeeUid && !isResolvingCurrentEmployee ? <div className="alert alert-warning mb-0">Your leave balance could not be resolved from the current account yet. Once your account has at least one linked attendance, regularization, or leave request record, the balance ledger will load here automatically.</div> : myBalancesQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myBalancesQuery.error, 'Your leave balance could not be loaded.')}</div> : (
+                <PaginatedTable rows={sortedMyBalances}>
+                  {({ rows: paginatedRows }) => (
+                    <table className="table employee-table workspace-table align-middle mb-0">
+                      <thead>
+                        <tr>
+                          <th><SortableHeader label="Leave" sortKey="leave" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                          <th><SortableHeader label="Allocated" sortKey="allocated" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                          <th><SortableHeader label="Used" sortKey="used" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                          <th><SortableHeader label="Pending" sortKey="pending" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                          <th><SortableHeader label="Available" sortKey="available" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedRows.length ? paginatedRows.map((balance) => {
+                          const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
+                          return (
+                            <tr key={balance.uid}>
+                              <td><TableCellStack title={leaveType ? leaveType.name : balance.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
+                              <td><TableBadge value={formatLeaveDays(getBalanceEntitlementDays(balance))} tone="blue" /></td>
+                              <td><TableBadge value={formatLeaveDays(balance.usedDays)} tone="danger" /></td>
+                              <td><TableBadge value={formatLeaveDays(balance.pendingDays)} tone="orange" /></td>
+                              <td><TableBadge value={formatLeaveDays(balance.availableBalance)} tone="success" /></td>
+                            </tr>
+                          )
+                        }) : <tr><td colSpan="5"><div className="employee-empty-state text-center py-5 text-muted">No leave balance is available for the selected year yet.</div></td></tr>}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTable>
+              )}
+            </CardShell>
+          ) : null}
 
-          <CardShell title="My Leave Requests">
-            {myRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myRequestsQuery.error, 'Your leave requests could not be loaded.')}</div> : (
-              <PaginatedTable rows={sortedMyRequests}>
-                {({ rows: paginatedRows }) => (
-                  <table className="table employee-table workspace-table align-middle mb-0">
-                    <thead>
-                      <tr>
-                        <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Status" sortKey="status" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Reason" sortKey="reason" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedRows.length ? paginatedRows.map((request) => {
-                        const leaveType = leaveTypeMap.get(request.leaveTypeUid)
-                        return (
-                          <tr key={request.uid}>
-                            <td><TableCellStack title={leaveType ? leaveType.name : request.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
-                            <td><TableCellStack title={`${formatLeaveDate(request.startDate)} to ${formatLeaveDate(request.endDate)}`} subtitle={`${request.startDate} → ${request.endDate}`} /></td>
-                            <td><TableBadge value={formatLeaveDays(request.appliedDays)} tone="blue" /></td>
-                            <td><LeaveStatusBadge status={request.status} /></td>
-                            <td className="small text-muted">{request.reason || '—'}</td>
-                            <td className="small text-muted">{request.reviewerNote || '—'}</td>
-                          </tr>
-                        )
-                      }) : <tr><td colSpan="6"><div className="employee-empty-state text-center py-5 text-muted">No leave requests have been raised yet.</div></td></tr>}
-                    </tbody>
-                  </table>
-                )}
-              </PaginatedTable>
-            )}
-          </CardShell>
+          {(canViewLeaveRequests || canCreateLeaveRequest) ? (
+            <CardShell title="My Leave Requests">
+              {myRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myRequestsQuery.error, 'Your leave requests could not be loaded.')}</div> : (
+                <PaginatedTable rows={sortedMyRequests}>
+                  {({ rows: paginatedRows }) => (
+                    <table className="table employee-table workspace-table align-middle mb-0">
+                      <thead>
+                        <tr>
+                          <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                          <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                          <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                          <th><SortableHeader label="Status" sortKey="status" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                          <th><SortableHeader label="Reason" sortKey="reason" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                          <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedRows.length ? paginatedRows.map((request) => {
+                          const leaveType = leaveTypeMap.get(request.leaveTypeUid)
+                          return (
+                            <tr key={request.uid}>
+                              <td><TableCellStack title={leaveType ? leaveType.name : request.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
+                              <td><TableCellStack title={`${formatLeaveDate(request.startDate)} to ${formatLeaveDate(request.endDate)}`} subtitle={`${request.startDate} → ${request.endDate}`} /></td>
+                              <td><TableBadge value={formatLeaveDays(request.appliedDays)} tone="blue" /></td>
+                              <td><LeaveStatusBadge status={request.status} /></td>
+                              <td className="small text-muted">{request.reason || '—'}</td>
+                              <td className="small text-muted">{request.reviewerNote || '—'}</td>
+                            </tr>
+                          )
+                        }) : <tr><td colSpan="6"><div className="employee-empty-state text-center py-5 text-muted">No leave requests have been raised yet.</div></td></tr>}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTable>
+              )}
+            </CardShell>
+          ) : null}
 
-          {isManagementWorkspace ? (
+          {isManagementWorkspace && canAccessManageLeaveQueue ? (
             <CardShell title="Team Leave Requests">
               {pendingRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(pendingRequestsQuery.error, 'Employee leave requests could not be loaded.')}</div> : (
                 <PaginatedTable rows={sortedPendingRequests}>

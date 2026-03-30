@@ -51,6 +51,7 @@ const DOCUMENT_TYPE_OPTIONS = [
 
 const NEW_DOCUMENT_UID = '__new_document__'
 const NEW_FAMILY_DETAIL_UID = '__new_family_detail__'
+const NEW_WORK_EXPERIENCE_UID = '__new_work_experience__'
 const SETUP_WRITE_PERMISSION_ACTIONS = ['c', 'u', 'd']
 
 function mergeSelectValues(seed = [], dynamic = []) {
@@ -360,6 +361,134 @@ function areFamilyDetailsEqual(left, right) {
   )
 }
 
+function emptyWorkExperienceDraft() {
+  return {
+    company_name: '',
+    job_title: '',
+    employment_type: '',
+    location: '',
+    start_date: '',
+    end_date: '',
+    is_current: false,
+    responsibilities: '',
+    last_salary: '',
+    reason_for_leaving: '',
+    remarks: ''
+  }
+}
+
+function buildWorkExperienceDraft(experience = null) {
+  if (!experience) return emptyWorkExperienceDraft()
+
+  return {
+    company_name: experience.companyName || '',
+    job_title: experience.jobTitle || '',
+    employment_type: experience.employmentType || '',
+    location: experience.location || '',
+    start_date: toInputDate(experience.startDate),
+    end_date: toInputDate(experience.endDate),
+    is_current: Boolean(experience.isCurrent),
+    responsibilities: experience.responsibilities || '',
+    last_salary: experience.lastSalary == null ? '' : String(experience.lastSalary),
+    reason_for_leaving: experience.reasonForLeaving || '',
+    remarks: experience.remarks || ''
+  }
+}
+
+function normalizeWorkExperienceText(value) {
+  const trimmed = String(value || '').trim()
+  return trimmed
+}
+
+function normalizeWorkExperienceCurrency(value) {
+  const trimmed = String(value || '').trim()
+  return trimmed
+}
+
+function hasWorkExperienceDraftValue(draft) {
+  if (!draft) return false
+  return Boolean(
+    normalizeWorkExperienceText(draft.company_name)
+    || normalizeWorkExperienceText(draft.job_title)
+    || normalizeWorkExperienceText(draft.employment_type)
+    || normalizeWorkExperienceText(draft.location)
+    || normalizeWorkExperienceText(draft.start_date)
+    || normalizeWorkExperienceText(draft.end_date)
+    || normalizeWorkExperienceText(draft.responsibilities)
+    || normalizeWorkExperienceCurrency(draft.last_salary)
+    || normalizeWorkExperienceText(draft.reason_for_leaving)
+    || normalizeWorkExperienceText(draft.remarks)
+    || draft.is_current
+  )
+}
+
+function calculateExperienceMonths(startDate, endDate = '', isCurrent = false) {
+  const start = startDate ? new Date(startDate) : null
+  const end = isCurrent || !endDate ? new Date() : new Date(endDate)
+  if (!start || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0
+
+  let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth())
+  if (end.getDate() >= start.getDate()) months += 1
+  return Math.max(months, 1)
+}
+
+function formatExperienceDuration(startDate, endDate = '', isCurrent = false) {
+  const totalMonths = calculateExperienceMonths(startDate, endDate, isCurrent)
+  if (!totalMonths) return '—'
+
+  const years = Math.floor(totalMonths / 12)
+  const months = totalMonths % 12
+  if (!years) return `${months} mo`
+  if (!months) return `${years} yr`
+  return `${years} yr ${months} mo`
+}
+
+function calculateExperienceYears(startDate, endDate = '', isCurrent = false) {
+  const totalMonths = calculateExperienceMonths(startDate, endDate, isCurrent)
+  if (!totalMonths) return null
+  return Number((totalMonths / 12).toFixed(2))
+}
+
+function buildWorkExperiencePayload(draft) {
+  return {
+    companyName: normalizeWorkExperienceText(draft.company_name),
+    jobTitle: normalizeWorkExperienceText(draft.job_title),
+    employmentType: normalizeWorkExperienceText(draft.employment_type),
+    location: normalizeWorkExperienceText(draft.location),
+    startDate: normalizeWorkExperienceText(draft.start_date),
+    endDate: draft.is_current ? '' : normalizeWorkExperienceText(draft.end_date),
+    isCurrent: Boolean(draft.is_current),
+    responsibilities: normalizeWorkExperienceText(draft.responsibilities),
+    yearsOfExperience: calculateExperienceYears(draft.start_date, draft.end_date, draft.is_current),
+    lastSalary: normalizeWorkExperienceCurrency(draft.last_salary),
+    reasonForLeaving: normalizeWorkExperienceText(draft.reason_for_leaving),
+    remarks: normalizeWorkExperienceText(draft.remarks)
+  }
+}
+
+function buildComparableWorkExperience(experience) {
+  if (!experience) return null
+  return buildWorkExperiencePayload(buildWorkExperienceDraft(experience))
+}
+
+function areWorkExperiencesEqual(left, right) {
+  if (!left || !right) return false
+
+  return (
+    left.companyName === right.companyName
+    && left.jobTitle === right.jobTitle
+    && left.employmentType === right.employmentType
+    && left.location === right.location
+    && left.startDate === right.startDate
+    && left.endDate === right.endDate
+    && left.isCurrent === right.isCurrent
+    && left.responsibilities === right.responsibilities
+    && String(left.lastSalary || '') === String(right.lastSalary || '')
+    && left.reasonForLeaving === right.reasonForLeaving
+    && left.remarks === right.remarks
+  )
+}
+
 const PROFILE_BASIC_REQUIRED_FIELDS = ['email', 'first_name', 'last_name', 'role_type', 'position', 'department', 'phone_local', 'join_date', 'status']
 
 function buildProfileBasicErrors(draft, canEditBasicDetails, dobBounds) {
@@ -424,6 +553,37 @@ function buildFamilyDetailErrors(draft) {
   }
 }
 
+function buildWorkExperienceErrors(draft) {
+  const hasValues = hasWorkExperienceDraftValue(draft)
+  if (!hasValues) {
+    return {
+      company_name: '',
+      job_title: '',
+      start_date: '',
+      end_date: ''
+    }
+  }
+
+  const startDateError = getDateValidationMessage(draft.start_date, { required: true, label: 'Start date' })
+  const endDateError = draft.is_current
+    ? ''
+    : (draft.end_date
+      ? getDateValidationMessage(draft.end_date, { label: 'End date' })
+      : '')
+
+  let rangeError = ''
+  if (!startDateError && !draft.is_current && draft.end_date && draft.start_date && draft.end_date < draft.start_date) {
+    rangeError = 'End date cannot be earlier than the start date.'
+  }
+
+  return {
+    company_name: getRequiredFieldMessage(draft.company_name, 'Company name'),
+    job_title: getRequiredFieldMessage(draft.job_title, 'Job title'),
+    start_date: startDateError,
+    end_date: endDateError || rangeError
+  }
+}
+
 function buildPasswordErrors(draft, mustChangePassword, passwordValidation) {
   const failedRule = passwordValidation.checks.find((entry) => !entry.passed)
 
@@ -445,8 +605,15 @@ function buildPasswordErrors(draft, mustChangePassword, passwordValidation) {
 export default function ProfilePage() {
   const { user, syncCurrentUser } = useAuth()
   const { showStatus, runWithLoader } = useModal()
-  const { data: metadataEntries = [] } = useEmployeeMetadataQuery()
-  const { data: roles = [] } = useRoleDirectoryQuery()
+  const isAdminUser = isAdminBypassUser(user)
+  const canLoadMetadata = isAdminUser
+    || hasAnyModulePermission(user, PERMISSION_MODULES.employeeMetadata, [PERMISSION_ACTIONS.read, PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update, PERMISSION_ACTIONS.delete])
+    || hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
+  const canLoadRoles = isAdminUser
+    || hasModulePermission(user, PERMISSION_MODULES.roles, PERMISSION_ACTIONS.read)
+    || hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
+  const { data: metadataEntries = [] } = useEmployeeMetadataQuery(canLoadMetadata)
+  const { data: roles = [] } = useRoleDirectoryQuery(canLoadRoles)
 
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState(null)
@@ -463,8 +630,12 @@ export default function ProfilePage() {
   const [familyDetailDraft, setFamilyDetailDraft] = useState(emptyFamilyDetailDraft())
   const [selectedFamilyDetailUid, setSelectedFamilyDetailUid] = useState('')
   const [isFamilyDetailEditorOpen, setIsFamilyDetailEditorOpen] = useState(false)
+  const [workExperienceDraft, setWorkExperienceDraft] = useState(emptyWorkExperienceDraft())
+  const [selectedWorkExperienceUid, setSelectedWorkExperienceUid] = useState('')
+  const [isWorkExperienceEditorOpen, setIsWorkExperienceEditorOpen] = useState(false)
   const [basicDetailsTouched, setBasicDetailsTouched] = useState({})
   const [familyDetailTouched, setFamilyDetailTouched] = useState({})
+  const [workExperienceTouched, setWorkExperienceTouched] = useState({})
   const [passwordDraft, setPasswordDraft] = useState({ current_password: '', new_password: '', confirm_new_password: '' })
   const [passwordTouched, setPasswordTouched] = useState({})
   const [passwordVisibility, setPasswordVisibility] = useState({ current_password: false, new_password: false, confirm_new_password: false })
@@ -512,7 +683,6 @@ export default function ProfilePage() {
   })), [roles])
   const statusOptions = useMemo(() => toFormOptions(mergeSelectValues(EMPLOYEE_STATUS_OPTIONS, [profileDraft.status])), [profileDraft.status])
 
-  const isAdminUser = isAdminBypassUser(user)
   const mustChangePassword = Boolean(user?.mustChangePassword)
   const hasLinkedEmployee = Boolean(profile?.employee?.uid)
   const basicDetailsDraft = useMemo(() => {
@@ -535,15 +705,19 @@ export default function ProfilePage() {
     || basicDetailsDraft.position
     || basicDetailsDraft.department
   )
-  const hasSkillWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.employeeSkills, SETUP_WRITE_PERMISSION_ACTIONS)
+  const hasSkillWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.mySkills, SETUP_WRITE_PERMISSION_ACTIONS)
   const hasDocumentWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.employeeDocuments, SETUP_WRITE_PERMISSION_ACTIONS)
-  const hasFamilyDetailWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.employeeFamilyDetails, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
-  const hasFamilyDetailDeletePermission = hasModulePermission(user, PERMISSION_MODULES.employeeFamilyDetails, PERMISSION_ACTIONS.delete)
+  const hasFamilyDetailWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.myFamilyDetails, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
+  const hasFamilyDetailDeletePermission = hasModulePermission(user, PERMISSION_MODULES.myFamilyDetails, PERMISSION_ACTIONS.delete)
+  const hasWorkExperienceWritePermission = hasAnyModulePermission(user, PERMISSION_MODULES.myWorkExperience, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
+  const hasWorkExperienceDeletePermission = hasModulePermission(user, PERMISSION_MODULES.myWorkExperience, PERMISSION_ACTIONS.delete)
   const hasBasicDetailWritePermission = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
   const documentItems = profile?.documents || []
   const selectedDocument = useMemo(() => documentItems.find((document) => String(document.uid) === String(selectedDocumentUid)) || null, [documentItems, selectedDocumentUid])
   const familyDetailItems = profile?.familyDetails || []
   const selectedFamilyDetail = useMemo(() => familyDetailItems.find((detail) => String(detail.uid) === String(selectedFamilyDetailUid)) || null, [familyDetailItems, selectedFamilyDetailUid])
+  const workExperienceItems = profile?.workExperiences || []
+  const selectedWorkExperience = useMemo(() => workExperienceItems.find((experience) => String(experience.uid) === String(selectedWorkExperienceUid)) || null, [selectedWorkExperienceUid, workExperienceItems])
   const parsedSkillValues = useMemo(() => parseSkillsInput(profileDraft.skills_input), [profileDraft.skills_input])
   const skillCount = parsedSkillValues.length
   const documentDraftName = String(documentDraft.name || '').trim()
@@ -567,6 +741,12 @@ export default function ProfilePage() {
     if (!selectedFamilyDetail) return true
     return !areFamilyDetailsEqual(buildFamilyDetailPayload(familyDetailDraft), buildComparableFamilyDetail(selectedFamilyDetail))
   }, [familyDetailDraft, isFamilyDetailEditorOpen, selectedFamilyDetail])
+  const hasPendingWorkExperience = useMemo(() => {
+    if (!isWorkExperienceEditorOpen) return false
+    if (!hasWorkExperienceDraftValue(workExperienceDraft)) return false
+    if (!selectedWorkExperience) return true
+    return !areWorkExperiencesEqual(buildWorkExperiencePayload(workExperienceDraft), buildComparableWorkExperience(selectedWorkExperience))
+  }, [isWorkExperienceEditorOpen, selectedWorkExperience, workExperienceDraft])
   const mustCompleteProfile = hasLinkedEmployee && !profile?.profileCompletedAt
   const canEditBasicDetails = hasLinkedEmployee && (isAdminUser || hasBasicDetailWritePermission)
   const hasProfilePicturePermission = isAdminUser
@@ -575,6 +755,7 @@ export default function ProfilePage() {
   const canManageDocuments = hasLinkedEmployee && (isAdminUser || hasDocumentWritePermission)
   const canUploadDocuments = canManageDocuments
   const canManageFamilyDetails = hasLinkedEmployee && (isAdminUser || hasFamilyDetailWritePermission)
+  const canManageWorkExperience = hasLinkedEmployee && (isAdminUser || hasWorkExperienceWritePermission)
   const canEditProfilePhoto = hasLinkedEmployee && (isAdminUser || hasProfilePicturePermission)
   const firstLoginDeadlineRaw = profile?.firstLoginDeadlineAt || user?.firstLoginDeadlineAt || ''
   const firstLoginDeadlineLabel = firstLoginDeadlineRaw ? formatDate(firstLoginDeadlineRaw) : ''
@@ -605,8 +786,21 @@ export default function ProfilePage() {
   const passwordValidation = useMemo(() => buildPasswordValidation(passwordDraft.new_password, passwordDraft.confirm_new_password), [passwordDraft.new_password, passwordDraft.confirm_new_password])
   const basicDetailErrors = useMemo(() => buildProfileBasicErrors(profileDraft, canEditBasicDetails, dobBounds), [canEditBasicDetails, dobBounds, profileDraft])
   const familyDetailErrors = useMemo(() => buildFamilyDetailErrors(familyDetailDraft), [familyDetailDraft])
+  const workExperienceErrors = useMemo(() => buildWorkExperienceErrors(workExperienceDraft), [workExperienceDraft])
   const passwordErrors = useMemo(() => buildPasswordErrors(passwordDraft, mustChangePassword, passwordValidation), [mustChangePassword, passwordDraft, passwordValidation])
   const avatarUrl = useMemo(() => photoPreviewUrl || profile?.profileImageUrl || user?.avatarUrl || '', [photoPreviewUrl, profile?.profileImageUrl, user?.avatarUrl])
+  const workExperienceTotalMonths = useMemo(
+    () => workExperienceItems.reduce((total, entry) => total + calculateExperienceMonths(entry.startDate, entry.endDate, entry.isCurrent), 0),
+    [workExperienceItems]
+  )
+  const totalWorkExperienceLabel = useMemo(() => {
+    if (!workExperienceTotalMonths) return '0 mo'
+    const years = Math.floor(workExperienceTotalMonths / 12)
+    const months = workExperienceTotalMonths % 12
+    if (!years) return `${months} mo`
+    if (!months) return `${years} yr`
+    return `${years} yr ${months} mo`
+  }, [workExperienceTotalMonths])
   const profileStatusTone = 'editable'
   const profileStatusLabel = `${String(user?.roleName || (isAdminUser ? 'Admin' : 'Employee')).trim() || 'User'} access`
   const firstLoginSetupRequired = isProfileSetupRequired({ mustChangePassword, mustCompleteProfile })
@@ -626,6 +820,7 @@ export default function ProfilePage() {
         setProfileDraft(buildDraftFromProfile(nextProfile))
         setBasicDetailsTouched({})
         setFamilyDetailTouched({})
+        setWorkExperienceTouched({})
         setPasswordTouched({})
         setProfileUnavailable(!nextProfile?.employee?.uid)
       } catch (error) {
@@ -707,6 +902,35 @@ export default function ProfilePage() {
     setIsFamilyDetailEditorOpen(false)
   }, [familyDetailItems, isFamilyDetailEditorOpen, selectedFamilyDetailUid])
 
+  useEffect(() => {
+    if (!workExperienceItems.length) {
+      setSelectedWorkExperienceUid('')
+      setWorkExperienceDraft(emptyWorkExperienceDraft())
+      setWorkExperienceTouched({})
+      setIsWorkExperienceEditorOpen(false)
+      return
+    }
+
+    if (!isWorkExperienceEditorOpen) {
+      return
+    }
+
+    if (selectedWorkExperienceUid === NEW_WORK_EXPERIENCE_UID) {
+      return
+    }
+
+    const selectedEntry = workExperienceItems.find((entry) => String(entry.uid) === String(selectedWorkExperienceUid))
+    if (selectedEntry) {
+      setWorkExperienceDraft(buildWorkExperienceDraft(selectedEntry))
+      return
+    }
+
+    setSelectedWorkExperienceUid('')
+    setWorkExperienceDraft(emptyWorkExperienceDraft())
+    setWorkExperienceTouched({})
+    setIsWorkExperienceEditorOpen(false)
+  }, [isWorkExperienceEditorOpen, selectedWorkExperienceUid, workExperienceItems])
+
   function updateUserFromProfile(nextProfile, overrides = {}) {
     const hasEmployeeLink = Boolean(nextProfile?.employee?.uid)
     const fallbackFirstName = nextProfile?.employee?.firstName || user?.firstName || 'User'
@@ -775,6 +999,29 @@ export default function ProfilePage() {
     setFamilyDetailTouched((current) => ({ ...current, [fieldName]: true }))
   }
 
+  function handleWorkExperienceFieldChange(event) {
+    const { name, type, checked } = event.target
+    let { value } = event.target
+
+    if (name === 'last_salary') {
+      value = String(value).replace(/[^\d.]/g, '')
+      const [whole = '', fraction = ''] = value.split('.')
+      value = fraction ? `${whole}.${fraction.slice(0, 2)}` : whole
+    }
+
+    setWorkExperienceDraft((current) => ({
+      ...current,
+      [name]: type === 'checkbox' ? checked : value,
+      ...(name === 'is_current' && checked ? { end_date: '', reason_for_leaving: '' } : {})
+    }))
+  }
+
+  function handleWorkExperienceFieldBlur(event) {
+    const fieldName = event?.target?.name
+    if (!fieldName) return
+    setWorkExperienceTouched((current) => ({ ...current, [fieldName]: true }))
+  }
+
   function closeFamilyDetailEditor() {
     setSelectedFamilyDetailUid('')
     setFamilyDetailDraft(emptyFamilyDetailDraft())
@@ -787,6 +1034,20 @@ export default function ProfilePage() {
     setFamilyDetailDraft(emptyFamilyDetailDraft())
     setFamilyDetailTouched({})
     setIsFamilyDetailEditorOpen(true)
+  }
+
+  function closeWorkExperienceEditor() {
+    setSelectedWorkExperienceUid('')
+    setWorkExperienceDraft(emptyWorkExperienceDraft())
+    setWorkExperienceTouched({})
+    setIsWorkExperienceEditorOpen(false)
+  }
+
+  function handleCreateNewWorkExperience() {
+    setSelectedWorkExperienceUid(NEW_WORK_EXPERIENCE_UID)
+    setWorkExperienceDraft(emptyWorkExperienceDraft())
+    setWorkExperienceTouched({})
+    setIsWorkExperienceEditorOpen(true)
   }
 
   function handleCreateNewDocument() {
@@ -1060,6 +1321,93 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleWorkExperienceSave() {
+    const validationFields = ['company_name', 'job_title', 'start_date', 'end_date']
+
+    if (profileUnavailable || !profile?.employee?.uid) {
+      showStatus({ type: 'error', title: 'Employee profile missing', message: 'No employee record is linked to this account.' })
+      return
+    }
+    if (!canManageWorkExperience) {
+      showStatus({ type: 'error', title: 'Work experience access blocked', message: 'Your role does not have permission to update work experience.' })
+      return
+    }
+    if (!hasPendingWorkExperience) {
+      showStatus({ type: 'error', title: 'No work experience changes detected', message: 'Update the work experience form before saving.' })
+      return
+    }
+
+    setWorkExperienceTouched((current) => ({ ...current, ...markFieldsTouched(validationFields) }))
+    if (hasValidationErrors(workExperienceErrors, validationFields)) {
+      const firstError = validationFields.map((fieldName) => workExperienceErrors[fieldName]).find(Boolean)
+      showStatus({
+        type: 'error',
+        title: 'Work experience has validation errors',
+        message: firstError || 'Resolve the highlighted work experience fields before continuing.'
+      })
+      return
+    }
+
+    const payload = buildWorkExperiencePayload(workExperienceDraft)
+
+    try {
+      await runWithLoader(() => (
+        selectedWorkExperience
+          ? employeeService.updateEmployeeWorkExperience(selectedWorkExperience.uid, payload)
+          : employeeService.createEmployeeWorkExperience({
+            employeeUid: profile.employee.uid,
+            ...payload
+          })
+      ), {
+        title: selectedWorkExperience ? 'Updating work experience' : 'Saving work experience',
+        message: selectedWorkExperience ? 'Updating the selected work experience entry.' : 'Creating a new work experience entry.',
+        minVisibleMs: 450
+      })
+
+      const nextProfile = await employeeService.getMyProfile({ seedEmployee: profile.employee })
+      setProfile(nextProfile)
+      closeWorkExperienceEditor()
+      updateUserFromProfile(nextProfile)
+      showStatus({
+        type: 'success',
+        title: 'Work experience updated',
+        message: selectedWorkExperience ? 'The work experience entry has been updated.' : 'The work experience entry has been added.'
+      })
+    } catch (error) {
+      showStatus({ type: 'error', title: 'Work experience update failed', message: error?.response?.data?.detail || error?.message || 'Could not save the work experience entry.' })
+    }
+  }
+
+  async function handleWorkExperienceDelete(experience = selectedWorkExperience) {
+    if (!experience) {
+      showStatus({ type: 'error', title: 'No work experience selected', message: 'Select a saved work experience entry before deleting it.' })
+      return
+    }
+    if (!hasWorkExperienceDeletePermission) {
+      showStatus({ type: 'error', title: 'Delete not available', message: 'Your role does not have permission to delete work experience records.' })
+      return
+    }
+    if (!window.confirm(`Delete the work experience for ${experience.companyName || experience.jobTitle || 'this record'}?`)) {
+      return
+    }
+
+    try {
+      await runWithLoader(() => employeeService.deleteEmployeeWorkExperience(experience.uid), {
+        title: 'Deleting work experience',
+        message: 'Removing the selected work experience entry.',
+        minVisibleMs: 450
+      })
+
+      const nextProfile = await employeeService.getMyProfile({ seedEmployee: profile.employee })
+      setProfile(nextProfile)
+      closeWorkExperienceEditor()
+      updateUserFromProfile(nextProfile)
+      showStatus({ type: 'success', title: 'Work experience deleted', message: 'The work experience entry has been removed.' })
+    } catch (error) {
+      showStatus({ type: 'error', title: 'Work experience delete failed', message: error?.response?.data?.detail || error?.message || 'Could not delete the work experience entry.' })
+    }
+  }
+
   async function handleDocumentSave() {
     if (profileUnavailable || !profile?.employee?.uid) {
       showStatus({ type: 'error', title: 'Employee profile missing', message: 'No employee record is linked to this account.' })
@@ -1214,6 +1562,7 @@ export default function ProfilePage() {
 
   const showBasicError = (fieldName) => canEditBasicDetails && basicDetailsTouched[fieldName] && basicDetailErrors[fieldName]
   const showFamilyError = (fieldName) => familyDetailTouched[fieldName] && familyDetailErrors[fieldName]
+  const showWorkExperienceError = (fieldName) => workExperienceTouched[fieldName] && workExperienceErrors[fieldName]
   const showPasswordError = (fieldName) => passwordTouched[fieldName] && passwordErrors[fieldName]
 
   if (loading) {
@@ -1250,7 +1599,7 @@ export default function ProfilePage() {
           </div>
           <div className="d-flex flex-column align-items-lg-end gap-2">
             <span className={`profile-pill ${profileStatusTone}`}>{profileStatusLabel}</span>
-            {!isAdminUser ? <span className="text-muted small">Skills: {skillCount} • Documents: {documentItems.length} • Family records: {familyDetailItems.length}</span> : null}
+            {!isAdminUser ? <span className="text-muted small">Skills: {skillCount} • Documents: {documentItems.length} • Family records: {familyDetailItems.length} • Experience: {workExperienceItems.length}</span> : null}
             {profile?.profileCompletedAt ? <span className="text-muted small">Completed on {formatDate(profile.profileCompletedAt)}</span> : null}
           </div>
         </div>
@@ -1348,6 +1697,175 @@ export default function ProfilePage() {
                 >
                   Update Password
                 </button>
+              </div>
+            </div>
+
+            <div className="card border-0 shadow-sm profile-panel">
+              <div className="card-body d-flex flex-column gap-3">
+                <div className="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                  <div>
+                    <div className="profile-section-heading">Work Experience</div>
+                    <div className="text-muted small">Add company-wise experience entries here. Total experience is calculated automatically from your dates.</div>
+                  </div>
+                  <span className="profile-pill editable">{totalWorkExperienceLabel}</span>
+                </div>
+
+                <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                  <div className="text-muted small">
+                    {!canManageWorkExperience
+                      ? 'Role access for My Work Experience is disabled. Ask admin to grant that sub-module to add or update records.'
+                      : (isWorkExperienceEditorOpen
+                        ? (selectedWorkExperience
+                          ? 'Update the selected experience entry and save the changes, or close the form when you are done.'
+                          : 'Add one company at a time. Company name, job title, and start date are required.')
+                        : 'Saved experience entries stay visible below. Open the form only when you want to add or edit an entry.')}
+                  </div>
+                  {canManageWorkExperience ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={isWorkExperienceEditorOpen ? closeWorkExperienceEditor : handleCreateNewWorkExperience}
+                    >
+                      {isWorkExperienceEditorOpen ? 'Close Form' : (workExperienceItems.length ? 'Add New Experience' : 'Add Work Experience')}
+                    </button>
+                  ) : null}
+                </div>
+
+                {isWorkExperienceEditorOpen ? (
+                  <div className="d-flex flex-column gap-3">
+                    <div className="alert alert-secondary mb-0 small">
+                      {selectedWorkExperience
+                        ? `Editing ${selectedWorkExperience.companyName || selectedWorkExperience.jobTitle || 'the selected work experience entry'}.`
+                        : 'Fill out the form below to add a new work experience entry.'}
+                    </div>
+
+                    <div className="row g-3">
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Company Name</label>
+                        <input className={`form-control${showWorkExperienceError('company_name') ? ' is-invalid' : ''}`} name="company_name" value={workExperienceDraft.company_name} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} maxLength="150" placeholder="Company name" disabled={!canManageWorkExperience} />
+                        {showWorkExperienceError('company_name') ? <div className="invalid-feedback d-block">{workExperienceErrors.company_name}</div> : null}
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Job Title</label>
+                        <input className={`form-control${showWorkExperienceError('job_title') ? ' is-invalid' : ''}`} name="job_title" value={workExperienceDraft.job_title} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} maxLength="120" placeholder="Job title" disabled={!canManageWorkExperience} />
+                        {showWorkExperienceError('job_title') ? <div className="invalid-feedback d-block">{workExperienceErrors.job_title}</div> : null}
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Employment Type</label>
+                        <input className="form-control" name="employment_type" value={workExperienceDraft.employment_type} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} maxLength="50" placeholder="Full-time, Contract, Internship" disabled={!canManageWorkExperience} />
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Location</label>
+                        <input className="form-control" name="location" value={workExperienceDraft.location} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} maxLength="120" placeholder="City or work location" disabled={!canManageWorkExperience} />
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Start Date</label>
+                        <input className={`form-control${showWorkExperienceError('start_date') ? ' is-invalid' : ''}`} type="date" name="start_date" value={workExperienceDraft.start_date} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} disabled={!canManageWorkExperience} />
+                        {showWorkExperienceError('start_date') ? <div className="invalid-feedback d-block">{workExperienceErrors.start_date}</div> : null}
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">End Date</label>
+                        <input className={`form-control${showWorkExperienceError('end_date') ? ' is-invalid' : ''}`} type="date" name="end_date" value={workExperienceDraft.end_date} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} disabled={!canManageWorkExperience || workExperienceDraft.is_current} />
+                        {showWorkExperienceError('end_date') ? <div className="invalid-feedback d-block">{workExperienceErrors.end_date}</div> : null}
+                      </div>
+                      <div className="col-12">
+                        <div className="form-check">
+                          <input className="form-check-input" type="checkbox" id="work-experience-current" name="is_current" checked={workExperienceDraft.is_current} onChange={handleWorkExperienceFieldChange} disabled={!canManageWorkExperience} />
+                          <label className="form-check-label" htmlFor="work-experience-current">I currently work here</label>
+                        </div>
+                      </div>
+                      <div className="col-12">
+                        <div className="attendance-note-card mb-0">
+                          Experience length: <strong>{formatExperienceDuration(workExperienceDraft.start_date, workExperienceDraft.end_date, workExperienceDraft.is_current)}</strong>
+                        </div>
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Last Salary</label>
+                        <input className="form-control" name="last_salary" value={workExperienceDraft.last_salary} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} inputMode="decimal" placeholder="Optional last salary" disabled={!canManageWorkExperience} />
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Reason for Leaving</label>
+                        <input className="form-control" name="reason_for_leaving" value={workExperienceDraft.reason_for_leaving} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} maxLength="200" placeholder="Optional reason" disabled={!canManageWorkExperience || workExperienceDraft.is_current} />
+                      </div>
+                      <div className="col-12">
+                        <label className="form-label">Responsibilities</label>
+                        <textarea className="form-control" rows="3" name="responsibilities" value={workExperienceDraft.responsibilities} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} placeholder="Key responsibilities and highlights" disabled={!canManageWorkExperience} />
+                      </div>
+                      <div className="col-12">
+                        <label className="form-label">Remarks</label>
+                        <textarea className="form-control" rows="2" name="remarks" value={workExperienceDraft.remarks} onChange={handleWorkExperienceFieldChange} onBlur={handleWorkExperienceFieldBlur} placeholder="Optional remarks" disabled={!canManageWorkExperience} />
+                      </div>
+                    </div>
+
+                    <div className="d-flex flex-wrap justify-content-end gap-2">
+                      <button type="button" className="btn btn-outline-secondary" onClick={closeWorkExperienceEditor}>
+                        Cancel
+                      </button>
+                      {selectedWorkExperience && hasWorkExperienceDeletePermission ? (
+                        <button type="button" className="btn btn-outline-danger" onClick={handleWorkExperienceDelete} disabled={!hasWorkExperienceDeletePermission}>
+                          Delete Work Experience
+                        </button>
+                      ) : null}
+                      <button type="button" className="btn btn-primary" onClick={handleWorkExperienceSave} disabled={!canManageWorkExperience || !hasPendingWorkExperience}>
+                        {selectedWorkExperience ? 'Update Work Experience' : 'Save Work Experience'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {workExperienceItems.length ? (
+                  <div className="d-flex flex-column gap-2">
+                    {workExperienceItems.map((experience) => (
+                      <div key={experience.uid} className="profile-doc-item profile-doc-item-modern">
+                        <div className="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                          <div className="d-flex flex-column gap-1">
+                            <span className="profile-doc-item-title">{experience.companyName || 'Company'}</span>
+                            <span className="text-muted small">
+                              {[experience.jobTitle || '', experience.employmentType || '', experience.location || ''].filter(Boolean).join(' • ') || 'Work experience entry'}
+                            </span>
+                            <span className="text-muted small">
+                              {[
+                                `${formatDate(experience.startDate)} - ${experience.isCurrent ? 'Present' : formatDate(experience.endDate)}`,
+                                formatExperienceDuration(experience.startDate, experience.endDate, experience.isCurrent)
+                              ].filter(Boolean).join(' • ')}
+                            </span>
+                            {experience.responsibilities ? <span className="text-muted small">{experience.responsibilities}</span> : null}
+                            {(experience.reasonForLeaving || experience.remarks) ? (
+                              <span className="text-muted small">{[experience.reasonForLeaving || '', experience.remarks || ''].filter(Boolean).join(' • ')}</span>
+                            ) : null}
+                          </div>
+                          <div className="d-flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className={`btn btn-sm ${isWorkExperienceEditorOpen && String(experience.uid) === String(selectedWorkExperienceUid) ? 'btn-primary' : 'btn-outline-secondary'}`}
+                              onClick={() => {
+                                setSelectedWorkExperienceUid(String(experience.uid))
+                                setWorkExperienceDraft(buildWorkExperienceDraft(experience))
+                                setWorkExperienceTouched({})
+                                setIsWorkExperienceEditorOpen(true)
+                              }}
+                              disabled={!canManageWorkExperience}
+                            >
+                              {isWorkExperienceEditorOpen && String(experience.uid) === String(selectedWorkExperienceUid) ? 'Editing' : 'Edit'}
+                            </button>
+                            {hasWorkExperienceDeletePermission ? (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger"
+                                onClick={() => handleWorkExperienceDelete(experience)}
+                                disabled={!hasWorkExperienceDeletePermission}
+                              >
+                                Delete
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-muted small">{isWorkExperienceEditorOpen ? 'Save the form to create the first work experience entry.' : 'No work experience added yet.'}</div>
+                )}
               </div>
             </div>
           </div>

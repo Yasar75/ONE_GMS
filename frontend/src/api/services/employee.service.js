@@ -57,6 +57,35 @@ function normalizeEmployeeFamilyDetailRecord(detail) {
   }
 }
 
+function normalizeEmployeeWorkExperienceRecord(experience) {
+  const yearsOfExperienceRaw = experience?.year_of_exp ?? experience?.yearOfExp ?? experience?.yearsOfExperience
+  const lastSalaryRaw = experience?.last_salary ?? experience?.lastSalary
+
+  return {
+    uid: experience?.uid || '',
+    userUid: experience?.user_uid || experience?.userUid || '',
+    employeeUid: experience?.employee_uid || experience?.employeeUid || '',
+    companyName: String(experience?.company_name || experience?.companyName || '').trim(),
+    jobTitle: String(experience?.job_title || experience?.jobTitle || '').trim(),
+    employmentType: String(experience?.employment_type || experience?.employmentType || '').trim(),
+    location: String(experience?.location || '').trim(),
+    startDate: experience?.start_date || experience?.startDate || '',
+    endDate: experience?.end_date || experience?.endDate || '',
+    isCurrent: Boolean(experience?.is_current ?? experience?.isCurrent),
+    responsibilities: experience?.responsibilities || '',
+    yearsOfExperience: yearsOfExperienceRaw == null || yearsOfExperienceRaw === ''
+      ? null
+      : Number(yearsOfExperienceRaw),
+    lastSalary: lastSalaryRaw == null || lastSalaryRaw === ''
+      ? null
+      : Number(lastSalaryRaw),
+    reasonForLeaving: experience?.reason_for_leaving || experience?.reasonForLeaving || '',
+    remarks: experience?.remarks || '',
+    createdAt: experience?.created_at || experience?.createdAt || null,
+    updatedAt: experience?.updated_at || experience?.updatedAt || null
+  }
+}
+
 function deriveFirstLoginDeadline(record) {
   const firstLoginAt = record?.first_login_at || record?.firstLoginAt
   const createdAt = record?.created_at || record?.createdAt
@@ -176,10 +205,11 @@ function mergeEmployeeCollections(...collections) {
   return sortEmployees(Array.from(recordsByKey.values()).filter(Boolean))
 }
 
-function buildProfileBundle({ employee = null, profileDetails = null, skills = [], documents = [], familyDetails = [], account = null }) {
+function buildProfileBundle({ employee = null, profileDetails = null, skills = [], documents = [], familyDetails = [], workExperiences = [], account = null }) {
   const normalizedSkills = skills.map((entry) => normalizeEmployeeSkillRecord(entry)).filter((entry) => entry.skill)
   const normalizedDocuments = documents.map((entry) => normalizeEmployeeDocumentRecord(entry)).filter((entry) => entry.uid)
   const normalizedFamilyDetails = familyDetails.map((entry) => normalizeEmployeeFamilyDetailRecord(entry)).filter((entry) => entry.uid)
+  const normalizedWorkExperiences = workExperiences.map((entry) => normalizeEmployeeWorkExperienceRecord(entry)).filter((entry) => entry.uid)
   const normalizedStatus = String(employee?.status || '').trim().toLowerCase()
   const isStatusLocked = Boolean(normalizedStatus) && normalizedStatus !== 'active'
   const isBackendLocked = Boolean(account?.isLocked)
@@ -191,6 +221,7 @@ function buildProfileBundle({ employee = null, profileDetails = null, skills = [
     skills: normalizedSkills,
     documents: normalizedDocuments,
     familyDetails: normalizedFamilyDetails,
+    workExperiences: normalizedWorkExperiences,
     profileCompletedAt: deriveProfileCompletedAt(normalizedSkills, normalizedDocuments),
     firstLoginAt: account?.firstLoginAt || null,
     firstLoginDeadlineAt: account?.firstLoginDeadlineAt || null,
@@ -347,6 +378,11 @@ async function getCurrentEmployeeRecord({ allowMissing = false, rawUser = null }
 }
 
 export const employeeService = {
+  async getCurrentEmployee({ allowMissing = true } = {}) {
+    const rawUser = allowMissing ? await getRawCurrentUser().catch(() => ({})) : await getRawCurrentUser()
+    return getCurrentEmployeeRecord({ allowMissing, rawUser })
+  },
+
   async getLookupDirectory() {
     return getEmployeeDirectoryRecords()
   },
@@ -492,6 +528,17 @@ export const employeeService = {
       : normalizedItems
   },
 
+  async listEmployeeWorkExperiences(employeeUid = null) {
+    const response = employeeUid
+      ? await http.get(endpoints.employeeWorkExperience.byEmployee(employeeUid))
+      : await http.get(endpoints.employeeWorkExperience.list)
+    const items = Array.isArray(response.data) ? response.data : []
+    const normalizedItems = items.map((item) => normalizeEmployeeWorkExperienceRecord(item)).filter((item) => item.uid)
+    return employeeUid
+      ? normalizedItems.filter((item) => String(item.employeeUid) === String(employeeUid))
+      : normalizedItems
+  },
+
   async createEmployeeFamilyDetail(payload) {
     const response = await http.post(endpoints.employeeFamily.create, {
       employee_uid: payload.employeeUid,
@@ -531,6 +578,50 @@ export const employeeService = {
     return documentUid
   },
 
+  async createEmployeeWorkExperience(payload) {
+    const response = await http.post(endpoints.employeeWorkExperience.create, {
+      employee_uid: payload.employeeUid,
+      company_name: payload.companyName,
+      job_title: payload.jobTitle,
+      employment_type: payload.employmentType || null,
+      location: payload.location || null,
+      start_date: payload.startDate,
+      end_date: payload.isCurrent ? null : (payload.endDate || null),
+      is_current: Boolean(payload.isCurrent),
+      responsibilities: payload.responsibilities || null,
+      year_of_exp: payload.yearsOfExperience == null || payload.yearsOfExperience === '' ? null : Number(payload.yearsOfExperience),
+      last_salary: payload.lastSalary == null || payload.lastSalary === '' ? null : Number(payload.lastSalary),
+      reason_for_leaving: payload.reasonForLeaving || null,
+      remarks: payload.remarks || null
+    })
+
+    return normalizeEmployeeWorkExperienceRecord(response.data)
+  },
+
+  async updateEmployeeWorkExperience(experienceUid, payload) {
+    const response = await http.put(endpoints.employeeWorkExperience.detail(experienceUid), {
+      company_name: payload.companyName,
+      job_title: payload.jobTitle,
+      employment_type: payload.employmentType || null,
+      location: payload.location || null,
+      start_date: payload.startDate,
+      end_date: payload.isCurrent ? null : (payload.endDate || null),
+      is_current: Boolean(payload.isCurrent),
+      responsibilities: payload.responsibilities || null,
+      year_of_exp: payload.yearsOfExperience == null || payload.yearsOfExperience === '' ? null : Number(payload.yearsOfExperience),
+      last_salary: payload.lastSalary == null || payload.lastSalary === '' ? null : Number(payload.lastSalary),
+      reason_for_leaving: payload.reasonForLeaving || null,
+      remarks: payload.remarks || null
+    })
+
+    return normalizeEmployeeWorkExperienceRecord(response.data)
+  },
+
+  async deleteEmployeeWorkExperience(experienceUid) {
+    await http.delete(endpoints.employeeWorkExperience.detail(experienceUid))
+    return experienceUid
+  },
+
   async getMyProfile({ seedEmployee = null } = {}) {
     const rawUser = await getRawCurrentUser()
     const account = normalizeAccountStatus(rawUser)
@@ -544,15 +635,17 @@ export const employeeService = {
         skills: [],
         documents: [],
         familyDetails: [],
+        workExperiences: [],
         account
       })
     }
 
-    const [profileResult, skillsResult, documentsResult, familyDetailsResult] = await Promise.allSettled([
+    const [profileResult, skillsResult, documentsResult, familyDetailsResult, workExperiencesResult] = await Promise.allSettled([
       getEmployeeProfileDetails(employee.uid),
       employeeService.listEmployeeSkills(employee.uid),
       employeeService.listEmployeeDocuments(employee.uid),
-      employeeService.listEmployeeFamilyDetails(employee.uid)
+      employeeService.listEmployeeFamilyDetails(employee.uid),
+      employeeService.listEmployeeWorkExperiences(employee.uid)
     ])
 
     return buildProfileBundle({
@@ -561,17 +654,19 @@ export const employeeService = {
       skills: skillsResult.status === 'fulfilled' ? skillsResult.value : [],
       documents: documentsResult.status === 'fulfilled' ? documentsResult.value : [],
       familyDetails: familyDetailsResult.status === 'fulfilled' ? familyDetailsResult.value : [],
+      workExperiences: workExperiencesResult.status === 'fulfilled' ? workExperiencesResult.value : [],
       account
     })
   },
 
   async getEmployeeProfile(employeeUid) {
-    const [employeeResponse, profileResult, skillsResult, documentsResult, familyDetailsResult] = await Promise.all([
+    const [employeeResponse, profileResult, skillsResult, documentsResult, familyDetailsResult, workExperiencesResult] = await Promise.all([
       http.get(endpoints.employee.detail(employeeUid)),
       getEmployeeProfileDetails(employeeUid).catch(() => null),
       employeeService.listEmployeeSkills(employeeUid).catch(() => []),
       employeeService.listEmployeeDocuments(employeeUid).catch(() => []),
-      employeeService.listEmployeeFamilyDetails(employeeUid).catch(() => [])
+      employeeService.listEmployeeFamilyDetails(employeeUid).catch(() => []),
+      employeeService.listEmployeeWorkExperiences(employeeUid).catch(() => [])
     ])
 
     const employee = upsertCachedEmployeeRecord(employeeResponse.data)
@@ -582,6 +677,7 @@ export const employeeService = {
       skills: skillsResult,
       documents: documentsResult,
       familyDetails: familyDetailsResult,
+      workExperiences: workExperiencesResult,
       account: null
     })
   },

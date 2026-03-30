@@ -153,6 +153,17 @@ export const attendanceService = {
       : []
   },
 
+  async getEmployeeShiftAssignmentByEmployee(employeeUid) {
+    if (!employeeUid) return null
+    try {
+      const response = await http.get(endpoints.employeeShift.byEmployee(employeeUid))
+      return normalizeEmployeeShift(response.data)
+    } catch (error) {
+      if ([404, 405].includes(Number(error?.response?.status || 0))) return null
+      throw error
+    }
+  },
+
   async createEmployeeShiftAssignment(payload) {
     const response = await http.post(endpoints.employeeShift.create, {
       employee_uid: payload.employeeUid,

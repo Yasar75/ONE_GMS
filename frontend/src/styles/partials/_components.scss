@@ -2667,6 +2667,19 @@
   overflow: auto;
 }
 
+.app-select-search-shell {
+  position: sticky;
+  top: -0.5rem;
+  z-index: 1;
+  padding-bottom: 0.15rem;
+  background: inherit;
+}
+
+.app-select-search-input {
+  min-height: 2.7rem;
+  border-radius: 0.82rem;
+}
+
 .app-select-menu-start {
   left: 0;
 }

@@ -11,9 +11,10 @@ from .service import leave_request_service
 leave_request_router = APIRouter()
 access_token_bearer = AccessTokenBearer()
 role_checker = Depends(RoleChecker(["admin", "hr"]))
-module="Leave Request"
+employee_admin_module="Leave Request"
+admin_module= "Manage Leave"
 
-@leave_request_router.get("/preview-days",response_model=LeaveDayPreviewRead,status_code=status.HTTP_200_OK,)
+@leave_request_router.get("/preview-days",response_model=LeaveDayPreviewRead,status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
 async def preview_leave_days(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -22,7 +23,7 @@ async def preview_leave_days(
     return await leave_request_service.preview_leave_days(session, start_date, end_date)
 
 
-@leave_request_router.post("/apply",response_model=LeaveRequestRead,status_code=status.HTTP_201_CREATED)
+@leave_request_router.post("/apply",response_model=LeaveRequestRead,status_code=status.HTTP_201_CREATED, dependencies=[Depends(PermissionChecker(employee_admin_module, "c"))])
 async def apply_leave(
     data: LeaveRequestCreate,
     session: AsyncSession = Depends(get_session),
@@ -33,7 +34,7 @@ async def apply_leave(
     return await leave_request_service.apply_leave(session, data, user_uid, email)
 
 
-@leave_request_router.get("/my-requests",response_model=List[LeaveRequestRead],status_code=status.HTTP_200_OK)
+@leave_request_router.get("/my-requests",response_model=List[LeaveRequestRead],status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
 async def list_my_requests(
     session: AsyncSession = Depends(get_session),
     token_details: dict = Depends(access_token_bearer),
@@ -42,7 +43,7 @@ async def list_my_requests(
     return await leave_request_service.list_my_requests(session, email)
 
 
-@leave_request_router.get("/leave-request-pending",response_model=List[LeaveRequestRead],status_code=status.HTTP_200_OK,dependencies=[role_checker])
+@leave_request_router.get("/leave-request-pending",response_model=List[LeaveRequestRead],status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def list_pending_leave_request(session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer),
 ):
     email = token_details["user"]["email"]
@@ -50,7 +51,7 @@ async def list_pending_leave_request(session: AsyncSession = Depends(get_session
     return await leave_request_service.list_pending_leave_request(session, email, role_name)
 
 
-@leave_request_router.post("/{leave_request_uid}/approve",response_model=LeaveRequestRead,status_code=status.HTTP_200_OK,dependencies=[role_checker])
+@leave_request_router.post("/{leave_request_uid}/approve",response_model=LeaveRequestRead,status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(admin_module, "c"))])
 async def approve_leave(
     leave_request_uid: uuid.UUID,
     data: LeaveRequestDecision,
@@ -62,7 +63,7 @@ async def approve_leave(
     return await leave_request_service.approve_leave(session, leave_request_uid, email, data, role_name)
 
 
-@leave_request_router.post("/{leave_request_uid}/reject",response_model=LeaveRequestRead,status_code=status.HTTP_200_OK,dependencies=[role_checker])
+@leave_request_router.post("/{leave_request_uid}/reject",response_model=LeaveRequestRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "c"))])
 async def reject_leave(
     leave_request_uid: uuid.UUID,
     data: LeaveRequestDecision,

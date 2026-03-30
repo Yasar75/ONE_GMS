@@ -14,9 +14,9 @@ employee_service = EmployeeService()
 access_token_bearer = AccessTokenBearer()
 role_checker = Depends(RoleChecker(["admin", "HR"]))
 adminonly= Depends(AdminOnly)
-module = "Employee"
 
-profile_update_module= "Profile Picture"
+admin_module = "Employee Management"
+profile_update_module= "Profile Update"
 
 ## Helper Function
 def _is_admin_from_token(token_details: dict) -> bool:
@@ -49,17 +49,17 @@ async def _ensure_self_or_admin(employee_uid: uuid.UUID,session: AsyncSession,to
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,detail="You are allowed to access/update only your own profile unless you are an admin.")
 
 
-@employee_router.get("/", response_model=List[EmployeeBase], status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
+@employee_router.get("/", response_model=List[EmployeeBase], status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def get_all_employee(session: AsyncSession = Depends(get_session)):
     return await employee_service.get_all_employee(session)
 
 
-@employee_router.get("/{employee_uid}", response_model=EmployeeBase, status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
+@employee_router.get("/{employee_uid}", response_model=EmployeeBase, status_code=status.HTTP_200_OK)
 async def get_employee_by_uid(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session)):
     return await employee_service.get_employee_by_uid(session, employee_uid)
 
     
-@employee_router.post("", status_code=status.HTTP_201_CREATED, response_model=EmployeeBase,dependencies=[Depends(PermissionChecker(module, "c"))]) 
+@employee_router.post("", status_code=status.HTTP_201_CREATED, response_model=EmployeeBase,dependencies=[Depends(PermissionChecker(admin_module, "c"))]) 
 async def create_a_employee(
     employee_data: EmployeeCreate,
     bg_tasks: BackgroundTasks,
@@ -77,13 +77,13 @@ async def create_a_employee(
 
 
 
-@employee_router.put("/{employee_uid}", response_model=EmployeeBase, dependencies=[Depends(PermissionChecker(module, "u"))])
+@employee_router.put("/{employee_uid}", response_model=EmployeeBase, dependencies=[Depends(PermissionChecker(admin_module, "u"))])
 async def update_employee(employee_uid: uuid.UUID,employee_data: EmployeeUpdate,
 session: AsyncSession = Depends(get_session),_: dict = Depends(access_token_bearer),):
     return await employee_service.update_employee(session, employee_uid, employee_data)
 
 
-@employee_router.delete("/{employee_uid}",status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "d"))])
+@employee_router.delete("/{employee_uid}",status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "d"))])
 async def delete_employee(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session),_: dict = Depends(access_token_bearer)):
     ok = await employee_service.delete_employee(employee_uid, session)
     if not ok:

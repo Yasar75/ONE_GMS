@@ -11,6 +11,7 @@ from src.employees_family_details.routes import employee_family_detail_router
 from src.shift_roster.routes import shift_router
 from src.employee_shift.routes import employee_shift_router
 from src.employee_metadata.routes import employee_metadata_router
+from src.employees_work_experience.routes import employee_work_experience_router
 
 from src.leave_management.holiday_calender.routes import holiday_calender_router
 from src.leave_management.leave_types.routes import leave_type_router
@@ -64,6 +65,7 @@ app.include_router(employee_router, prefix=f"/api/{version}/employee", tags=["Em
 app.include_router(employee_skill_router, prefix=f"/api/{version}/employee_skill", tags=["EmployeeSkill"])
 app.include_router(employee_document_router, prefix=f"/api/{version}/employee_documents-upload", tags=["EmployeeDocuments"])
 app.include_router(employee_family_detail_router, prefix=f"/api/{version}/employee_documents", tags=["Employee Family Details"])
+app.include_router(employee_work_experience_router, prefix=f"/api/{version}/employee_work_experience", tags=["Employee Work Experience Details"])
 app.include_router(employee_metadata_router, prefix=f"/api/{version}/employee-metadata", tags=["EmployeeMetadata"])
 
 ##Shift Roster router

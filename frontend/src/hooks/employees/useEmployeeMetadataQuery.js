@@ -1,10 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { metadataService } from '../../api/services/metadata.service.js'
-import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '../../utils/queryCache.js'
+import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache, writeCachedQuery } from '../../utils/queryCache.js'
 
 const metadataQueryKey = ['employees', 'metadata']
 const roleQueryKey = ['employees', 'roles']
 const roleModulesQueryKey = ['employees', 'role-modules', 'v2']
+
+function readNonEmptyCachedRoleModules() {
+  const cachedValue = readCachedQuery(roleModulesQueryKey)
+  return Array.isArray(cachedValue) && cachedValue.length ? cachedValue : undefined
+}
+
+function readNonEmptyCachedRoleModulesUpdatedAt() {
+  return readNonEmptyCachedRoleModules() ? readCachedQueryUpdatedAt(roleModulesQueryKey) : undefined
+}
 
 export function useEmployeeMetadataQuery(enabled = true) {
   return useQuery({
@@ -36,10 +45,14 @@ export function useRoleDirectoryQuery(enabled = true) {
 export function useRoleModulesQuery(enabled = true) {
   return useQuery({
     queryKey: roleModulesQueryKey,
-    queryFn: () => withPersistentCache(roleModulesQueryKey, metadataService.getRoleModules),
+    queryFn: async () => {
+      const data = await metadataService.getRoleModules()
+      if (Array.isArray(data) && data.length) writeCachedQuery(roleModulesQueryKey, data)
+      return data
+    },
     enabled,
-    initialData: () => readCachedQuery(roleModulesQueryKey),
-    initialDataUpdatedAt: () => readCachedQueryUpdatedAt(roleModulesQueryKey),
+    initialData: () => readNonEmptyCachedRoleModules(),
+    initialDataUpdatedAt: () => readNonEmptyCachedRoleModulesUpdatedAt(),
     staleTime: 10 * 60 * 1000,
     gcTime: 20 * 60 * 1000,
     refetchOnWindowFocus: false

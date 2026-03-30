@@ -57,9 +57,9 @@ class EmployeeSkillService:
         return result.all()
 
     async def get_employee_skill_by_uid(
-        self, session: AsyncSession, employee_skill_uid: uuid.UUID
+        self, session: AsyncSession, employee_uid: uuid.UUID
     ) -> EmployeeSkill:
-        stmt = select(EmployeeSkill).where(EmployeeSkill.uid == employee_skill_uid)
+        stmt = select(EmployeeSkill).where(EmployeeSkill.employee_uid == employee_uid)
         result = await session.exec(stmt)
         obj = result.first()
         if obj is None:
