@@ -517,7 +517,7 @@ export function toDateTimeLocalValue(value) {
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
-function downloadBlob(blob, fileName) {
+export function downloadBlob(blob, fileName) {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url

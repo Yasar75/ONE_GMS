@@ -5,6 +5,12 @@ import { uiBus } from '../ui/uiBus.js'
 
 const UiContext = createContext(null)
 
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
 export function UiProvider({ children }) {
   const [manualLoader, setManualLoader] = useState(null)
   const [networkLoader, setNetworkLoader] = useState(null)
@@ -34,7 +40,7 @@ export function UiProvider({ children }) {
           title: active?.title || 'Loading',
           message: active?.message || 'Please wait while the latest data is being prepared.'
         })
-      }, 420)
+      }, 900)
     })
 
     const offFinish = uiBus.on('ui:request:finish', (event) => {
@@ -65,11 +71,30 @@ export function UiProvider({ children }) {
   }, [])
 
   const withLoader = useCallback(async (loader, task) => {
-    showLoader(loader)
+    const delayMs = loader?.delayMs ?? 220
+    const minVisibleMs = loader?.minVisibleMs ?? 360
+    let didShowLoader = false
+    let shownAt = 0
+
+    const showTimer = window.setTimeout(() => {
+      shownAt = Date.now()
+      didShowLoader = true
+      showLoader(loader)
+    }, delayMs)
+
     try {
       return await task()
     } finally {
-      hideLoader()
+      window.clearTimeout(showTimer)
+
+      if (didShowLoader) {
+        const elapsedVisible = Date.now() - shownAt
+        const remaining = Math.max(0, minVisibleMs - elapsedVisible)
+        if (remaining > 0) {
+          await wait(remaining)
+        }
+        hideLoader()
+      }
     }
   }, [showLoader, hideLoader])
 

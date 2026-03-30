@@ -11,6 +11,12 @@ const DEFAULT_AUTO_LOADER = {
   message: 'Fetching the latest data. Please stay on this screen.'
 }
 
+function shouldShowBlockingQueryLoader(query) {
+  if (!query || query.state?.fetchStatus !== 'fetching') return false
+  if (query.options?.meta?.suppressGlobalLoader) return false
+  return Number(query.state?.dataUpdatedAt || 0) === 0
+}
+
 function wait(ms) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
@@ -22,8 +28,12 @@ export function ModalProvider({ children }) {
   const confirmResolverRef = useRef(null)
   const autoLoaderTimerRef = useRef(null)
 
-  const isFetching = useIsFetching()
-  const isMutating = useIsMutating()
+  const blockingFetchCount = useIsFetching({
+    predicate: shouldShowBlockingQueryLoader
+  })
+  const blockingMutationCount = useIsMutating({
+    predicate: (mutation) => Boolean(mutation?.options?.meta?.showGlobalLoader)
+  })
 
   const [statusModal, setStatusModal] = useState(null)
   const [confirmModal, setConfirmModal] = useState(null)
@@ -94,34 +104,44 @@ export function ModalProvider({ children }) {
   }, [])
 
   const runWithLoader = useCallback(async (task, config = {}) => {
-    const minVisibleMs = config.minVisibleMs ?? 650
+    const minVisibleMs = config.minVisibleMs ?? 420
+    const delayMs = config.delayMs ?? 220
+    let didShowLoader = false
+    let shownAt = 0
 
-    showLoader(config)
-    const startedAt = Date.now()
+    const showTimer = window.setTimeout(() => {
+      shownAt = Date.now()
+      didShowLoader = true
+      showLoader(config)
+    }, delayMs)
 
     try {
       return await task()
     } finally {
-      const elapsed = Date.now() - startedAt
-      const remaining = Math.max(0, minVisibleMs - elapsed)
-      if (remaining > 0) {
-        await wait(remaining)
+      window.clearTimeout(showTimer)
+
+      if (didShowLoader) {
+        const elapsedVisible = Date.now() - shownAt
+        const remaining = Math.max(0, minVisibleMs - elapsedVisible)
+        if (remaining > 0) {
+          await wait(remaining)
+        }
+        hideLoader()
       }
-      hideLoader()
     }
   }, [hideLoader, showLoader])
 
   useEffect(() => {
     if (loaderModal?.source === 'manual') return undefined
 
-    const hasAutoActivity = (isFetching + isMutating) > 0
+    const hasAutoActivity = (blockingFetchCount + blockingMutationCount) > 0
 
     if (hasAutoActivity) {
       if (!autoLoaderTimerRef.current && !loaderModal) {
         autoLoaderTimerRef.current = window.setTimeout(() => {
           autoLoaderTimerRef.current = null
           setLoaderModal((current) => current ?? { source: 'auto', ...DEFAULT_AUTO_LOADER })
-        }, 350)
+        }, 700)
       }
     } else {
       if (autoLoaderTimerRef.current) {
@@ -133,7 +153,7 @@ export function ModalProvider({ children }) {
     }
 
     return undefined
-  }, [isFetching, isMutating, loaderModal])
+  }, [blockingFetchCount, blockingMutationCount, loaderModal])
 
   useEffect(() => () => {
     clearStatusTimer()

@@ -462,6 +462,7 @@ export default function ProfilePage() {
   const [selectedDocumentUid, setSelectedDocumentUid] = useState('')
   const [familyDetailDraft, setFamilyDetailDraft] = useState(emptyFamilyDetailDraft())
   const [selectedFamilyDetailUid, setSelectedFamilyDetailUid] = useState('')
+  const [isFamilyDetailEditorOpen, setIsFamilyDetailEditorOpen] = useState(false)
   const [basicDetailsTouched, setBasicDetailsTouched] = useState({})
   const [familyDetailTouched, setFamilyDetailTouched] = useState({})
   const [passwordDraft, setPasswordDraft] = useState({ current_password: '', new_password: '', confirm_new_password: '' })
@@ -546,7 +547,6 @@ export default function ProfilePage() {
   const parsedSkillValues = useMemo(() => parseSkillsInput(profileDraft.skills_input), [profileDraft.skills_input])
   const skillCount = parsedSkillValues.length
   const documentDraftName = String(documentDraft.name || '').trim()
-  const normalizedDocumentName = documentDraftName || getDocumentDefaultName(documentDraft.documentType)
   const documentMetadataHasChanges = useMemo(() => {
     if (!selectedDocument) return false
 
@@ -562,10 +562,11 @@ export default function ProfilePage() {
       : hasPendingNewDocument
   )
   const hasPendingFamilyDetail = useMemo(() => {
+    if (!isFamilyDetailEditorOpen) return false
     if (!hasFamilyDetailDraftValue(familyDetailDraft)) return false
     if (!selectedFamilyDetail) return true
     return !areFamilyDetailsEqual(buildFamilyDetailPayload(familyDetailDraft), buildComparableFamilyDetail(selectedFamilyDetail))
-  }, [familyDetailDraft, selectedFamilyDetail])
+  }, [familyDetailDraft, isFamilyDetailEditorOpen, selectedFamilyDetail])
   const mustCompleteProfile = hasLinkedEmployee && !profile?.profileCompletedAt
   const canEditBasicDetails = hasLinkedEmployee && (isAdminUser || hasBasicDetailWritePermission)
   const hasProfilePicturePermission = isAdminUser
@@ -574,10 +575,7 @@ export default function ProfilePage() {
   const canManageDocuments = hasLinkedEmployee && (isAdminUser || hasDocumentWritePermission)
   const canUploadDocuments = canManageDocuments
   const canManageFamilyDetails = hasLinkedEmployee && (isAdminUser || hasFamilyDetailWritePermission)
-  const canUpdateProfileFields = hasLinkedEmployee && (canEditBasicDetails || canEditSkills || canManageDocuments || canManageFamilyDetails)
   const canEditProfilePhoto = hasLinkedEmployee && (isAdminUser || hasProfilePicturePermission)
-  const showCombinedProfileAction = isAdminUser || !profile?.profileCompletedAt || canEditBasicDetails
-  const showSectionActions = hasLinkedEmployee && !showCombinedProfileAction
   const firstLoginDeadlineRaw = profile?.firstLoginDeadlineAt || user?.firstLoginDeadlineAt || ''
   const firstLoginDeadlineLabel = firstLoginDeadlineRaw ? formatDate(firstLoginDeadlineRaw) : ''
   const setupTarget = mustChangePassword ? 'password' : 'profile'
@@ -597,44 +595,13 @@ export default function ProfilePage() {
     const { skills, ...employeeFields } = profileChangedFields
     return employeeFields
   }, [profileChangedFields])
+  const hasBasicDetailChanges = Object.keys(basicDetailChanges).length > 0
   const identityHasChanges = Boolean(photoFile) || String(profileDraft.nickname || '').trim() !== String(profile?.nickname || '').trim()
-  const permissionBlockedSections = useMemo(() => {
-    const sections = []
-    if (Object.keys(basicDetailChanges).length && !canEditBasicDetails) sections.push('Basic Details')
-    if (hasSkillChanges && !hasSkillWritePermission) sections.push('Skills')
-    if (hasPendingFamilyDetail && !hasFamilyDetailWritePermission) sections.push('Family Details')
-    if (hasPendingDocumentChanges && !hasDocumentWritePermission) sections.push('Documents')
-    return sections
-  }, [
-    basicDetailChanges,
-    canEditBasicDetails,
-    hasSkillChanges,
-    hasDocumentWritePermission,
-    hasPendingDocumentChanges,
-    hasFamilyDetailWritePermission,
-    hasPendingFamilyDetail,
-    hasSkillWritePermission
-  ])
-  const queuedProfileSections = useMemo(() => {
-    const sections = []
-    if (Object.keys(basicDetailChanges).length && canEditBasicDetails) sections.push('Basic Details')
-    if (hasSkillChanges && canEditSkills) sections.push('Skills')
-    if (hasPendingFamilyDetail && canManageFamilyDetails) sections.push('Family Details')
-    if (hasPendingDocumentChanges && canUploadDocuments) sections.push('Documents')
-    return sections
-  }, [
-    basicDetailChanges,
-    canEditBasicDetails,
-    canEditSkills,
-    canManageFamilyDetails,
-    canUploadDocuments,
-    hasSkillChanges,
-    hasPendingDocumentChanges,
-    hasPendingFamilyDetail
-  ])
-  const hasEditableProfileChanges = queuedProfileSections.length > 0
-  const employeeProfileRequirementsMet = isAdminUser || profile?.profileCompletedAt || (parsedSkillValues.length > 0 && (documentItems.length > 0 || hasPendingDocumentChanges))
-  const canSubmitProfileUpdate = Boolean(showCombinedProfileAction && hasEditableProfileChanges && employeeProfileRequirementsMet)
+  const hasSavedSkills = (profile?.skills || []).length > 0
+  const hasSavedDocuments = documentItems.length > 0
+  const skillSetupRequired = mustCompleteProfile && !hasSavedSkills
+  const documentSetupRequired = mustCompleteProfile && !hasSavedDocuments
+  const employeeProfileRequirementsMet = isAdminUser || profile?.profileCompletedAt || (hasSavedSkills && hasSavedDocuments)
   const passwordValidation = useMemo(() => buildPasswordValidation(passwordDraft.new_password, passwordDraft.confirm_new_password), [passwordDraft.new_password, passwordDraft.confirm_new_password])
   const basicDetailErrors = useMemo(() => buildProfileBasicErrors(profileDraft, canEditBasicDetails, dobBounds), [canEditBasicDetails, dobBounds, profileDraft])
   const familyDetailErrors = useMemo(() => buildFamilyDetailErrors(familyDetailDraft), [familyDetailDraft])
@@ -715,6 +682,12 @@ export default function ProfilePage() {
     if (!familyDetailItems.length) {
       setSelectedFamilyDetailUid('')
       setFamilyDetailDraft(emptyFamilyDetailDraft())
+      setFamilyDetailTouched({})
+      setIsFamilyDetailEditorOpen(false)
+      return
+    }
+
+    if (!isFamilyDetailEditorOpen) {
       return
     }
 
@@ -728,9 +701,11 @@ export default function ProfilePage() {
       return
     }
 
-    setSelectedFamilyDetailUid(String(familyDetailItems[0].uid))
-    setFamilyDetailDraft(buildFamilyDetailDraft(familyDetailItems[0]))
-  }, [familyDetailItems, selectedFamilyDetailUid])
+    setSelectedFamilyDetailUid('')
+    setFamilyDetailDraft(emptyFamilyDetailDraft())
+    setFamilyDetailTouched({})
+    setIsFamilyDetailEditorOpen(false)
+  }, [familyDetailItems, isFamilyDetailEditorOpen, selectedFamilyDetailUid])
 
   function updateUserFromProfile(nextProfile, overrides = {}) {
     const hasEmployeeLink = Boolean(nextProfile?.employee?.uid)
@@ -800,10 +775,18 @@ export default function ProfilePage() {
     setFamilyDetailTouched((current) => ({ ...current, [fieldName]: true }))
   }
 
+  function closeFamilyDetailEditor() {
+    setSelectedFamilyDetailUid('')
+    setFamilyDetailDraft(emptyFamilyDetailDraft())
+    setFamilyDetailTouched({})
+    setIsFamilyDetailEditorOpen(false)
+  }
+
   function handleCreateNewFamilyDetail() {
     setSelectedFamilyDetailUid(NEW_FAMILY_DETAIL_UID)
     setFamilyDetailDraft(emptyFamilyDetailDraft())
     setFamilyDetailTouched({})
+    setIsFamilyDetailEditorOpen(true)
   }
 
   function handleCreateNewDocument() {
@@ -857,7 +840,7 @@ export default function ProfilePage() {
       })
       setPhotoFile(null)
       setProfile(nextProfile)
-      setProfileDraft(buildDraftFromProfile(nextProfile))
+      setProfileDraft((current) => ({ ...current, nickname: buildDraftFromProfile(nextProfile).nickname }))
       updateUserFromProfile(nextProfile)
       showStatus({ type: 'success', title: 'Identity updated', message: 'Your profile identity has been saved.' })
     } catch (error) {
@@ -865,187 +848,95 @@ export default function ProfilePage() {
     }
   }
 
-  async function handleProfileUpdate() {
+  async function handleBasicDetailsSave() {
     const basicValidationFields = [...PROFILE_BASIC_REQUIRED_FIELDS, 'birth_date', 'emergency_contact_local']
-    const familyValidationFields = ['relation', 'full_name', 'phone']
-    const requiresSetupCompletion = !isAdminUser && !profile?.profileCompletedAt
 
     if (profileUnavailable || !profile?.employee?.uid) {
       showStatus({ type: 'error', title: 'Employee profile missing', message: 'No employee record is linked to this account.' })
       return
     }
-    if (!canUpdateProfileFields) {
+    if (!canEditBasicDetails) {
       showStatus({
         type: 'error',
-        title: 'Profile update locked',
-        message: isAdminUser
-          ? 'This profile does not allow those changes right now.'
-          : 'Your role does not currently allow editing profile setup sections from this workspace.'
+        title: 'Basic details access blocked',
+        message: 'Your role does not have permission to update the employee directory fields from this workspace.'
       })
       return
     }
-    if (permissionBlockedSections.length) {
+    if (!hasBasicDetailChanges) {
+      showStatus({ type: 'error', title: 'No basic detail changes detected', message: 'Update the basic details section before saving.' })
+      return
+    }
+
+    setBasicDetailsTouched((current) => ({ ...current, ...markFieldsTouched(basicValidationFields) }))
+    if (hasValidationErrors(basicDetailErrors, basicValidationFields)) {
+      const firstError = basicValidationFields.map((fieldName) => basicDetailErrors[fieldName]).find(Boolean)
       showStatus({
         type: 'error',
-        title: 'Section access blocked',
-        message: `${permissionBlockedSections.join(', ')} require role-matrix access before they can be updated. Ask admin to grant the missing module permissions.`
+        title: 'Basic details have validation errors',
+        message: firstError || 'Resolve the highlighted profile fields before continuing.'
       })
       return
     }
-    if (canEditBasicDetails && Object.keys(basicDetailChanges).length) {
-      setBasicDetailsTouched((current) => ({ ...current, ...markFieldsTouched(basicValidationFields) }))
-      if (hasValidationErrors(basicDetailErrors, basicValidationFields)) {
-        const firstError = basicValidationFields.map((fieldName) => basicDetailErrors[fieldName]).find(Boolean)
-        showStatus({
-          type: 'error',
-          title: 'Basic details have validation errors',
-          message: firstError || 'Resolve the highlighted profile fields before continuing.'
-        })
-        return
-      }
-    }
-    if (requiresSetupCompletion && !parsedSkillValues.length) {
-      showStatus({ type: 'error', title: 'Skills required', message: 'Add at least one skill before updating your profile.' })
-      return
-    }
-    if (requiresSetupCompletion && !documentItems.length && !hasPendingDocumentChanges) {
-      showStatus({ type: 'error', title: 'Document required', message: 'Upload at least one document before submitting your profile.' })
-      return
-    }
-    const normalizedFamilyPayload = buildFamilyDetailPayload(familyDetailDraft)
-    if (hasPendingFamilyDetail) {
-      setFamilyDetailTouched((current) => ({ ...current, ...markFieldsTouched(familyValidationFields) }))
-    }
-    if (hasPendingFamilyDetail && hasValidationErrors(familyDetailErrors, familyValidationFields)) {
-      const firstError = familyValidationFields.map((fieldName) => familyDetailErrors[fieldName]).find(Boolean)
-      showStatus({
-        type: 'error',
-        title: 'Family details have validation errors',
-        message: firstError || 'Resolve the highlighted family detail fields before continuing.'
-      })
-      return
-    }
-    const normalizedDocumentName = hasPendingDocumentChanges
-      ? (String(documentDraft.name || '').trim() || getDocumentDefaultName(documentDraft.documentType))
-      : ''
-    if (hasPendingDocumentChanges && !normalizedDocumentName) {
-      showStatus({ type: 'error', title: 'Document name required', message: 'Enter a document name for the uploaded file.' })
-      return
-    }
-    if (!hasEditableProfileChanges) {
-      showStatus({ type: 'error', title: 'No changes detected', message: 'Update at least one editable field before submitting your profile.' })
-      return
-    }
+
     try {
-      const nextProfile = await runWithLoader(async () => {
-        const queuedOperations = []
-
-        if (canEditBasicDetails && Object.keys(basicDetailChanges).length) {
-          queuedOperations.push({
-            label: 'basic details',
-            run: () => employeeService.updateEmployee(profile.employee.uid, {
-              ...profile.employee,
-              employeeCode: basicDetailChanges.employee_code ?? profile.employee.employeeCode,
-              firstName: basicDetailChanges.first_name ?? profile.employee.firstName,
-              lastName: basicDetailChanges.last_name ?? profile.employee.lastName,
-              email: basicDetailChanges.email ?? profile.employee.email,
-              phone: basicDetailChanges.phone ?? profile.employee.phone,
-              roleType: basicDetailChanges.role_type ?? profile.employee.roleType,
-              position: basicDetailChanges.position ?? profile.employee.position,
-              department: basicDetailChanges.department ?? profile.employee.department,
-              joinDate: basicDetailChanges.join_date ?? profile.employee.joinDate,
-              status: basicDetailChanges.status ?? profile.employee.status,
-              dateOfBirth: basicDetailChanges.birth_date ?? profile.employee.dateOfBirth,
-              gender: basicDetailChanges.gender ?? profile.employee.gender,
-              caste: basicDetailChanges.caste ?? profile.employee.caste,
-              employeeType: basicDetailChanges.employee_type ?? profile.employee.employeeType,
-              workLocation: basicDetailChanges.work_location ?? profile.employee.workLocation,
-              bloodGroup: basicDetailChanges.blood_group ?? profile.employee.bloodGroup,
-              emergencyContact: basicDetailChanges.emergency_contact ?? profile.employee.emergencyContact,
-              address: basicDetailChanges.address ?? profile.employee.address
-            })
-          })
-        }
-
-        if (hasSkillChanges) {
-          queuedOperations.push({
-            label: 'skills',
-            run: () => employeeService.syncEmployeeSkills(profile.employee.uid, parsedSkillValues, profile.skills)
-          })
-        }
-
-        if (hasPendingFamilyDetail) {
-          queuedOperations.push({
-            label: 'family details',
-            run: () => (selectedFamilyDetail
-              ? employeeService.updateEmployeeFamilyDetail(selectedFamilyDetail.uid, normalizedFamilyPayload)
-              : employeeService.createEmployeeFamilyDetail({
-                employeeUid: profile.employee.uid,
-                ...normalizedFamilyPayload
-              }))
-          })
-        }
-
-        if (hasPendingDocumentChanges) {
-          queuedOperations.push({
-            label: 'documents',
-            run: () => {
-              if (selectedDocument) {
-                if (documentDraft.file) {
-                  return employeeService.replaceEmployeeDocumentFile(selectedDocument.uid, {
-                    documentType: documentDraft.documentType,
-                    name: normalizedDocumentName,
-                    file: documentDraft.file
-                  })
-                }
-
-                return employeeService.updateEmployeeDocument(selectedDocument.uid, {
-                  documentType: documentDraft.documentType,
-                  name: normalizedDocumentName
-                })
-              }
-
-              return employeeService.uploadEmployeeDocument({
-                employeeUid: profile.employee.uid,
-                documentType: documentDraft.documentType,
-                name: normalizedDocumentName,
-                file: documentDraft.file
-              })
-            }
-          })
-        }
-
-        for (const operation of queuedOperations) {
-          await operation.run()
-        }
-
-        return employeeService.getMyProfile({ seedEmployee: profile.employee })
-      }, {
-        title: 'Updating profile',
-        message: queuedProfileSections.length
-          ? `Applying changes for ${queuedProfileSections.join(', ')}.`
-          : 'Applying combined profile changes.',
-        minVisibleMs: 550
+      await runWithLoader(() => employeeService.updateEmployee(profile.employee.uid, {
+        ...profile.employee,
+        employeeCode: basicDetailChanges.employee_code ?? profile.employee.employeeCode,
+        firstName: basicDetailChanges.first_name ?? profile.employee.firstName,
+        lastName: basicDetailChanges.last_name ?? profile.employee.lastName,
+        email: basicDetailChanges.email ?? profile.employee.email,
+        phone: basicDetailChanges.phone ?? profile.employee.phone,
+        roleType: basicDetailChanges.role_type ?? profile.employee.roleType,
+        position: basicDetailChanges.position ?? profile.employee.position,
+        department: basicDetailChanges.department ?? profile.employee.department,
+        joinDate: basicDetailChanges.join_date ?? profile.employee.joinDate,
+        status: basicDetailChanges.status ?? profile.employee.status,
+        dateOfBirth: basicDetailChanges.birth_date ?? profile.employee.dateOfBirth,
+        gender: basicDetailChanges.gender ?? profile.employee.gender,
+        caste: basicDetailChanges.caste ?? profile.employee.caste,
+        employeeType: basicDetailChanges.employee_type ?? profile.employee.employeeType,
+        workLocation: basicDetailChanges.work_location ?? profile.employee.workLocation,
+        bloodGroup: basicDetailChanges.blood_group ?? profile.employee.bloodGroup,
+        emergencyContact: basicDetailChanges.emergency_contact ?? profile.employee.emergencyContact,
+        address: basicDetailChanges.address ?? profile.employee.address
+      }), {
+        title: 'Saving basic details',
+        message: 'Updating your employee directory details.',
+        minVisibleMs: 450
       })
+
+      const nextProfile = await employeeService.getMyProfile({ seedEmployee: profile.employee })
       setProfile(nextProfile)
-      setProfileDraft(buildDraftFromProfile(nextProfile))
-      if (!selectedDocument) {
-        setSelectedDocumentUid('')
-        setDocumentDraft(emptyDocumentDraft())
-      }
-      setDocumentFileInputKey((current) => current + 1)
+      const nextDraft = buildDraftFromProfile(nextProfile)
+      setProfileDraft((current) => ({
+        ...current,
+        employee_code: nextDraft.employee_code,
+        first_name: nextDraft.first_name,
+        last_name: nextDraft.last_name,
+        email: nextDraft.email,
+        phone_country_code: nextDraft.phone_country_code,
+        phone_local: nextDraft.phone_local,
+        role_type: nextDraft.role_type,
+        position: nextDraft.position,
+        department: nextDraft.department,
+        join_date: nextDraft.join_date,
+        status: nextDraft.status,
+        birth_date: nextDraft.birth_date,
+        gender: nextDraft.gender,
+        caste: nextDraft.caste,
+        employee_type: nextDraft.employee_type,
+        work_location: nextDraft.work_location,
+        blood_group: nextDraft.blood_group,
+        emergency_contact_country_code: nextDraft.emergency_contact_country_code,
+        emergency_contact_local: nextDraft.emergency_contact_local,
+        address: nextDraft.address
+      }))
       setBasicDetailsTouched({})
-      setFamilyDetailTouched({})
       updateUserFromProfile(nextProfile)
-      showStatus({
-        type: 'success',
-        title: 'Profile updated',
-        message: isAdminUser
-          ? 'The profile information has been saved.'
-          : 'Your profile has been updated successfully.'
-      })
+      showStatus({ type: 'success', title: 'Basic details updated', message: 'Your employee profile details have been saved.' })
     } catch (error) {
-      showStatus({ type: 'error', title: 'Profile update failed', message: error?.response?.data?.detail || error?.message || 'Profile update request failed.' })
+      showStatus({ type: 'error', title: 'Basic detail update failed', message: error?.response?.data?.detail || error?.message || 'Could not save the basic details.' })
     }
   }
 
@@ -1068,7 +959,7 @@ export default function ProfilePage() {
         await employeeService.syncEmployeeSkills(profile.employee.uid, parsedSkillValues, profile.skills)
         const nextProfile = await employeeService.getMyProfile({ seedEmployee: profile.employee })
         setProfile(nextProfile)
-        setProfileDraft(buildDraftFromProfile(nextProfile))
+        setProfileDraft((current) => ({ ...current, skills_input: buildDraftFromProfile(nextProfile).skills_input }))
         updateUserFromProfile(nextProfile)
       }, {
         title: 'Saving skills',
@@ -1127,9 +1018,7 @@ export default function ProfilePage() {
 
       const nextProfile = await employeeService.getMyProfile({ seedEmployee: profile.employee })
       setProfile(nextProfile)
-      setProfileDraft(buildDraftFromProfile(nextProfile))
-      setSelectedFamilyDetailUid(String(savedDetail?.uid || ''))
-      setFamilyDetailTouched({})
+      closeFamilyDetailEditor()
       updateUserFromProfile(nextProfile)
       showStatus({
         type: 'success',
@@ -1163,9 +1052,7 @@ export default function ProfilePage() {
 
       const nextProfile = await employeeService.getMyProfile({ seedEmployee: profile.employee })
       setProfile(nextProfile)
-      setProfileDraft(buildDraftFromProfile(nextProfile))
-      setSelectedFamilyDetailUid('')
-      setFamilyDetailTouched({})
+      closeFamilyDetailEditor()
       updateUserFromProfile(nextProfile)
       showStatus({ type: 'success', title: 'Family detail deleted', message: 'The family record has been removed.' })
     } catch (error) {
@@ -1228,7 +1115,6 @@ export default function ProfilePage() {
 
       const nextProfile = await employeeService.getMyProfile({ seedEmployee: profile.employee })
       setProfile(nextProfile)
-      setProfileDraft(buildDraftFromProfile(nextProfile))
       setSelectedDocumentUid(String(savedDocument?.uid || ''))
       setDocumentFileInputKey((current) => current + 1)
       updateUserFromProfile(nextProfile)
@@ -1264,7 +1150,6 @@ export default function ProfilePage() {
 
       const nextProfile = await employeeService.getMyProfile({ seedEmployee: profile.employee })
       setProfile(nextProfile)
-      setProfileDraft(buildDraftFromProfile(nextProfile))
       setSelectedDocumentUid('')
       setDocumentDraft(emptyDocumentDraft())
       setDocumentFileInputKey((current) => current + 1)
@@ -1357,7 +1242,7 @@ export default function ProfilePage() {
             <div className="text-muted small">
               {isAdminUser
                 ? 'Admin accounts can manage basic details, skills, family details, documents, and password from one workspace.'
-                : 'Basic details are loaded from the employee directory. During onboarding the setup sections submit together, and after onboarding each section can be managed separately.'}
+                : 'Basic details are loaded from the employee directory, and each profile section can now be saved separately. During first login, required sections stay highlighted until they are completed.'}
             </div>
             {firstLoginSetupRequired && firstLoginDeadlineLabel ? (
               <div className="text-muted small mt-1">Complete first-login setup by {firstLoginDeadlineLabel} to avoid automatic account disable.</div>
@@ -1404,6 +1289,7 @@ export default function ProfilePage() {
                   <div className="profile-section-heading">Change Password</div>
                   <div className="text-muted small">{mustChangePassword ? 'Default password detected. Set a new password to continue. The current password will be applied automatically.' : 'Enter your old password and set a stronger new one.'}</div>
                 </div>
+                {mustChangePassword ? <div className="alert alert-warning mb-0 small">This section is mandatory on first login. Update the default password before the rest of the application is unlocked.</div> : null}
                 {!mustChangePassword ? (
                   <div>
                     <label className="form-label">Current Password</label>
@@ -1475,6 +1361,11 @@ export default function ProfilePage() {
                   <div className="profile-section-heading">Basic Details</div>
                   <div className="text-muted small">Structure matches employee entries, including dropdown masters and phone formatting.</div>
                 </div>
+                {mustCompleteProfile ? (
+                  <div className="alert alert-warning mb-0 small">
+                    Review this section during first login so your employee directory details stay accurate for attendance and leave workflows.
+                  </div>
+                ) : null}
                 {!hasVisibleBasicDetails && profileUnavailable ? (
                   <div className="text-muted small">No employee profile details are available for this account yet.</div>
                 ) : (
@@ -1529,6 +1420,11 @@ export default function ProfilePage() {
                       {showBasicError('emergency_contact_local') ? <div className="invalid-feedback d-block">{basicDetailErrors.emergency_contact_local}</div> : null}
                     </div>
                     <div className="col-12"><label className="form-label">Address</label><textarea className="form-control" rows="3" name="address" value={basicDetailsDraft.address} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} disabled={!canEditBasicDetails} /></div>
+                    <div className="col-12 d-flex justify-content-end">
+                      <button type="button" className="btn btn-primary" onClick={handleBasicDetailsSave} disabled={!canEditBasicDetails || !hasBasicDetailChanges}>
+                        Save Basic Details
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1537,14 +1433,8 @@ export default function ProfilePage() {
 
               <div className="profile-form-section">
                 <div>
-                  <div className="profile-section-heading">Skills, Family Details, And Document Uploaded</div>
-                  <div className="text-muted small">
-                    {showSectionActions
-                      ? 'Use the role-enabled section actions below to manage skills, family details, and documents separately.'
-                      : (isAdminUser
-                        ? 'Admin updates for basic details, skills, family details, and documents can be submitted together from this workspace.'
-                        : 'Changed profile sections will be submitted together from this workspace based on your role-matrix access.')}
-                  </div>
+                  <div className="profile-section-heading">Skills, Family Details, And Documents</div>
+                  <div className="text-muted small">Use the section actions below to manage each profile area separately.</div>
                 </div>
                 <div className="row g-3">
                   <div className="col-12">
@@ -1557,13 +1447,12 @@ export default function ProfilePage() {
                           ? 'Role access for Employee Skills is disabled.'
                           : 'Use comma-separated values and save once.')}
                     </div>
-                    {showSectionActions ? (
-                      <div className="d-flex justify-content-end mt-3">
-                        <button type="button" className="btn btn-primary" onClick={handleSkillsSave} disabled={!canEditSkills || !hasSkillChanges}>
-                          Save Skills
-                        </button>
-                      </div>
-                    ) : null}
+                    {skillSetupRequired ? <div className="alert alert-warning mt-3 mb-0 small">This section is mandatory on first login. Add at least one skill and save it to continue onboarding.</div> : null}
+                    <div className="d-flex justify-content-end mt-3">
+                      <button type="button" className="btn btn-primary" onClick={handleSkillsSave} disabled={!canEditSkills || !hasSkillChanges}>
+                        Save Skills
+                      </button>
+                    </div>
                   </div>
                   <div className="col-12">
                     <div className="profile-form-divider" />
@@ -1572,61 +1461,73 @@ export default function ProfilePage() {
                     <div className="profile-section-heading">Family Details</div>
                     <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
                       <div className="text-muted small">
-                      {!hasFamilyDetailWritePermission
+                        {!canManageFamilyDetails
                           ? 'Role access for Employee Family Details is disabled. Ask admin to grant that sub-module to edit or add records.'
-                          : (selectedFamilyDetail
-                            ? 'Saved family detail is loaded into the form. Update the values and save, or start a new record.'
-                            : 'Add one family record at a time. Relation and full name are required for each entry.')}
+                          : (isFamilyDetailEditorOpen
+                            ? (selectedFamilyDetail
+                              ? 'Update the loaded family record and save the changes, or close the form when you are done.'
+                              : 'Add one family record at a time. Relation and full name are required for each entry.')
+                            : 'Saved family records stay visible below. Open the form only when you want to add or edit an entry.')}
                       </div>
-                      {familyDetailItems.length ? (
+                      {canManageFamilyDetails ? (
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-secondary"
-                          onClick={handleCreateNewFamilyDetail}
-                          disabled={!canManageFamilyDetails}
+                          onClick={isFamilyDetailEditorOpen ? closeFamilyDetailEditor : handleCreateNewFamilyDetail}
                         >
-                          Add New Record
+                          {isFamilyDetailEditorOpen ? 'Close Form' : (familyDetailItems.length ? 'Add New Record' : 'Add Family Detail')}
                         </button>
                       ) : null}
                     </div>
                   </div>
-                  <div className="col-12 col-md-4">
-                    <label className="form-label">Relation</label>
-                    <input className={`form-control${showFamilyError('relation') ? ' is-invalid' : ''}`} name="relation" value={familyDetailDraft.relation} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Spouse, Father, Mother" maxLength="100" disabled={!canManageFamilyDetails} />
-                    {showFamilyError('relation') ? <div className="invalid-feedback d-block">{familyDetailErrors.relation}</div> : null}
-                  </div>
-                  <div className="col-12 col-md-4">
-                    <label className="form-label">Full Name</label>
-                    <input className={`form-control${showFamilyError('full_name') ? ' is-invalid' : ''}`} name="full_name" value={familyDetailDraft.full_name} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Family member name" maxLength="150" disabled={!canManageFamilyDetails} />
-                    {showFamilyError('full_name') ? <div className="invalid-feedback d-block">{familyDetailErrors.full_name}</div> : null}
-                  </div>
-                  <div className="col-12 col-md-4">
-                    <label className="form-label">Date of Birth</label>
-                    <input className="form-control" type="date" name="date_of_birth" value={familyDetailDraft.date_of_birth} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} disabled={!canManageFamilyDetails} />
-                  </div>
-                  <div className="col-12 col-md-4">
-                    <label className="form-label">Phone</label>
-                    <input className={`form-control${showFamilyError('phone') ? ' is-invalid' : ''}`} name="phone" value={familyDetailDraft.phone} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="+919999999999" maxLength="20" disabled={!canManageFamilyDetails} />
-                    {showFamilyError('phone') ? <div className="invalid-feedback d-block">{familyDetailErrors.phone}</div> : null}
-                  </div>
-                  <div className="col-12 col-md-4">
-                    <label className="form-label">Occupation</label>
-                    <input className="form-control" name="occupation" value={familyDetailDraft.occupation} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Occupation" maxLength="120" disabled={!canManageFamilyDetails} />
-                  </div>
-                  <div className="col-12 col-md-4 d-flex align-items-end">
-                    <div className="form-check mb-2">
-                      <input className="form-check-input" type="checkbox" id="family-dependent" name="is_dependent" checked={familyDetailDraft.is_dependent} onChange={handleFamilyDetailFieldChange} disabled={!canManageFamilyDetails} />
-                      <label className="form-check-label" htmlFor="family-dependent">Dependent family member</label>
-                    </div>
-                  </div>
-                  <div className="col-12 col-md-6">
-                    <label className="form-label">Address</label>
-                    <textarea className="form-control" rows="2" name="address" value={familyDetailDraft.address} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Family member address" disabled={!canManageFamilyDetails} />
-                  </div>
-                  <div className="col-12 col-md-6">
-                    <label className="form-label">Remarks</label>
-                    <textarea className="form-control" rows="2" name="remarks" value={familyDetailDraft.remarks} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Optional remarks" disabled={!canManageFamilyDetails} />
-                  </div>
+                  {isFamilyDetailEditorOpen ? (
+                    <>
+                      <div className="col-12">
+                        <div className="alert alert-secondary mb-0 small">
+                          {selectedFamilyDetail
+                            ? `Editing ${selectedFamilyDetail.fullName || selectedFamilyDetail.relation || 'the selected family record'}.`
+                            : 'Fill out the form below to add a new family record.'}
+                        </div>
+                      </div>
+                      <div className="col-12 col-md-4">
+                        <label className="form-label">Relation</label>
+                        <input className={`form-control${showFamilyError('relation') ? ' is-invalid' : ''}`} name="relation" value={familyDetailDraft.relation} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Spouse, Father, Mother" maxLength="100" disabled={!canManageFamilyDetails} />
+                        {showFamilyError('relation') ? <div className="invalid-feedback d-block">{familyDetailErrors.relation}</div> : null}
+                      </div>
+                      <div className="col-12 col-md-4">
+                        <label className="form-label">Full Name</label>
+                        <input className={`form-control${showFamilyError('full_name') ? ' is-invalid' : ''}`} name="full_name" value={familyDetailDraft.full_name} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Family member name" maxLength="150" disabled={!canManageFamilyDetails} />
+                        {showFamilyError('full_name') ? <div className="invalid-feedback d-block">{familyDetailErrors.full_name}</div> : null}
+                      </div>
+                      <div className="col-12 col-md-4">
+                        <label className="form-label">Date of Birth</label>
+                        <input className="form-control" type="date" name="date_of_birth" value={familyDetailDraft.date_of_birth} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} disabled={!canManageFamilyDetails} />
+                      </div>
+                      <div className="col-12 col-md-4">
+                        <label className="form-label">Phone</label>
+                        <input className={`form-control${showFamilyError('phone') ? ' is-invalid' : ''}`} name="phone" value={familyDetailDraft.phone} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="+919999999999" maxLength="20" disabled={!canManageFamilyDetails} />
+                        {showFamilyError('phone') ? <div className="invalid-feedback d-block">{familyDetailErrors.phone}</div> : null}
+                      </div>
+                      <div className="col-12 col-md-4">
+                        <label className="form-label">Occupation</label>
+                        <input className="form-control" name="occupation" value={familyDetailDraft.occupation} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Occupation" maxLength="120" disabled={!canManageFamilyDetails} />
+                      </div>
+                      <div className="col-12 col-md-4 d-flex align-items-end">
+                        <div className="form-check mb-2">
+                          <input className="form-check-input" type="checkbox" id="family-dependent" name="is_dependent" checked={familyDetailDraft.is_dependent} onChange={handleFamilyDetailFieldChange} disabled={!canManageFamilyDetails} />
+                          <label className="form-check-label" htmlFor="family-dependent">Dependent family member</label>
+                        </div>
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Address</label>
+                        <textarea className="form-control" rows="2" name="address" value={familyDetailDraft.address} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Family member address" disabled={!canManageFamilyDetails} />
+                      </div>
+                      <div className="col-12 col-md-6">
+                        <label className="form-label">Remarks</label>
+                        <textarea className="form-control" rows="2" name="remarks" value={familyDetailDraft.remarks} onChange={handleFamilyDetailFieldChange} onBlur={handleFamilyDetailFieldBlur} placeholder="Optional remarks" disabled={!canManageFamilyDetails} />
+                      </div>
+                    </>
+                  ) : null}
                   <div className="col-12">
                     {familyDetailItems.length ? (
                       <div className="d-flex flex-column gap-2">
@@ -1652,15 +1553,16 @@ export default function ProfilePage() {
                               <div className="d-flex flex-wrap gap-2">
                                 <button
                                   type="button"
-                                  className={`btn btn-sm ${String(detail.uid) === String(selectedFamilyDetailUid) ? 'btn-primary' : 'btn-outline-secondary'}`}
+                                  className={`btn btn-sm ${isFamilyDetailEditorOpen && String(detail.uid) === String(selectedFamilyDetailUid) ? 'btn-primary' : 'btn-outline-secondary'}`}
                                   onClick={() => {
                                     setSelectedFamilyDetailUid(String(detail.uid))
                                     setFamilyDetailDraft(buildFamilyDetailDraft(detail))
                                     setFamilyDetailTouched({})
+                                    setIsFamilyDetailEditorOpen(true)
                                   }}
                                   disabled={!canManageFamilyDetails}
                                 >
-                                  {String(detail.uid) === String(selectedFamilyDetailUid) ? 'Loaded' : 'Edit'}
+                                  {isFamilyDetailEditorOpen && String(detail.uid) === String(selectedFamilyDetailUid) ? 'Editing' : 'Edit'}
                                 </button>
                                 {hasFamilyDetailDeletePermission ? (
                                   <button
@@ -1678,11 +1580,14 @@ export default function ProfilePage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-muted small">No family details added yet.</div>
+                      <div className="text-muted small">{isFamilyDetailEditorOpen ? 'Save the form to create the first family record.' : 'No family details added yet.'}</div>
                     )}
                   </div>
-                  {showSectionActions || hasFamilyDetailDeletePermission ? (
+                  {isFamilyDetailEditorOpen ? (
                     <div className="col-12 d-flex flex-wrap justify-content-end gap-2">
+                      <button type="button" className="btn btn-outline-secondary" onClick={closeFamilyDetailEditor}>
+                        Cancel
+                      </button>
                       {selectedFamilyDetail && hasFamilyDetailDeletePermission ? (
                         <button type="button" className="btn btn-outline-danger" onClick={handleFamilyDetailDelete} disabled={!hasFamilyDetailDeletePermission}>
                           Delete Family Detail
@@ -1697,10 +1602,10 @@ export default function ProfilePage() {
                     <div className="profile-form-divider" />
                   </div>
                   <div className="col-12">
-                    <div className="profile-section-heading">Document Uploaded</div>
+                    <div className="profile-section-heading">Documents</div>
                     <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
                       <div className="text-muted small">
-                        {!canUploadDocuments && !hasDocumentWritePermission
+                        {!canUploadDocuments
                           ? 'Role access for Employee Documents is disabled. Ask admin to grant that sub-module to upload files.'
                           : (selectedDocument
                             ? 'Saved document is loaded into the form. Update the metadata, replace the file, or add a new document.'
@@ -1713,6 +1618,7 @@ export default function ProfilePage() {
                       ) : null}
                     </div>
                   </div>
+                  {documentSetupRequired ? <div className="col-12"><div className="alert alert-warning mb-0 small">This section is mandatory on first login. Upload at least one document and save it to finish onboarding.</div></div> : null}
                   <div className="col-12 col-md-4">
                     <label className="form-label">Document Type</label>
                     <AppSelect value={documentDraft.documentType} onChange={(value) => setDocumentDraft((current) => ({ ...current, documentType: value }))} options={DOCUMENT_TYPE_OPTIONS} placeholder="Type" disabled={!canUploadDocuments} />
@@ -1754,7 +1660,7 @@ export default function ProfilePage() {
                             >
                               {String(document.uid) === String(selectedDocumentUid) ? 'Loaded' : 'Edit'}
                             </button>
-                            {showSectionActions ? (
+                            {canManageDocuments ? (
                               <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => handleDocumentDelete(document)} disabled={!canManageDocuments}>
                                 Delete
                               </button>
@@ -1767,29 +1673,14 @@ export default function ProfilePage() {
                 ) : (
                   <div className="text-muted small">No documents uploaded yet.</div>
                 )}
-                {showSectionActions ? (
-                  <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                    <div className="text-muted small">
-                      Save each section separately after onboarding is completed. Remove a saved skill from the list and save again to delete it.
-                    </div>
-                    <button type="button" className="btn btn-primary" onClick={handleDocumentSave} disabled={!canUploadDocuments || !hasPendingDocumentChanges}>
-                      {selectedDocument ? 'Update Document' : 'Save Document'}
-                    </button>
+                <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                  <div className="text-muted small">
+                    Save each section separately. Remove a saved skill from the list and save again to delete it.
                   </div>
-                ) : (
-                  <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                    <div className="text-muted small">
-                      {queuedProfileSections.length
-                        ? `Changed sections: ${queuedProfileSections.join(', ')}.`
-                        : (isAdminUser
-                          ? 'Changed profile sections from this card will be submitted together.'
-                          : 'Only changed sections allowed by your role matrix will be queued from this card.')}
-                    </div>
-                    <button type="button" className="btn btn-primary profile-action-btn" onClick={handleProfileUpdate} disabled={!canSubmitProfileUpdate}>
-                      Update Profile
-                    </button>
-                  </div>
-                )}
+                  <button type="button" className="btn btn-primary" onClick={handleDocumentSave} disabled={!canUploadDocuments || !hasPendingDocumentChanges}>
+                    {selectedDocument ? 'Update Document' : 'Save Document'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

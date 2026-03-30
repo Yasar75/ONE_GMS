@@ -39,7 +39,7 @@ export function AppLayout() {
 
       <main className={`app-content ${setupRequired ? 'without-sidebar' : `${sidebarLocked ? 'with-sidebar' : 'with-sidebar-collapsed'}${sidebarExpanded && !sidebarLocked ? ' sidebar-hover' : ''}`}`.trim()}>
         <div className="app-content-scroll">
-          <div className="container-fluid py-3">
+          <div className="app-shell-container app-page-container py-3">
             <div key={location.pathname} className="route-transition">
               <Outlet />
             </div>
