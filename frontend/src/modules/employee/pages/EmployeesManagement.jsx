@@ -1,5 +1,6 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import PageHeader from '../../../components/common/PageHeader.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
@@ -1037,6 +1038,19 @@ function EmployeeFormFields({
 }
 
 function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, roleCard = false, roleModules = [] }) {
+  const { items: sortedEntries, sortConfig: metadataSortConfig, requestSort: requestMetadataSort } = useSortableData(entries, {
+    initialKey: 'label',
+    initialDirection: 'asc',
+    accessors: {
+      label: (entry) => roleCard ? (entry.roleName || '') : (entry.label || ''),
+      value: (entry) => roleCard
+        ? getRoleAccessSummary(getEffectiveRoleAccess(entry.access, entry.roleName, roleModules))
+        : (entry.value || ''),
+      description: (entry) => entry.description || '',
+      status: (entry) => (entry.isActive === false ? 'Inactive' : 'Active')
+    }
+  })
+
   return (
     <div className="card border-0 shadow-sm glass employee-directory-shell metadata-card-shell">
       <div className="card-body d-flex flex-column gap-3">
@@ -1053,15 +1067,15 @@ function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, ro
           ) : null}
         </div>
 
-        <PaginatedTable rows={entries} className="metadata-table-wrap">
+        <PaginatedTable rows={sortedEntries} className="metadata-table-wrap">
           {({ rows: paginatedRows }) => (
             <table className="table align-middle mb-0 employee-table employee-table-dense metadata-table">
               <thead>
                 <tr>
-                  <th>Label</th>
-                  <th>Value</th>
-                  <th>Description</th>
-                  <th>Status</th>
+                  <th><SortableHeader label={roleCard ? 'Role' : 'Label'} sortKey="label" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
+                  <th><SortableHeader label={roleCard ? 'Access Summary' : 'Value'} sortKey="value" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
+                  <th><SortableHeader label="Description" sortKey="description" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
+                  <th><SortableHeader label="Status" sortKey="status" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
                   <th className="text-center">Actions</th>
                 </tr>
               </thead>
@@ -1418,6 +1432,7 @@ function MappingModal({ open, employee, draft, onChange, onClose, onSubmit, opti
 export default function EmployeesManagement() {
   const formRef = useRef(null)
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const exportMenuId = 'employeesExportMenu'
   const { showStatus, showConfirm, runWithLoader } = useModal()
   const { user } = useAuth()
@@ -1451,7 +1466,8 @@ export default function EmployeesManagement() {
     refetchOnWindowFocus: false
   })
 
-  const [activeTab, setActiveTab] = useState(defaultTab)
+  const requestedTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => requestedTab || defaultTab)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [workLocationFilter, setWorkLocationFilter] = useState('All')
@@ -1511,6 +1527,18 @@ export default function EmployeesManagement() {
     if (tabKey === 'requests') return canViewRequests
     return false
   }), [canViewEntries, canViewMetadata, canViewRequests])
+  const updateTabSearchParam = useCallback((nextTab) => {
+    setSearchParams((current) => {
+      const nextParams = new URLSearchParams(current)
+      if (nextTab) nextParams.set('tab', nextTab)
+      else nextParams.delete('tab')
+      return nextParams
+    }, { replace: true })
+  }, [setSearchParams])
+  const handleTabChange = useCallback((nextTab) => {
+    setActiveTab(nextTab)
+    updateTabSearchParam(nextTab)
+  }, [updateTabSearchParam])
   const isEditingSystemAdminRole = metadataModal?.kind === 'role' && metadataModal?.mode === 'edit' && isSystemAdminRoleName(metadataModal?.entry?.roleName || roleDraft.roleName)
   const employeeFormErrors = useMemo(() => buildEmployeeFormErrors(employeeDraft, employeeFormMode), [employeeDraft, employeeFormMode])
   const metadataErrors = useMemo(() => buildMetadataFormErrors(metadataDraft), [metadataDraft])
@@ -1608,15 +1636,29 @@ export default function EmployeesManagement() {
     return matchesSearch && matchesStatus && matchesWorkLocation && matchesDepartment && matchesPosition && matchesRole && matchesEmployeeType && matchesJoinDate
   }), [employees, search, statusFilter, workLocationFilter, departmentFilter, positionFilter, roleFilter, employeeTypeFilter, joinDateRange])
 
-  const { items: sortedEmployees, sortConfig, requestSort } = useSortableData(filteredEmployees, {
-    initialKey: 'nameRole',
+  const { items: sortedEmployees, sortConfig: employeeSortConfig, requestSort: requestEmployeeSort } = useSortableData(filteredEmployees, {
+    initialKey: 'employee',
     initialDirection: 'asc',
     accessors: {
-      nameRole: (employee) => `${employee.fullName || ''} ${employee.roleName || ''}`.trim(),
+      employee: (employee) => `${employee.fullName || ''} ${employee.employeeCode || ''}`.trim(),
+      role: (employee) => employee.roleName || '',
       contact: (employee) => `${employee.email || ''} ${employee.phone || ''}`.trim(),
       positionDepartment: (employee) => `${employee.position || ''} ${employee.department || ''}`.trim(),
       statusJoinDate: (employee) => `${employee.status || ''} ${employee.joinDate || ''}`.trim(),
       locationType: (employee) => `${employee.workLocation || ''} ${employee.employeeType || ''}`.trim()
+    }
+  })
+  const { items: sortedProfileRequests, sortConfig: profileRequestSortConfig, requestSort: requestProfileRequestSort } = useSortableData(profileRequests, {
+    initialKey: 'employee',
+    initialDirection: 'asc',
+    accessors: {
+      employee: (entry) => `${entry.fullName || ''} ${entry.employeeCode || entry.username || entry.email || ''}`.trim(),
+      email: (entry) => `${entry.email || ''} ${entry.username || ''}`.trim(),
+      verification: (entry) => `${entry.status || ''} ${entry.isVerified ? 'verified' : 'unverified'}`.trim(),
+      accountStatus: (entry) => `${entry.accountState || (entry.isBackendLocked ? 'Locked' : 'Unlocked')} ${entry.lockedAt || entry.unlockedAt || ''}`.trim(),
+      lockDetails: (entry) => `${entry.lockedReason || ''} ${entry.isStatusLocked ? (entry.status || '') : ''}`.trim(),
+      firstLogin: (entry) => entry.firstLoginAt || '',
+      firstLoginState: (entry) => (entry.firstLoginAt ? 'Completed' : 'Pending')
     }
   })
 
@@ -2187,6 +2229,12 @@ export default function EmployeesManagement() {
   }).filter((section) => (section.key === 'roles' ? canReadRoles : canReadEmployeeMetadata)), [canReadEmployeeMetadata, canReadRoles, metadataByCategory, roles])
 
   useEffect(() => {
+    if (requestedTab && requestedTab !== activeTab) {
+      setActiveTab(requestedTab)
+    }
+  }, [activeTab, requestedTab])
+
+  useEffect(() => {
     const nextTab = resolveAccessibleTab(availableTabs, activeTab, (tabKey) => {
       if (tabKey === 'metadata') return canViewMetadata
       if (tabKey === 'entries') return canViewEntries
@@ -2194,16 +2242,20 @@ export default function EmployeesManagement() {
       return false
     }, defaultTab)
 
-    if (nextTab && nextTab !== activeTab) {
+    if (!nextTab) return
+    if (nextTab !== activeTab) {
       setActiveTab(nextTab)
     }
-  }, [activeTab, availableTabs, canViewEntries, canViewMetadata, canViewRequests, defaultTab])
+    if (requestedTab !== nextTab) {
+      updateTabSearchParam(nextTab)
+    }
+  }, [activeTab, availableTabs, canViewEntries, canViewMetadata, canViewRequests, defaultTab, requestedTab, updateTabSearchParam])
 
 
   if (isLoading) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
+        <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
         <div className="card border-0 shadow-sm glass employee-directory-shell"><div className="card-body py-5 text-center"><div className="global-loader-spinner mb-3"><span /><span /></div><div className="fw-semibold mb-1">Loading employee management</div>
       {/* Mapping tab is under development and will be available in a future release. */}
       {/* <div className="text-muted small">Pulling directory, metadata, and mapping catalogs from the backend.</div></div></div> */}
@@ -2215,7 +2267,7 @@ export default function EmployeesManagement() {
   if (isError) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
+        <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
         <div className="card border-0 shadow-sm glass employee-directory-shell">
           <div className="card-body py-5 text-center">
             <div className="fw-semibold mb-2">Employee management could not be loaded.</div>
@@ -2232,9 +2284,9 @@ export default function EmployeesManagement() {
     //   <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
     // <PageHeader title="Employee Management" tagline="Administer metadata, employee records, mapping structure, and linked auth signup from one operational console." />
     <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-      <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from one operational console." />
+      <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from one operational console." />
 
-      <AttendanceTabs activeTab={activeTab} onChange={setActiveTab} tabs={availableTabs} />
+      <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />
 
       {activeTab === 'metadata' ? (
         <>
@@ -2381,12 +2433,12 @@ export default function EmployeesManagement() {
                     </colgroup>
                     <thead>
                       <tr>
-                        <th><SortableHeader label="Employee Name (Code)" columnKey="nameRole" sortConfig={sortConfig} onSort={requestSort} className="employee-header-wrap" /></th> 
-                        <th className="employee-role-column table-header-center"><SortableHeader label="Role" columnKey="nameRole" sortConfig={sortConfig} onSort={requestSort} className="employee-header-wrap employee-header-wrap-center" /></th>
-                        <th><SortableHeader label="Contact" columnKey="contact" sortConfig={sortConfig} onSort={requestSort} className="employee-header-wrap" /></th>
-                        <th><SortableHeader label="Position (Dept)" columnKey="positionDepartment" sortConfig={sortConfig} onSort={requestSort} className="employee-header-wrap" /></th>
-                        <th><SortableHeader label="Status (DOJ)" columnKey="statusJoinDate" sortConfig={sortConfig} onSort={requestSort} className="employee-header-wrap" /></th>
-                        <th><SortableHeader label="Work Location (Type)" columnKey="locationType" sortConfig={sortConfig} onSort={requestSort} className="employee-header-wrap" /></th>
+                        <th><SortableHeader label="Employee Name (Code)" sortKey="employee" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th> 
+                        <th className="employee-role-column table-header-center"><SortableHeader label="Role" sortKey="role" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap employee-header-wrap-center" /></th>
+                        <th><SortableHeader label="Contact" sortKey="contact" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
+                        <th><SortableHeader label="Position (Dept)" sortKey="positionDepartment" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
+                        <th><SortableHeader label="Status (DOJ)" sortKey="statusJoinDate" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
+                        <th><SortableHeader label="Work Location (Type)" sortKey="locationType" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
                         <th className="text-center">Actions</th>
                       </tr>
                     </thead>
@@ -2480,17 +2532,17 @@ export default function EmployeesManagement() {
               </div>
             ) : null}
 
-            <PaginatedTable rows={profileRequests}>
+            <PaginatedTable rows={sortedProfileRequests}>
               {({ rows: paginatedRows }) => (
                 <table className="table align-middle mb-0 employee-table employee-table-dense">
                   <thead>
                     <tr>
-                      <th>Employee (Code)</th>
-                      <th>Email (Username)</th>
-                      <th>User Status (Verification)</th>
-                      <th>Account Status</th>
-                      <th>Lock Details</th>
-                      <th>First Login</th>
+                      <th><SortableHeader label="Employee (Code)" sortKey="employee" sortConfig={profileRequestSortConfig} onSort={requestProfileRequestSort} /></th>
+                      <th><SortableHeader label="Email (Username)" sortKey="email" sortConfig={profileRequestSortConfig} onSort={requestProfileRequestSort} /></th>
+                      <th><SortableHeader label="User Status (Verification)" sortKey="verification" sortConfig={profileRequestSortConfig} onSort={requestProfileRequestSort} /></th>
+                      <th><SortableHeader label="Account Status" sortKey="accountStatus" sortConfig={profileRequestSortConfig} onSort={requestProfileRequestSort} /></th>
+                      <th><SortableHeader label="Lock Details" sortKey="lockDetails" sortConfig={profileRequestSortConfig} onSort={requestProfileRequestSort} /></th>
+                      <th><SortableHeader label="First Login" sortKey="firstLogin" sortConfig={profileRequestSortConfig} onSort={requestProfileRequestSort} /></th>
                       <th className="text-center">Actions</th>
                     </tr>
                   </thead>

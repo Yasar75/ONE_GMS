@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import CardShell from '../../../components/common/CardShell.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
+import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import { TableActionButton, TableActionCluster, TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { AttendanceMetricCard, AttendanceTabs } from '../../attendance/components/AttendanceShared.jsx'
@@ -35,8 +37,10 @@ import { getErrorMessage } from '../../../utils/auth.js'
 import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '../../../utils/queryCache.js'
 import { useUi } from '../../../app/providers/UiProvider.jsx'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
+import { useToast } from '../../../app/providers/ToastProvider.jsx'
 import { storage } from '../../../utils/storage.js'
-import { getTodayDateInput } from '../../../utils/attendance.js'
+import { downloadBlob, getTodayDateInput } from '../../../utils/attendance.js'
+import { useSortableData } from '../../../hooks/common/useSortableData.js'
 import {
   getDateRangeValidationMessage,
   getDateValidationMessage,
@@ -669,8 +673,10 @@ function LeaveDecisionModal({ mode, record, note, onNoteChange, onClose, onSubmi
 
 export default function LeaveShared({ workspaceType = 'request', tabs = [], initialTab = 'apply' }) {
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { openStatus, withLoader } = useUi()
   const { user } = useAuth()
+  const { showToast } = useToast()
   const calendarImportRef = useRef(null)
   const isManagementWorkspace = workspaceType === 'management'
   const canViewHolidayTab = hasModuleVisibility(user, PERMISSION_MODULES.holidayCalendar)
@@ -688,16 +694,17 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     ? tabs
     : (isManagementWorkspace
       ? [
-        { key: 'holiday', label: 'Holiday Calendar', helper: 'Org-wide holidays and closures' },
-        { key: 'management', label: 'Leave Allocations', helper: 'Leave types and allocations' },
-        { key: 'apply', label: 'Leave Requests', helper: 'Balances, requests, and approvals' }
+        { key: 'holiday', label: 'Manage Holidays', helper: 'Org-wide holidays and closures' },
+        { key: 'management', label: 'Leaves Allocation', helper: 'Leave types and allocations' },
+        { key: 'apply', label: 'Manage Leaves', helper: 'Balances, requests, and approvals' }
       ]
       : [
         { key: 'holiday', label: 'Holiday Calendar', helper: 'Upcoming holidays and closures' },
-        { key: 'apply', label: 'Leave Requests', helper: 'Balance visibility and request actions' }
+        { key: 'apply', label: 'Apply Leave', helper: 'Balance visibility and request actions' }
       ])
 
-  const [activeTab, setActiveTab] = useState(initialTab)
+  const requestedTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => requestedTab || initialTab)
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
   const [selectedHolidayMonth, setSelectedHolidayMonth] = useState(String(new Date().getMonth()))
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(toDateInputValue(new Date()))
@@ -963,12 +970,30 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     if (tabKey === 'apply') return canViewApplyTab
     return false
   }), [canViewApplyTab, canViewHolidayTab, canViewManagementTab, resolvedTabs])
+  const updateTabSearchParam = useCallback((nextTab) => {
+    setSearchParams((current) => {
+      const nextParams = new URLSearchParams(current)
+      if (nextTab) nextParams.set('tab', nextTab)
+      else nextParams.delete('tab')
+      return nextParams
+    }, { replace: true })
+  }, [setSearchParams])
+  const handleTabChange = useCallback((nextTab) => {
+    setActiveTab(nextTab)
+    updateTabSearchParam(nextTab)
+  }, [updateTabSearchParam])
 
   useEffect(() => {
     if (!leaveForm.leaveTypeUid) return
     if (requestLeaveTypeOptions.some((item) => String(item.value) === String(leaveForm.leaveTypeUid))) return
     setLeaveForm((current) => ({ ...current, leaveTypeUid: '' }))
   }, [leaveForm.leaveTypeUid, requestLeaveTypeOptions])
+
+  useEffect(() => {
+    if (requestedTab && requestedTab !== activeTab) {
+      setActiveTab(requestedTab)
+    }
+  }, [activeTab, requestedTab])
 
   useEffect(() => {
     const nextTab = resolveAccessibleTab(availableTabs, activeTab, (tabKey) => {
@@ -978,10 +1003,14 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       return false
     }, availableTabs[0]?.key || initialTab)
 
-    if (nextTab && nextTab !== activeTab) {
+    if (!nextTab) return
+    if (nextTab !== activeTab) {
       setActiveTab(nextTab)
     }
-  }, [activeTab, availableTabs, canViewApplyTab, canViewHolidayTab, canViewManagementTab, initialTab])
+    if (requestedTab !== nextTab) {
+      updateTabSearchParam(nextTab)
+    }
+  }, [activeTab, availableTabs, canViewApplyTab, canViewHolidayTab, canViewManagementTab, initialTab, requestedTab, updateTabSearchParam])
 
   const holidayLegendItems = useMemo(() => getHolidayLegendItems(), [])
   const holidayCalendarDays = useMemo(() => getCalendarDays(calendarView, selectedYear, selectedHolidayMonth, selectedCalendarDate), [calendarView, selectedCalendarDate, selectedHolidayMonth, selectedYear])
@@ -1020,6 +1049,96 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const selectedCalendarRows = useMemo(() => chunkDays(holidayCalendarDays, calendarView === 'month' ? 7 : holidayCalendarDays.length || 1), [calendarView, holidayCalendarDays])
   const visibleCalendarDateKeys = useMemo(() => holidayCalendarDays.map((date) => toDateInputValue(date)), [holidayCalendarDays])
   const visibleRegisterHolidays = useMemo(() => (calendarView === 'month' ? visibleHolidays : filteredCalendarEntries.filter((holiday) => visibleCalendarDateKeys.includes(holiday.holidayDate))), [calendarView, filteredCalendarEntries, visibleCalendarDateKeys, visibleHolidays])
+  const { items: sortedVisibleRegisterHolidays, sortConfig: holidayRegisterSortConfig, requestSort: requestHolidayRegisterSort } = useSortableData(visibleRegisterHolidays, {
+    initialKey: 'date',
+    initialDirection: 'asc',
+    accessors: {
+      date: (holiday) => holiday.holidayDate || '',
+      when: (holiday) => `${holiday.holidayDate || ''} ${holiday.startTime || (holiday.allDay ? '00:00' : '')}`.trim(),
+      entry: (holiday) => `${holiday.name || ''} ${holiday.ownerLabel || ''}`.trim(),
+      type: (holiday) => getHolidayScopeMeta(holiday.scope).label,
+      source: (holiday) => holiday.isLocal ? (holiday.ownerLabel || 'Personal entry') : 'Organization calendar',
+      description: (holiday) => holiday.description || '',
+      status: (holiday) => (holiday.isActive ? 'Active' : 'Inactive')
+    }
+  })
+  const { items: sortedLeaveTypes, sortConfig: leaveTypeSortConfig, requestSort: requestLeaveTypeSort } = useSortableData(leaveTypes, {
+    initialKey: 'code',
+    initialDirection: 'asc',
+    accessors: {
+      code: (item) => item.code || '',
+      name: (item) => item.name || '',
+      catalogDefault: (item) => Number(item.annualDays || 0),
+      assignmentModel: (item) => `${item.autoAllocate ? 'Suggested default balance' : 'Flexible employee-wise balance'} ${item.requiresManualGrant ? 'Direct assignment enabled' : 'Policy-driven only'}`.trim(),
+      carryForward: (item) => `${item.carryForwardAllowed ? 'Allowed' : 'Not allowed'} ${item.carryForwardCap ?? ''}`.trim(),
+      status: (item) => (item.isActive ? 'Active' : 'Inactive')
+    }
+  })
+  const { items: sortedEmployeeBalances, sortConfig: employeeBalanceSortConfig, requestSort: requestEmployeeBalanceSort } = useSortableData(selectedEmployeeUid ? employeeBalances : [], {
+    initialKey: 'leaveType',
+    initialDirection: 'asc',
+    accessors: {
+      leaveType: (balance) => {
+        const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
+        return leaveType ? `${leaveType.name} ${leaveType.code}`.trim() : String(balance.leaveTypeUid || '')
+      },
+      opening: (balance) => Number(balance.openingBalance || 0),
+      annual: (balance) => Number(balance.annualAllocation || 0),
+      carryForward: (balance) => Number(balance.carryForwardIn || 0),
+      manual: (balance) => Number(balance.manualGranted || 0),
+      used: (balance) => Number(balance.usedDays || 0),
+      pending: (balance) => Number(balance.pendingDays || 0),
+      available: (balance) => Number(balance.availableBalance || 0)
+    }
+  })
+  const { items: sortedMyBalances, sortConfig: myBalanceSortConfig, requestSort: requestMyBalanceSort } = useSortableData(myBalances, {
+    initialKey: 'leave',
+    initialDirection: 'asc',
+    accessors: {
+      leave: (balance) => {
+        const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
+        return leaveType ? `${leaveType.name} ${leaveType.code}`.trim() : String(balance.leaveTypeUid || '')
+      },
+      allocated: (balance) => Number(getBalanceEntitlementDays(balance) || 0),
+      used: (balance) => Number(balance.usedDays || 0),
+      pending: (balance) => Number(balance.pendingDays || 0),
+      available: (balance) => Number(balance.availableBalance || 0)
+    }
+  })
+  const { items: sortedMyRequests, sortConfig: myRequestSortConfig, requestSort: requestMyRequestSort } = useSortableData(myRequests, {
+    initialKey: 'dateRange',
+    initialDirection: 'desc',
+    accessors: {
+      leaveType: (request) => {
+        const leaveType = leaveTypeMap.get(request.leaveTypeUid)
+        return leaveType ? `${leaveType.name} ${leaveType.code}`.trim() : String(request.leaveTypeUid || '')
+      },
+      dateRange: (request) => `${request.startDate || ''} ${request.endDate || ''}`.trim(),
+      appliedDays: (request) => Number(request.appliedDays || 0),
+      status: (request) => request.status || '',
+      reason: (request) => request.reason || '',
+      reviewerNote: (request) => request.reviewerNote || ''
+    }
+  })
+  const { items: sortedPendingRequests, sortConfig: pendingRequestSortConfig, requestSort: requestPendingRequestSort } = useSortableData(pendingRequests, {
+    initialKey: 'employee',
+    initialDirection: 'asc',
+    accessors: {
+      employee: (request) => {
+        const employee = employeeMap.get(request.employeeUid)
+        return employee ? `${employee.fullName} ${employee.employeeCode}`.trim() : String(request.employeeUid || '')
+      },
+      leaveType: (request) => {
+        const leaveType = leaveTypeMap.get(request.leaveTypeUid)
+        return leaveType ? `${leaveType.name} ${leaveType.code}`.trim() : String(request.leaveTypeUid || '')
+      },
+      dateRange: (request) => `${request.startDate || ''} ${request.endDate || ''}`.trim(),
+      appliedDays: (request) => Number(request.appliedDays || 0),
+      reason: (request) => request.reason || '',
+      status: (request) => request.status || ''
+    }
+  })
+  const hasExportableCalendarEntries = sortedVisibleRegisterHolidays.length > 0
   const focusedDayHolidays = useMemo(() => holidaysByDate[selectedCalendarDate] || [], [holidaysByDate, selectedCalendarDate])
 
   const holidaySummary = useMemo(() => getHolidaySummary(calendarEntries), [calendarEntries])
@@ -1097,21 +1216,32 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   }
 
   const exportVisibleCalendar = () => {
-    if (!visibleRegisterHolidays.length) {
-      openStatus({ tone: 'warning', title: 'Nothing to export', message: 'There are no visible calendar entries in the current view.' })
+    if (!hasExportableCalendarEntries) {
+      showToast({
+        tone: 'warning',
+        title: 'Export unavailable',
+        message: 'Add at least one calendar entry to the current view before exporting the .ics file.'
+      })
       return
     }
 
-    const icsContent = buildIcsContent(visibleRegisterHolidays)
-    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' })
-    const url = window.URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `one-gms-calendar-${selectedYear}-${String(Number(selectedHolidayMonth) + 1).padStart(2, '0')}.ics`
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    window.URL.revokeObjectURL(url)
+    try {
+      const icsContent = buildIcsContent(sortedVisibleRegisterHolidays)
+      const fileName = `one-gms-calendar-${selectedYear}-${String(Number(selectedHolidayMonth) + 1).padStart(2, '0')}.ics`
+
+      if (typeof navigator !== 'undefined' && typeof navigator.msSaveOrOpenBlob === 'function') {
+        navigator.msSaveOrOpenBlob(new Blob([icsContent], { type: 'application/octet-stream' }), fileName)
+        return
+      }
+
+      downloadBlob(new Blob([icsContent], { type: 'application/octet-stream' }), fileName)
+    } catch (error) {
+      showToast({
+        tone: 'danger',
+        title: 'Export failed',
+        message: error?.message || 'The calendar file could not be generated for download.'
+      })
+    }
   }
 
   const handleCalendarImport = async (event) => {
@@ -1512,7 +1642,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
   return (
     <div className="leave-module-page">
-      <AttendanceTabs activeTab={activeTab} onChange={setActiveTab} tabs={availableTabs} />
+      <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />
 
       {activeTab === 'holiday' ? (
         <>
@@ -1531,7 +1661,15 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                 <AppSelect value={selectedYear} onChange={(value) => setSelectedYear(String(value))} options={yearOptions} placeholder="Year" hideSelectedDescription />
                 <AppSelect value={selectedHolidayMonth} onChange={(value) => setSelectedHolidayMonth(String(value))} options={holidayMonthOptions} placeholder="Month" hideSelectedDescription />
                 <AppSelect value={calendarView} onChange={(value) => setCalendarView(String(value))} options={CALENDAR_VIEW_OPTIONS} placeholder="View" hideSelectedDescription />
-                <button type="button" className="btn btn-outline-primary employee-toolbar-btn" onClick={exportVisibleCalendar}><span>Export .ics</span></button>
+                <button
+                  type="button"
+                  className={`btn btn-outline-primary employee-toolbar-btn${!hasExportableCalendarEntries ? ' btn-soft-disabled' : ''}`}
+                  onClick={exportVisibleCalendar}
+                  aria-disabled={!hasExportableCalendarEntries}
+                  title={!hasExportableCalendarEntries ? 'Add calendar entries to enable export.' : 'Export the visible calendar as an .ics file.'}
+                >
+                  <span>Export .ics</span>
+                </button>
                 {canCreateHolidayEntries ? <button type="button" className="btn btn-outline-primary employee-toolbar-btn" onClick={() => calendarImportRef.current?.click()}><span>Import .ics</span></button> : null}
                 {canCreateHolidayEntries ? <button type="button" className="btn btn-primary employee-toolbar-btn" onClick={() => openHolidayEditor('add')}><PlusIcon /><span>Add Event</span></button> : null}
               </div>
@@ -1658,18 +1796,18 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             title={`Calendar Register • ${selectedCalendarLabel}`}
             right={canCreateHolidayEntries ? <button type="button" className="btn btn-outline-info btn-sm" onClick={() => openHolidayEditor('add')}>Quick Add</button> : null}
           >
-            <PaginatedTable rows={visibleRegisterHolidays}>
+            <PaginatedTable rows={sortedVisibleRegisterHolidays}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table align-middle mb-0">
                   <thead>
                     <tr>
-                      <th>Date</th>
-                      <th>When</th>
-                      <th>Entry</th>
-                      <th>Type</th>
-                      <th>Source</th>
-                      <th>Description</th>
-                      <th>Status</th>
+                      <th><SortableHeader label="Date" sortKey="date" sortConfig={holidayRegisterSortConfig} onSort={requestHolidayRegisterSort} /></th>
+                      <th><SortableHeader label="When" sortKey="when" sortConfig={holidayRegisterSortConfig} onSort={requestHolidayRegisterSort} /></th>
+                      <th><SortableHeader label="Entry" sortKey="entry" sortConfig={holidayRegisterSortConfig} onSort={requestHolidayRegisterSort} /></th>
+                      <th><SortableHeader label="Type" sortKey="type" sortConfig={holidayRegisterSortConfig} onSort={requestHolidayRegisterSort} /></th>
+                      <th><SortableHeader label="Source" sortKey="source" sortConfig={holidayRegisterSortConfig} onSort={requestHolidayRegisterSort} /></th>
+                      <th><SortableHeader label="Description" sortKey="description" sortConfig={holidayRegisterSortConfig} onSort={requestHolidayRegisterSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={holidayRegisterSortConfig} onSort={requestHolidayRegisterSort} /></th>
                       <th className="table-header-center">Actions</th>
                     </tr>
                   </thead>
@@ -1727,17 +1865,17 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             <div className="attendance-note-card mb-3 small text-muted">
               The catalog defines each leave type and its default reference days. Final balances are now assigned employee-wise, so this table is the policy baseline instead of a one-size-fits-all allocation engine.
             </div>
-            <PaginatedTable rows={leaveTypes}>
+            <PaginatedTable rows={sortedLeaveTypes}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table align-middle mb-0">
                   <thead>
                     <tr>
-                      <th>Code</th>
-                      <th>Name</th>
-                      <th>Catalog Default</th>
-                      <th>Assignment Model</th>
-                      <th>Carry Forward</th>
-                      <th>Status</th>
+                      <th><SortableHeader label="Code" sortKey="code" sortConfig={leaveTypeSortConfig} onSort={requestLeaveTypeSort} /></th>
+                      <th><SortableHeader label="Name" sortKey="name" sortConfig={leaveTypeSortConfig} onSort={requestLeaveTypeSort} /></th>
+                      <th><SortableHeader label="Catalog Default" sortKey="catalogDefault" sortConfig={leaveTypeSortConfig} onSort={requestLeaveTypeSort} /></th>
+                      <th><SortableHeader label="Assignment Model" sortKey="assignmentModel" sortConfig={leaveTypeSortConfig} onSort={requestLeaveTypeSort} /></th>
+                      <th><SortableHeader label="Carry Forward" sortKey="carryForward" sortConfig={leaveTypeSortConfig} onSort={requestLeaveTypeSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={leaveTypeSortConfig} onSort={requestLeaveTypeSort} /></th>
                       <th className="table-header-center">Action</th>
                     </tr>
                   </thead>
@@ -1842,19 +1980,19 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
           </CardShell>
 
           <CardShell className="leave-section-card leave-section-card--ledger" title={`Balance Ledger${selectedEmployee ? ` • ${selectedEmployee.fullName}` : ''}`}>
-            <PaginatedTable rows={selectedEmployeeUid ? employeeBalances : []}>
+            <PaginatedTable rows={sortedEmployeeBalances}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table align-middle mb-0">
                   <thead>
                     <tr>
-                      <th>Leave Type</th>
-                      <th>Opening</th>
-                      <th>Annual</th>
-                      <th>Carry Forward</th>
-                      <th>Manual</th>
-                      <th>Used</th>
-                      <th>Pending</th>
-                      <th>Available</th>
+                      <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      <th><SortableHeader label="Opening" sortKey="opening" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      <th><SortableHeader label="Annual" sortKey="annual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      <th><SortableHeader label="Carry Forward" sortKey="carryForward" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      <th><SortableHeader label="Manual" sortKey="manual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      <th><SortableHeader label="Used" sortKey="used" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      <th><SortableHeader label="Pending" sortKey="pending" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      <th><SortableHeader label="Available" sortKey="available" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1962,16 +2100,16 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
           <CardShell title="My Leave Balance">
             {!currentEmployeeUid && !isResolvingCurrentEmployee ? <div className="alert alert-warning mb-0">Your leave balance could not be resolved from the current account yet. Once your account has at least one linked attendance, regularization, or leave request record, the balance ledger will load here automatically.</div> : myBalancesQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myBalancesQuery.error, 'Your leave balance could not be loaded.')}</div> : (
-              <PaginatedTable rows={myBalances}>
+              <PaginatedTable rows={sortedMyBalances}>
                 {({ rows: paginatedRows }) => (
                   <table className="table employee-table workspace-table align-middle mb-0">
                     <thead>
                       <tr>
-                        <th>Leave</th>
-                        <th>Allocated</th>
-                        <th>Used</th>
-                        <th>Pending</th>
-                        <th>Available</th>
+                        <th><SortableHeader label="Leave" sortKey="leave" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                        <th><SortableHeader label="Allocated" sortKey="allocated" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                        <th><SortableHeader label="Used" sortKey="used" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                        <th><SortableHeader label="Pending" sortKey="pending" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                        <th><SortableHeader label="Available" sortKey="available" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1996,17 +2134,17 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
           <CardShell title="My Leave Requests">
             {myRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myRequestsQuery.error, 'Your leave requests could not be loaded.')}</div> : (
-              <PaginatedTable rows={myRequests}>
+              <PaginatedTable rows={sortedMyRequests}>
                 {({ rows: paginatedRows }) => (
                   <table className="table employee-table workspace-table align-middle mb-0">
                     <thead>
                       <tr>
-                        <th>Leave Type</th>
-                        <th>Date Range</th>
-                        <th>Applied Days</th>
-                        <th>Status</th>
-                        <th>Reason</th>
-                        <th>Reviewer Note</th>
+                        <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                        <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                        <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                        <th><SortableHeader label="Status" sortKey="status" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                        <th><SortableHeader label="Reason" sortKey="reason" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
+                        <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2033,17 +2171,17 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
           {isManagementWorkspace ? (
             <CardShell title="Team Leave Requests">
               {pendingRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(pendingRequestsQuery.error, 'Employee leave requests could not be loaded.')}</div> : (
-                <PaginatedTable rows={pendingRequests}>
+                <PaginatedTable rows={sortedPendingRequests}>
                   {({ rows: paginatedRows }) => (
                     <table className="table employee-table workspace-table align-middle mb-0">
                       <thead>
                         <tr>
-                          <th>Employee</th>
-                          <th>Leave Type</th>
-                          <th>Date Range</th>
-                          <th>Applied Days</th>
-                          <th>Reason</th>
-                          <th>Status</th>
+                          <th><SortableHeader label="Employee" sortKey="employee" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
+                          <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
+                          <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
+                          <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
+                          <th><SortableHeader label="Reason" sortKey="reason" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
+                          <th><SortableHeader label="Status" sortKey="status" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
                           <th className="table-header-center">Decision</th>
                         </tr>
                       </thead>

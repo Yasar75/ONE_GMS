@@ -25,7 +25,7 @@ export function getNavItems(user) {
     items.push({ label: 'Attendance', to: '/employee/attendance', icon: '🕒' })
   }
   if (canAccessAppPath(user, '/employee/apply-leave')) {
-    items.push({ label: 'Apply Leave', to: '/employee/apply-leave', icon: '🗓️' })
+    items.push({ label: 'Leave', to: '/employee/apply-leave', icon: '🗓️' })
   }
 
   return items

@@ -7,6 +7,94 @@
   z-index: 1020;
 }
 
+.app-toast-stack {
+  position: fixed;
+  top: 5rem;
+  right: 1rem;
+  z-index: 2055;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(360px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.app-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(var(--bs-border-color-rgb), 0.75);
+  background: rgba(15, 23, 42, 0.94);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.24);
+  backdrop-filter: blur(12px);
+}
+
+.app-toast--info {
+  border-color: rgba(37, 116, 220, 0.44);
+}
+
+.app-toast--success {
+  border-color: rgba(34, 197, 94, 0.42);
+}
+
+.app-toast--warning {
+  border-color: rgba(245, 158, 11, 0.42);
+}
+
+.app-toast--danger {
+  border-color: rgba(239, 68, 68, 0.44);
+}
+
+.app-toast__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.app-toast__title {
+  font-weight: 700;
+  font-size: 0.94rem;
+  line-height: 1.2;
+}
+
+.app-toast__message {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.app-toast__close {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.2rem;
+  border-radius: 999px;
+}
+
+.app-toast__close:hover,
+.app-toast__close:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.btn-soft-disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.btn-soft-disabled:hover,
+.btn-soft-disabled:focus-visible {
+  opacity: 0.68;
+}
+
 .profile-avatar {
   width: 34px;
   height: 34px;
@@ -927,7 +1015,10 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--bs-secondary-color);
-  white-space: normal;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+  vertical-align: middle;
 }
 
 .workspace-table tbody tr {
@@ -935,12 +1026,18 @@
 }
 
 .workspace-table .sortable-header {
-  white-space: normal;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: max-content;
+  white-space: nowrap;
   text-align: left;
 }
 
-.workspace-table .sortable-header > span:first-child {
-  display: inline;
+.workspace-table .sortable-header-label {
+  display: block;
+  min-width: 0;
 }
 
 .workspace-table .attendance-inline-flag,
@@ -1416,10 +1513,15 @@
   letter-spacing: inherit;
 }
 
+.sortable-header-label {
+  min-width: 0;
+}
+
 .sortable-header-icons {
   display: inline-flex;
   flex-direction: column;
   line-height: 1;
+  flex: 0 0 auto;
 }
 
 .sortable-header-icons svg {
@@ -2774,12 +2876,13 @@
 }
 
 .employee-table thead th .sortable-header {
-  white-space: normal;
+  white-space: nowrap;
   text-align: left;
 }
 
-.employee-table thead th .sortable-header > span:first-child {
-  display: inline;
+.employee-table thead th .sortable-header.employee-header-wrap {
+  min-width: 0;
+  white-space: normal;
 }
 
 .employee-header-wrap-center,
@@ -3450,6 +3553,7 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 1.25rem;
   padding: 0.85rem;
+  margin-bottom: clamp(1.1rem, 2vw, 1.45rem);
 }
 
 .attendance-tabs-scroller {
@@ -3480,6 +3584,14 @@
   background: linear-gradient(135deg, rgba(37, 116, 220, 0.24), rgba(255, 136, 0, 0.2));
   border-color: rgba(37, 116, 220, 0.45);
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+}
+
+.attendance-tab-btn.active .attendance-tab-title {
+  color: #ffffff;
+}
+
+.attendance-tab-btn.active .attendance-tab-helper {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .attendance-tab-title {
@@ -3649,7 +3761,22 @@
 }
 
 [data-bs-theme="light"] .attendance-tab-btn {
-  background: rgba(255, 255, 255, 0.78);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(243, 248, 255, 0.9));
+  border-color: rgba(148, 163, 184, 0.24);
+  box-shadow: 0 12px 24px rgba(89, 107, 145, 0.06);
+}
+
+[data-bs-theme="light"] .attendance-tab-btn:hover {
+  border-color: rgba(37, 116, 220, 0.3);
+  box-shadow: 0 16px 30px rgba(89, 107, 145, 0.1);
+}
+
+[data-bs-theme="light"] .attendance-tab-btn.active {
+  background:
+    linear-gradient(135deg, rgba(37, 116, 220, 0.94), rgba(88, 155, 255, 0.9) 62%, rgba(255, 136, 0, 0.3));
+  border-color: rgba(37, 116, 220, 0.52);
+  box-shadow: 0 20px 36px rgba(37, 116, 220, 0.22);
+  color: #ffffff;
 }
 
 [data-bs-theme="light"] .attendance-punch-card,
@@ -3786,11 +3913,15 @@
 /* Leave Management */
 .leave-module-page {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.15rem, 2vw, 1.45rem);
 }
 
 .leave-module-page > .card,
-.leave-module-page > .row {
-  margin-bottom: 1.25rem;
+.leave-module-page > .row,
+.leave-module-page > .attendance-tabs-shell {
+  margin-bottom: 0;
 }
 
 .leave-section-card,
@@ -4098,7 +4229,13 @@
   table-layout: auto;
 }
 
-.workspace-table th,
+.workspace-table th {
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
 .workspace-table td {
   vertical-align: top;
   white-space: normal;
@@ -4106,10 +4243,14 @@
   word-break: normal;
 }
 
-.workspace-table th:last-child,
-.workspace-table td:last-child {
-  width: 1%;
+.workspace-table th.table-header-center,
+.workspace-table .table-actions-cell,
+.workspace-table .table-cell-center {
   white-space: nowrap;
+}
+
+.workspace-table .table-actions-cell {
+  width: 1%;
 }
 
 .workspace-table .employee-row-actions,
@@ -4591,7 +4732,7 @@
 
 @media (max-width: 991.98px) {
   .workspace-table {
-    min-width: 900px;
+    min-width: 760px;
   }
 
   .leave-calendar-grid.has-week-numbers {
@@ -4604,6 +4745,10 @@
 }
 
 @media (max-width: 767.98px) {
+  .employee-table-scroll {
+    max-height: min(var(--table-scroll-max-height, 25rem), 60vh);
+  }
+
   .leave-calendar-toolbar-panel {
     align-items: flex-start;
   }

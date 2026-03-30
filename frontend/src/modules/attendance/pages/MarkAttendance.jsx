@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../../../components/common/PageHeader.jsx'
 import CardShell from '../../../components/common/CardShell.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
-import { CalendarIcon, PlusIcon, SearchIcon, SparklesIcon } from '../../../components/common/AppIcons.jsx'
+import SortableHeader from '../../../components/common/SortableHeader.jsx'
+import { SearchIcon } from '../../../components/common/AppIcons.jsx'
 import { TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { useMyPunchLogsQuery } from '../../../hooks/attendance/useMyPunchLogsQuery.js'
 import { useMyRegularizationsQuery } from '../../../hooks/attendance/useMyRegularizationsQuery.js'
@@ -29,10 +31,8 @@ import { getErrorMessage } from '../../../utils/auth.js'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
 import {
-  AttendanceMetricCard,
   AttendanceTabs,
   DownloadActionGroup,
-  OverviewList,
   PunchSessionCard,
   PunchTypeBadge,
   RegularizationBadge
@@ -53,11 +53,11 @@ import {
   hasModuleVisibility,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
+import { useSortableData } from '../../../hooks/common/useSortableData.js'
 
 const TAB_ITEMS = [
-  { key: 'overview', label: 'Overview', helper: 'My attendance snapshot' },
-  { key: 'attendance', label: 'Attendance Management', helper: 'Punches and log downloads' },
-  { key: 'regularization', label: 'Regularization', helper: 'Request time corrections' }
+  { key: 'attendance', label: 'Mark Attendance', helper: 'Punches and log downloads' },
+  { key: 'regularization', label: 'Create Regularization', helper: 'Request time corrections' }
 ]
 
 function buildRegularizationDraft(dateValue, logs) {
@@ -88,7 +88,7 @@ function RegularizationModal({ open, draft, errors = {}, touched = {}, onChange,
   return (
     <ModalFrame
       open={open}
-      title="Request attendance regularization"
+      title="Create attendance regularization"
       onClose={onClose}
       size="md"
       footer={(
@@ -133,24 +133,25 @@ function RegularizationModal({ open, draft, errors = {}, touched = {}, onChange,
 export default function MarkAttendance() {
   const todayDate = getTodayDateInput()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { showStatus, runWithLoader, showConfirm } = useModal()
   const { user } = useAuth()
   const canViewAttendanceTab = hasModuleVisibility(user, [...PERMISSION_MODULES.attendance, ...PERMISSION_MODULES.attendanceLogs])
   const canViewRegularizationTab = hasModuleVisibility(user, PERMISSION_MODULES.attendanceRegularization)
-  const canViewOverview = canViewAttendanceTab || canViewRegularizationTab
   const canSelfPunch = hasModulePermission(user, PERMISSION_MODULES.attendance, PERMISSION_ACTIONS.create)
   const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.attendanceRegularization, PERMISSION_ACTIONS.create)
 
-  const [activeTab, setActiveTab] = useState('overview')
+  const requestedTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => requestedTab || 'attendance')
   const [selectedDate, setSelectedDate] = useState(todayDate)
   const [regularizationOpen, setRegularizationOpen] = useState(false)
   const [regularizationDraft, setRegularizationDraft] = useState(() => buildRegularizationDraft(todayDate, []))
   const [regularizationTouched, setRegularizationTouched] = useState({})
   const [punchControlVersion, setPunchControlVersion] = useState(0)
 
-  const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canViewAttendanceTab || canViewOverview)
-  const todayLogsQuery = useMyPunchLogsQuery(todayDate, canViewAttendanceTab || canViewOverview)
-  const regularizationsQuery = useMyRegularizationsQuery(canViewRegularizationTab || canViewOverview)
+  const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canViewAttendanceTab)
+  const todayLogsQuery = useMyPunchLogsQuery(todayDate, canViewAttendanceTab)
+  const regularizationsQuery = useMyRegularizationsQuery(canViewRegularizationTab)
 
   const selectedLogsRaw = selectedLogsQuery.data || []
   const todayLogsRaw = todayLogsQuery.data || []
@@ -163,6 +164,31 @@ export default function MarkAttendance() {
     [punchControlVersion, todayDate, todayLogsRaw]
   )
   const regularizations = regularizationsQuery.data || []
+  const { items: sortedSelectedLogs, sortConfig: selectedLogsSortConfig, requestSort: requestSelectedLogsSort } = useSortableData(selectedLogs, {
+    initialKey: 'punchTime',
+    initialDirection: 'desc',
+    accessors: {
+      punchType: (log) => log.punchType || '',
+      punchTime: (log) => log.punchTime || '',
+      source: (log) => log.source || 'SELF',
+      validity: (log) => (log.isValid ? 'Valid' : 'Invalid'),
+      notes: (log) => log.invalidReason || ''
+    }
+  })
+  const { items: sortedRegularizations, sortConfig: regularizationsSortConfig, requestSort: requestRegularizationsSort } = useSortableData(regularizations, {
+    initialKey: 'regularizationDate',
+    initialDirection: 'desc',
+    accessors: {
+      regularizationDate: (request) => request.regularizationDate || '',
+      requestedPunchIn: (request) => request.requestedPunchIn || '',
+      requestedPunchOut: (request) => request.requestedPunchOut || '',
+      requestedWorkedHours: (request) => Number(request.requestedWorkedHours ?? -1),
+      reason: (request) => request.reason || '',
+      status: (request) => request.status || '',
+      reviewerNote: (request) => request.reviewerNote || '',
+      updatedAt: (request) => request.updatedAt || request.createdAt || ''
+    }
+  })
 
   const todaySession = useMemo(() => getPunchSessionState(todayLogs), [todayLogs])
   const selectedSession = useMemo(() => getPunchSessionState(selectedLogs), [selectedLogs])
@@ -171,24 +197,46 @@ export default function MarkAttendance() {
   const elapsedSeconds = useMemo(() => Number(todaySession.workedSeconds || 0), [todaySession.workedSeconds])
   const regularizationErrors = useMemo(() => buildRegularizationErrors(regularizationDraft), [regularizationDraft])
   const availableTabs = useMemo(() => filterAccessibleTabs(TAB_ITEMS, (tabKey) => {
-    if (tabKey === 'overview') return canViewOverview
     if (tabKey === 'attendance') return canViewAttendanceTab
     if (tabKey === 'regularization') return canViewRegularizationTab
     return false
-  }), [canViewAttendanceTab, canViewOverview, canViewRegularizationTab])
+  }), [canViewAttendanceTab, canViewRegularizationTab])
+
+  const updateTabSearchParam = useCallback((nextTab) => {
+    setSearchParams((current) => {
+      const nextParams = new URLSearchParams(current)
+      if (nextTab) nextParams.set('tab', nextTab)
+      else nextParams.delete('tab')
+      return nextParams
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleTabChange = useCallback((nextTab) => {
+    setActiveTab(nextTab)
+    updateTabSearchParam(nextTab)
+  }, [updateTabSearchParam])
+
+  useEffect(() => {
+    if (requestedTab && requestedTab !== activeTab) {
+      setActiveTab(requestedTab)
+    }
+  }, [activeTab, requestedTab])
 
   useEffect(() => {
     const nextTab = resolveAccessibleTab(availableTabs, activeTab, (tabKey) => {
-      if (tabKey === 'overview') return canViewOverview
       if (tabKey === 'attendance') return canViewAttendanceTab
       if (tabKey === 'regularization') return canViewRegularizationTab
       return false
-    }, canViewOverview ? 'overview' : availableTabs[0]?.key)
+    }, canViewAttendanceTab ? 'attendance' : availableTabs[0]?.key)
 
-    if (nextTab && nextTab !== activeTab) {
+    if (!nextTab) return
+    if (nextTab !== activeTab) {
       setActiveTab(nextTab)
     }
-  }, [activeTab, availableTabs, canViewAttendanceTab, canViewOverview, canViewRegularizationTab])
+    if (requestedTab !== nextTab) {
+      updateTabSearchParam(nextTab)
+    }
+  }, [activeTab, availableTabs, canViewAttendanceTab, canViewRegularizationTab, requestedTab, updateTabSearchParam])
 
   useEffect(() => {
     if (!regularizationOpen) return
@@ -340,12 +388,6 @@ export default function MarkAttendance() {
     setRegularizationTouched((current) => ({ ...current, [fieldName]: true }))
   }
 
-  const overviewItems = [
-    { label: 'Today’s session', value: attendanceStateLabel, helper: todaySession.isClockedIn ? 'Your work session is active right now.' : 'Current state of your attendance session.', icon: <CalendarIcon /> },
-    { label: 'Punch count', value: `${todaySession.totalPunches} record(s)`, helper: `${formatTime(todaySession.firstPunchIn)} / ${formatTime(todaySession.lastPunchOut)}`, icon: <SparklesIcon /> },
-    { label: 'Latest request', value: latestRegularizationStatus, helper: 'Most recent regularization workflow state.', icon: <PlusIcon /> }
-  ]
-
   const isLoading = selectedLogsQuery.isLoading || todayLogsQuery.isLoading || regularizationsQuery.isLoading
 
   if (isLoading) {
@@ -355,72 +397,11 @@ export default function MarkAttendance() {
   return (
     <div className="d-flex flex-column gap-3 attendance-module-page employee-attendance-page">
       <PageHeader
-        title="Attendance Workspace"
-        tagline="Move across overview, attendance management, shift visibility, and regularization workflows from one employee-focused workspace."
+        title="Attendance"
+        tagline="Mark your attendance, inspect daily logs, and create regularization requests from one employee workspace."
       />
 
-      <AttendanceTabs activeTab={activeTab} onChange={setActiveTab} tabs={availableTabs} />
-
-      {activeTab === 'overview' ? (
-        <>
-          <div className="row g-3">
-            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Today’s State" value={attendanceStateLabel} helper="Current attendance session status" tone="blue" /></div>
-            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Punches Today" value={todaySession.totalPunches} helper="Combined IN and OUT records for today" tone="teal" /></div>
-            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="First In / Last Out" value={`${formatTime(todaySession.firstPunchIn)} / ${formatTime(todaySession.lastPunchOut)}`} helper="Operational timestamps for today" tone="orange" /></div>
-            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Latest Request" value={latestRegularizationStatus} helper="Most recent regularization workflow state" tone="purple" /></div>
-          </div>
-
-          <div className="row g-3">
-            <div className="col-12 col-xl-4">
-              <CardShell title="Quick Snapshot">
-                <OverviewList items={overviewItems} />
-              </CardShell>
-            </div>
-            {canSelfPunch ? (
-              <div className="col-12 col-xl-8">
-                <CardShell title="Today’s Punch Panel">
-                  <PunchSessionCard
-                    title="My punch actions"
-                    attendanceStateLabel={attendanceStateLabel}
-                    session={{ ...todaySession, totalWorkedHours: null }}
-                    elapsedSeconds={elapsedSeconds}
-                    dateValue={todayDate}
-                    onPunchIn={handlePunchIn}
-                    onSoftPunchOut={handleSoftPunchOut}
-                    onFinalPunchOut={handleFinalPunchOut}
-                    isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
-                    note={todaySession.isClockedIn ? 'You are currently clocked in. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
-                    secondaryNote="You can generate and download your own logs from the attendance management tab."
-                  />
-                </CardShell>
-              </div>
-            ) : null}
-          </div>
-
-          {canViewRegularizationTab ? (
-            <CardShell title="Recent Regularization Requests" right={<button type="button" className="btn btn-sm btn-light" onClick={() => setActiveTab('regularization')}>Open queue</button>}>
-            <PaginatedTable rows={regularizations}>
-              {({ rows: paginatedRows }) => (
-                <table className="table employee-table workspace-table workspace-table--regularization-preview align-middle mb-0">
-                  <thead><tr><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Status</th><th>Updated</th></tr></thead>
-                  <tbody>
-                    {paginatedRows.length ? paginatedRows.map((request) => (
-                      <tr key={request.uid}>
-                        <td><TableCellStack title={formatDate(request.regularizationDate)} subtitle="Correction request" /></td>
-                        <td><TableCellStack title={formatDateTime(request.requestedPunchIn)} subtitle={formatTime(request.requestedPunchIn)} /></td>
-                        <td><TableCellStack title={formatDateTime(request.requestedPunchOut)} subtitle={formatTime(request.requestedPunchOut)} /></td>
-                        <td><RegularizationBadge status={request.status} /></td>
-                        <td><TableCellStack title={formatDateTime(request.updatedAt || request.createdAt)} subtitle="Last update" /></td>
-                      </tr>
-                    )) : <tr><td colSpan="5"><div className="employee-empty-state text-center py-5 text-muted">You have not submitted any regularization requests yet.</div></td></tr>}
-                  </tbody>
-                </table>
-              )}
-            </PaginatedTable>
-            </CardShell>
-          ) : null}
-        </>
-      ) : null}
+      <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />
 
       {activeTab === 'attendance' ? (
         <>
@@ -446,7 +427,7 @@ export default function MarkAttendance() {
             ) : null}
 
             <div className={`col-12 ${canSelfPunch ? 'col-lg-7' : ''}`.trim()}>
-              <CardShell title="Daily Log Inspector" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(selectedLogs, `employee-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(selectedLogs, `employee-punch-logs-${selectedDate}.xls`)} align="end" />}>
+              <CardShell title="Daily Log Inspector" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.xls`)} align="end" />}>
                 <div className="attendance-toolbar mb-3">
                   <div className="employee-toolbar-left">
                     <div className="employee-search-field attendance-date-field">
@@ -466,10 +447,18 @@ export default function MarkAttendance() {
                   <div><div className="attendance-detail-label">Last Out</div><div className="attendance-detail-value">{formatTime(selectedSession.lastPunchOut)}</div></div>
                 </div>
 
-                <PaginatedTable rows={selectedLogs}>
+                <PaginatedTable rows={sortedSelectedLogs}>
                   {({ rows: paginatedRows }) => (
                     <table className="table employee-table workspace-table workspace-table--attendance-log align-middle mb-0">
-                      <thead><tr><th>Punch Type</th><th>Punch Time</th><th>Source</th><th>Validity</th><th>Notes</th></tr></thead>
+                      <thead>
+                        <tr>
+                          <th><SortableHeader label="Punch Type" sortKey="punchType" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                          <th><SortableHeader label="Punch Time" sortKey="punchTime" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                          <th><SortableHeader label="Source" sortKey="source" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                          <th><SortableHeader label="Validity" sortKey="validity" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                          <th><SortableHeader label="Notes" sortKey="notes" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {paginatedRows.length ? paginatedRows.map((log) => (
                           <tr key={log.uid}>
@@ -492,7 +481,7 @@ export default function MarkAttendance() {
 
       {activeTab === 'regularization' ? (
         <>
-          <CardShell title="Request a Correction">
+          <CardShell title="Create Regularization">
             <div className="row g-3 align-items-end">
               <div className="col-12 col-md-4">
                 <label className="form-label">Selected Date</label>
@@ -505,17 +494,28 @@ export default function MarkAttendance() {
               </div>
               {canCreateRegularization ? (
                 <div className="col-12 d-flex justify-content-end">
-                  <button type="button" className="btn btn-primary px-4" onClick={() => setRegularizationOpen(true)}>Create Regularization Request</button>
+                  <button type="button" className="btn btn-primary px-4" onClick={() => setRegularizationOpen(true)}>Create Regularization</button>
                 </div>
               ) : null}
             </div>
           </CardShell>
 
           <CardShell title="My Regularization Requests">
-            <PaginatedTable rows={regularizations}>
+            <PaginatedTable rows={sortedRegularizations}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-history align-middle mb-0">
-                  <thead><tr><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Worked Hours</th><th>Reason</th><th>Status</th><th>Reviewer Note</th><th>Updated</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Date" sortKey="regularizationDate" sortConfig={regularizationsSortConfig} onSort={requestRegularizationsSort} /></th>
+                      <th><SortableHeader label="Requested In" sortKey="requestedPunchIn" sortConfig={regularizationsSortConfig} onSort={requestRegularizationsSort} /></th>
+                      <th><SortableHeader label="Requested Out" sortKey="requestedPunchOut" sortConfig={regularizationsSortConfig} onSort={requestRegularizationsSort} /></th>
+                      <th><SortableHeader label="Worked Hours" sortKey="requestedWorkedHours" sortConfig={regularizationsSortConfig} onSort={requestRegularizationsSort} /></th>
+                      <th><SortableHeader label="Reason" sortKey="reason" sortConfig={regularizationsSortConfig} onSort={requestRegularizationsSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={regularizationsSortConfig} onSort={requestRegularizationsSort} /></th>
+                      <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={regularizationsSortConfig} onSort={requestRegularizationsSort} /></th>
+                      <th><SortableHeader label="Updated" sortKey="updatedAt" sortConfig={regularizationsSortConfig} onSort={requestRegularizationsSort} /></th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((request) => (
                       <tr key={request.uid}>

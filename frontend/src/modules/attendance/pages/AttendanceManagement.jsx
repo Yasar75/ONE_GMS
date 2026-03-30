@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../../../components/common/PageHeader.jsx'
 import CardShell from '../../../components/common/CardShell.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
@@ -87,9 +88,9 @@ import {
 
 const TAB_ITEMS = [
   { key: 'overview', label: 'Overview', helper: 'Unified workforce summary' },
-  { key: 'attendance', label: 'Attendance Management', helper: 'Punches, edits, and exports' },
-  { key: 'shifts', label: 'Shift Management', helper: 'Shift roster and assignment control' },
-  { key: 'regularization', label: 'Regularization', helper: 'Review, verify, and action requests' }
+  { key: 'attendance', label: 'Manage Attendances', helper: 'Punches, edits, and exports' },
+  { key: 'shifts', label: 'Manage Shifts', helper: 'Shift roster and assignment control' },
+  { key: 'regularization', label: 'Manage Regularizations', helper: 'Review, verify, and action requests' }
 ]
 
 function buildRegularizationDraft(dateValue, logs) {
@@ -481,6 +482,7 @@ function RegularizationLogsModal({ record, logs, employeesByUid, isLoading, onCl
 export default function AttendanceManagement() {
   const todayDate = getTodayDateInput()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { showStatus, runWithLoader, showConfirm } = useModal()
   const { user } = useAuth()
   const canViewAttendanceTab = hasModuleVisibility(user, [...PERMISSION_MODULES.attendance, ...PERMISSION_MODULES.attendanceLogs])
@@ -500,7 +502,8 @@ export default function AttendanceManagement() {
   const canDeleteAssignment = hasModulePermission(user, PERMISSION_MODULES.assignShift, PERMISSION_ACTIONS.delete)
   const canUseSelfAttendance = canSelfPunch || canCreateRegularization || canViewRegularizationTab || canViewAttendanceTab
 
-  const [activeTab, setActiveTab] = useState('overview')
+  const requestedTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => requestedTab || 'overview')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [regularizedFilter, setRegularizedFilter] = useState('All')
@@ -615,17 +618,77 @@ export default function AttendanceManagement() {
     })
   }, [attendanceRows, dateRangeFilter, regularizedFilter, searchTerm, statusFilter])
 
-  const { items: sortedAttendanceRows, sortConfig, requestSort } = useSortableData(filteredAttendanceRows, {
+  const { items: sortedAttendanceRows, sortConfig: attendanceSortConfig, requestSort: requestAttendanceSort } = useSortableData(filteredAttendanceRows, {
     initialKey: 'attendanceDate',
     initialDirection: 'desc',
     accessors: {
       attendanceDate: (row) => row.attendanceDate,
       employeeName: (row) => row.employeeName,
+      department: (row) => row.department || '',
       status: (row) => row.status,
       firstPunchIn: (row) => row.firstPunchIn || '',
       lastPunchOut: (row) => row.lastPunchOut || '',
       totalWorkedHours: (row) => row.totalWorkedHours,
-      totalAssignedShiftHours: (row) => row.totalAssignedShiftHours
+      totalAssignedShiftHours: (row) => row.totalAssignedShiftHours,
+      regularized: (row) => (row.isRegularized ? 'Regularized' : 'Standard'),
+      remarks: (row) => row.remarks || ''
+    }
+  })
+  const { items: sortedSelectedLogs, sortConfig: selectedLogsSortConfig, requestSort: requestSelectedLogsSort } = useSortableData(selectedLogs, {
+    initialKey: 'punchTime',
+    initialDirection: 'desc',
+    accessors: {
+      punchType: (log) => log.punchType || '',
+      punchTime: (log) => log.punchTime || '',
+      source: (log) => log.source || 'SELF',
+      validity: (log) => (log.isValid ? 'Valid' : 'Invalid'),
+      notes: (log) => log.invalidReason || ''
+    }
+  })
+  const { items: sortedRegularizationRows, sortConfig: regularizationSortConfig, requestSort: requestRegularizationSort } = useSortableData(regularizationRows, {
+    initialKey: 'regularizationDate',
+    initialDirection: 'desc',
+    accessors: {
+      employeeName: (row) => row.employeeName || '',
+      regularizationDate: (row) => row.regularizationDate || '',
+      requestedPunchIn: (row) => row.requestedPunchIn || '',
+      requestedPunchOut: (row) => row.requestedPunchOut || '',
+      requestedWorkedHours: (row) => Number(row.requestedWorkedHours ?? -1),
+      status: (row) => row.status || ''
+    }
+  })
+  const { items: sortedMyRegularizationRows, sortConfig: myRegularizationSortConfig, requestSort: requestMyRegularizationSort } = useSortableData(myRegularizationRows, {
+    initialKey: 'regularizationDate',
+    initialDirection: 'desc',
+    accessors: {
+      regularizationDate: (row) => row.regularizationDate || '',
+      requestedPunchIn: (row) => row.requestedPunchIn || '',
+      requestedPunchOut: (row) => row.requestedPunchOut || '',
+      requestedWorkedHours: (row) => Number(row.requestedWorkedHours ?? -1),
+      reason: (row) => row.reason || '',
+      status: (row) => row.status || '',
+      reviewerNote: (row) => row.reviewerNote || '',
+      updatedAt: (row) => row.updatedAt || row.createdAt || ''
+    }
+  })
+  const { items: sortedShiftRoster, sortConfig: shiftRosterSortConfig, requestSort: requestShiftRosterSort } = useSortableData(shiftRoster, {
+    initialKey: 'code',
+    initialDirection: 'asc',
+    accessors: {
+      code: (shift) => shift.code || '',
+      name: (shift) => shift.name || '',
+      window: (shift) => `${shift.startTime || ''} ${shift.endTime || ''}`.trim(),
+      status: (shift) => (shift.isActive ? 'Active' : 'Inactive')
+    }
+  })
+  const { items: sortedAssignmentRows, sortConfig: assignmentSortConfig, requestSort: requestAssignmentSort } = useSortableData(assignmentRows, {
+    initialKey: 'employeeName',
+    initialDirection: 'asc',
+    accessors: {
+      employeeName: (row) => row.employeeName || '',
+      shiftName: (row) => row.shiftName || '',
+      window: (row) => `${row.shiftStartTime || ''} ${row.shiftEndTime || ''}`.trim(),
+      status: (row) => (row.isActive ? 'Active' : 'Inactive')
     }
   })
 
@@ -647,8 +710,28 @@ export default function AttendanceManagement() {
     return false
   }), [canViewAttendanceTab, canViewOverview, canViewRegularizationTab, canViewShiftsTab])
 
+  const updateTabSearchParam = useCallback((nextTab) => {
+    setSearchParams((current) => {
+      const nextParams = new URLSearchParams(current)
+      if (nextTab) nextParams.set('tab', nextTab)
+      else nextParams.delete('tab')
+      return nextParams
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleTabChange = useCallback((nextTab) => {
+    setActiveTab(nextTab)
+    updateTabSearchParam(nextTab)
+  }, [updateTabSearchParam])
+
+  useEffect(() => {
+    if (requestedTab && requestedTab !== activeTab) {
+      setActiveTab(requestedTab)
+    }
+  }, [activeTab, requestedTab])
+
   const previewAttendance = sortedAttendanceRows.slice(0, 5)
-  const previewRegularizations = regularizationRows.slice(0, 5)
+  const previewRegularizations = sortedRegularizationRows.slice(0, 5)
 
   useEffect(() => {
     const nextTab = resolveAccessibleTab(availableTabs, activeTab, (tabKey) => {
@@ -659,10 +742,14 @@ export default function AttendanceManagement() {
       return false
     }, canViewOverview ? 'overview' : availableTabs[0]?.key)
 
-    if (nextTab && nextTab !== activeTab) {
+    if (!nextTab) return
+    if (nextTab !== activeTab) {
       setActiveTab(nextTab)
     }
-  }, [activeTab, availableTabs, canViewAttendanceTab, canViewOverview, canViewRegularizationTab, canViewShiftsTab])
+    if (requestedTab !== nextTab) {
+      updateTabSearchParam(nextTab)
+    }
+  }, [activeTab, availableTabs, canViewAttendanceTab, canViewOverview, canViewRegularizationTab, canViewShiftsTab, requestedTab, updateTabSearchParam])
 
   useEffect(() => {
     if (!regularizationOpen) return
@@ -1091,11 +1178,11 @@ export default function AttendanceManagement() {
   return (
     <div className="d-flex flex-column gap-3 attendance-module-page employee-directory-page">
       <PageHeader
-        title="Attendance Control Center"
-        tagline="Switch between overview, operational attendance management, shift orchestration, and regularization workflows from one unified admin workspace."
+        title="Attendance Management"
+        tagline="Switch between overview, attendance operations, shift control, and regularization workflows from one admin workspace."
       />
 
-      <AttendanceTabs activeTab={activeTab} onChange={setActiveTab} tabs={availableTabs} />
+      <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />
 
       {activeTab === 'overview' ? (
         <>
@@ -1138,7 +1225,15 @@ export default function AttendanceManagement() {
             <PaginatedTable rows={previewAttendance}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--attendance-preview align-middle mb-0">
-                  <thead><tr><th>Date</th><th>Employee</th><th>Status</th><th>Worked</th><th className="table-header-center">Action</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Date" sortKey="attendanceDate" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Employee" sortKey="employeeName" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Worked" sortKey="totalWorkedHours" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th className="table-header-center">Action</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((row) => (
                       <tr key={row.uid}>
@@ -1161,7 +1256,14 @@ export default function AttendanceManagement() {
             <PaginatedTable rows={previewRegularizations}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-preview align-middle mb-0">
-                  <thead><tr><th>Employee</th><th>Date</th><th>Status</th><th className="table-header-center">Action</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Employee" sortKey="employeeName" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th><SortableHeader label="Date" sortKey="regularizationDate" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th className="table-header-center">Action</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((row) => (
                       <tr key={row.uid}>
@@ -1203,7 +1305,7 @@ export default function AttendanceManagement() {
               </div>
             ) : null}
             <div className={`col-12 ${canUseSelfAttendance ? 'col-xl-7' : ''}`.trim()}>
-              <CardShell title="My Daily Log Inspector" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(selectedLogs, `admin-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(selectedLogs, `admin-punch-logs-${selectedDate}.xls`)} align="end" />}>
+              <CardShell title="My Daily Log Inspector" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `admin-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `admin-punch-logs-${selectedDate}.xls`)} align="end" />}>
                 <div className="attendance-toolbar mb-3">
                   <div className="employee-toolbar-left">
                     <div className="employee-search-field attendance-date-field">
@@ -1223,10 +1325,18 @@ export default function AttendanceManagement() {
                   <div><div className="attendance-detail-label">Last Out</div><div className="attendance-detail-value">{formatTime(selectedSession.lastPunchOut)}</div></div>
                 </div>
 
-                <PaginatedTable rows={selectedLogs}>
+                <PaginatedTable rows={sortedSelectedLogs}>
                   {({ rows: paginatedRows }) => (
                     <table className="table employee-table workspace-table workspace-table--attendance-log align-middle mb-0">
-                      <thead><tr><th>Punch Type</th><th>Punch Time</th><th>Source</th><th>Validity</th><th>Notes</th></tr></thead>
+                      <thead>
+                        <tr>
+                          <th><SortableHeader label="Punch Type" sortKey="punchType" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                          <th><SortableHeader label="Punch Time" sortKey="punchTime" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                          <th><SortableHeader label="Source" sortKey="source" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                          <th><SortableHeader label="Validity" sortKey="validity" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                          <th><SortableHeader label="Notes" sortKey="notes" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {paginatedRows.length ? paginatedRows.map((log) => (
                           <tr key={log.uid}>
@@ -1286,16 +1396,16 @@ export default function AttendanceManagement() {
                 <table className="table employee-table workspace-table workspace-table--attendance-register align-middle mb-0">
                   <thead>
                     <tr>
-                      <th><SortableHeader label="Date" sortKey="attendanceDate" sortConfig={sortConfig} onSort={requestSort} /></th>
-                      <th><SortableHeader label="Employee" sortKey="employeeName" sortConfig={sortConfig} onSort={requestSort} /></th>
-                      <th>Department</th>
-                      <th><SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={requestSort} /></th>
-                      <th><SortableHeader label="First In" sortKey="firstPunchIn" sortConfig={sortConfig} onSort={requestSort} /></th>
-                      <th><SortableHeader label="Last Out" sortKey="lastPunchOut" sortConfig={sortConfig} onSort={requestSort} /></th>
-                      <th><SortableHeader label="Worked" sortKey="totalWorkedHours" sortConfig={sortConfig} onSort={requestSort} /></th>
-                      <th><SortableHeader label="Shift" sortKey="totalAssignedShiftHours" sortConfig={sortConfig} onSort={requestSort} /></th>
-                      <th>Regularized</th>
-                      <th>Remarks</th>
+                      <th><SortableHeader label="Date" sortKey="attendanceDate" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Employee" sortKey="employeeName" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Department" sortKey="department" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="First In" sortKey="firstPunchIn" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Last Out" sortKey="lastPunchOut" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Worked" sortKey="totalWorkedHours" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Shift" sortKey="totalAssignedShiftHours" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Regularized" sortKey="regularized" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
+                      <th><SortableHeader label="Remarks" sortKey="remarks" sortConfig={attendanceSortConfig} onSort={requestAttendanceSort} /></th>
                       <th className="table-header-center">Action</th>
                     </tr>
                   </thead>
@@ -1338,10 +1448,18 @@ export default function AttendanceManagement() {
           </div>
 
           <CardShell title="Shift Roster" right={canCreateShift ? <button type="button" className="btn btn-primary employee-toolbar-btn" onClick={openShiftCreate}><PlusIcon /><span>New Shift</span></button> : null}>
-            <PaginatedTable rows={shiftRoster}>
+            <PaginatedTable rows={sortedShiftRoster}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--shift-roster align-middle mb-0">
-                  <thead><tr><th>Code</th><th>Name</th><th>Window</th><th>Status</th><th className="table-header-center">Action</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Code" sortKey="code" sortConfig={shiftRosterSortConfig} onSort={requestShiftRosterSort} /></th>
+                      <th><SortableHeader label="Name" sortKey="name" sortConfig={shiftRosterSortConfig} onSort={requestShiftRosterSort} /></th>
+                      <th><SortableHeader label="Window" sortKey="window" sortConfig={shiftRosterSortConfig} onSort={requestShiftRosterSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={shiftRosterSortConfig} onSort={requestShiftRosterSort} /></th>
+                      <th className="table-header-center">Action</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((shift) => (
                       <tr key={shift.uid}>
@@ -1364,10 +1482,18 @@ export default function AttendanceManagement() {
           </CardShell>
 
           <CardShell title="Employee Shift Assignments" right={canCreateAssignment ? <button type="button" className="btn btn-primary employee-toolbar-btn" onClick={openAssignmentCreate}><UserPlusIcon /><span>Assign Shift</span></button> : null}>
-            <PaginatedTable rows={assignmentRows}>
+            <PaginatedTable rows={sortedAssignmentRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--shift-assignment align-middle mb-0">
-                  <thead><tr><th>Employee</th><th>Shift</th><th>Window</th><th>Status</th><th className="table-header-center">Action</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Employee" sortKey="employeeName" sortConfig={assignmentSortConfig} onSort={requestAssignmentSort} /></th>
+                      <th><SortableHeader label="Shift" sortKey="shiftName" sortConfig={assignmentSortConfig} onSort={requestAssignmentSort} /></th>
+                      <th><SortableHeader label="Window" sortKey="window" sortConfig={assignmentSortConfig} onSort={requestAssignmentSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={assignmentSortConfig} onSort={requestAssignmentSort} /></th>
+                      <th className="table-header-center">Action</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((row) => (
                       <tr key={row.uid}>
@@ -1413,10 +1539,20 @@ export default function AttendanceManagement() {
           </CardShell>
 
           <CardShell title="Employees Regularization Requests">
-            <PaginatedTable rows={regularizationRows}>
+            <PaginatedTable rows={sortedRegularizationRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-queue align-middle mb-0">
-                  <thead><tr><th>Employee</th><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Worked Hours</th><th>Status</th><th className="table-header-center">Decision</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Employee" sortKey="employeeName" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th><SortableHeader label="Date" sortKey="regularizationDate" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th><SortableHeader label="Requested In" sortKey="requestedPunchIn" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th><SortableHeader label="Requested Out" sortKey="requestedPunchOut" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th><SortableHeader label="Worked Hours" sortKey="requestedWorkedHours" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
+                      <th className="table-header-center">Decision</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((row) => (
                       <tr key={row.uid}>
@@ -1442,10 +1578,21 @@ export default function AttendanceManagement() {
           </CardShell>
 
           <CardShell title="My Submitted Regularization Requests">
-            <PaginatedTable rows={myRegularizationRows}>
+            <PaginatedTable rows={sortedMyRegularizationRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-history align-middle mb-0">
-                  <thead><tr><th>Date</th><th>Requested In</th><th>Requested Out</th><th>Worked Hours</th><th>Reason</th><th>Status</th><th>Reviewer Note</th><th>Updated</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Date" sortKey="regularizationDate" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
+                      <th><SortableHeader label="Requested In" sortKey="requestedPunchIn" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
+                      <th><SortableHeader label="Requested Out" sortKey="requestedPunchOut" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
+                      <th><SortableHeader label="Worked Hours" sortKey="requestedWorkedHours" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
+                      <th><SortableHeader label="Reason" sortKey="reason" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
+                      <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
+                      <th><SortableHeader label="Updated" sortKey="updatedAt" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((request) => (
                       <tr key={request.uid}>

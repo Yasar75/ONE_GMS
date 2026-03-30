@@ -19,15 +19,26 @@ import PageHeader from '../../../components/common/PageHeader.jsx'
 import KpiCard from '../../../components/common/KpiCard.jsx'
 import CardShell from '../../../components/common/CardShell.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
+import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
 import { useAdminDashboardQuery } from '../../../hooks/dashboard/useAdminDashboardQuery.js'
 import { useEmployeeDashboardQuery } from '../../../hooks/dashboard/useEmployeeDashboardQuery.js'
+import { useSortableData } from '../../../hooks/common/useSortableData.js'
 import { resolveDashboardVariant } from '../../../utils/permissions.js'
 
 const KPI_TONES = ['blue', 'orange', 'teal', 'purple']
 const PIE_COLORS = ['var(--gm-blue)', 'var(--gm-orange)', '#22c55e', '#a855f7']
 
 function DashboardScaffold({ data, title, tagline, primaryChart, secondaryChart, tertiaryChart }) {
+  const { items: sortedRecentlyJoined, sortConfig: recentlyJoinedSortConfig, requestSort: requestRecentlyJoinedSort } = useSortableData(data.widgets.recentlyJoined, {
+    initialKey: 'name',
+    initialDirection: 'asc',
+    accessors: {
+      name: (member) => member.name || '',
+      department: (member) => member.dept || ''
+    }
+  })
+
   return (
     <div className="d-flex flex-column gap-3">
       <PageHeader title={title} tagline={tagline} />
@@ -81,13 +92,13 @@ function DashboardScaffold({ data, title, tagline, primaryChart, secondaryChart,
       <div className="row g-3">
         <div className="col-12 col-lg-6">
           <CardShell title="Recently Joined Members">
-            <PaginatedTable rows={data.widgets.recentlyJoined}>
+            <PaginatedTable rows={sortedRecentlyJoined}>
               {({ rows: paginatedRows }) => (
                 <table className="table table-sm mb-0">
                   <thead>
                     <tr>
-                      <th>Name</th>
-                      <th className="text-muted">Department</th>
+                      <th><SortableHeader label="Name" sortKey="name" sortConfig={recentlyJoinedSortConfig} onSort={requestRecentlyJoinedSort} /></th>
+                      <th className="text-muted"><SortableHeader label="Department" sortKey="department" sortConfig={recentlyJoinedSortConfig} onSort={requestRecentlyJoinedSort} /></th>
                     </tr>
                   </thead>
                   <tbody>

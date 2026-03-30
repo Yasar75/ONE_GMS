@@ -2,6 +2,7 @@ import React from 'react'
 import ThemeToggle from './ThemeToggle.jsx'
 import ProfileWidget from './ProfileWidget.jsx'
 import HeaderPunchCard from './HeaderPunchCard.jsx'
+import NotificationCenter from './NotificationCenter.jsx'
 import logoLight from '../../asserts/headerLogo.svg'
 import logoDark from '../../asserts/headerLogo_white.svg'
 import faviconPng from '../../asserts/favicon.png'
@@ -15,7 +16,7 @@ export default function Header({ ui }) {
 
   return (
     <header className="app-header border-bottom bg-body">
-      <div className="container-fluid h-100 d-flex align-items-center justify-content-between gap-3">
+      <div className="app-shell-container app-shell-container--header h-100 d-flex align-items-center justify-content-between gap-3">
         <div className="d-flex align-items-center gap-2">
           <div className="app-brand">
             <img
@@ -29,6 +30,7 @@ export default function Header({ ui }) {
         <div className="d-flex align-items-center gap-2 app-header-actions">
           <HeaderPunchCard />
           <ThemeToggle />
+          <NotificationCenter />
           <ProfileWidget />
         </div>
       </div>

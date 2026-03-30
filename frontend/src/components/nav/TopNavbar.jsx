@@ -1,31 +1,59 @@
-import React from 'react'
-import { NavLink } from 'react-router-dom'
+import React, { useEffect, useMemo, useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../app/providers/AuthProvider.jsx'
 import { getNavItems } from './NavItems.jsx'
-import logoLight from '../../asserts/headerLogo.svg'
-import logoDark from '../../asserts/headerLogo_white.svg'
-import { useTheme } from '../../app/providers/ThemeProvider.jsx'
+import { ChevronDownIcon } from '../common/AppIcons.jsx'
 
 export default function TopNavbar() {
   const { user } = useAuth()
   const items = getNavItems(user)
-  const { theme } = useTheme()
-  const logoUrl = theme === 'dark' ? logoDark : logoLight
+  const location = useLocation()
+  const [isOpen, setIsOpen] = useState(false)
+
+  const activeItem = useMemo(() => (
+    items.find((item) => location.pathname.startsWith(item.to)) || items[0] || null
+  ), [items, location.pathname])
+
+  useEffect(() => {
+    setIsOpen(false)
+  }, [location.pathname, location.search])
+
+  if (!items.length) return null
 
   return (
-    <nav className="navbar navbar-expand-md d-md-none border-bottom bg-body app-topnav">
-      <div className="container-fluid d-flex align-items-center">
-        <button className="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#lmsTopNav">
-          <span className="navbar-toggler-icon"></span>
-        </button>
-        <div className="collapse navbar-collapse" id="lmsTopNav">
-          <ul className="navbar-nav ms-auto mb-2 mb-md-0">
-            {items.map((it) => (
-              <li className="nav-item" key={it.to}>
-                <NavLink className="nav-link" to={it.to}>{it.label}</NavLink>
-              </li>
+    <nav className="app-topnav d-md-none border-bottom bg-body" aria-label="Mobile navigation">
+      <div className="app-shell-container">
+        <div className="app-topnav__bar">
+          <div className="app-topnav__current">
+            <span className="app-topnav__current-icon" aria-hidden="true">{activeItem?.icon || '•'}</span>
+            <span className="app-topnav__current-label">{activeItem?.label || 'Navigation'}</span>
+          </div>
+          <button
+            type="button"
+            className={`app-topnav__toggle ${isOpen ? 'is-open' : ''}`.trim()}
+            onClick={() => setIsOpen((current) => !current)}
+            aria-expanded={isOpen}
+            aria-controls="oneGmsTopNav"
+          >
+            <span>Menu</span>
+            <ChevronDownIcon />
+          </button>
+        </div>
+
+        <div id="oneGmsTopNav" className={`app-topnav__collapse ${isOpen ? 'is-open' : ''}`.trim()}>
+          <div className="app-topnav__list">
+            {items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) => `app-topnav__link ${isActive ? 'active' : ''}`.trim()}
+                onClick={() => setIsOpen(false)}
+              >
+                <span className="app-topnav__link-icon" aria-hidden="true">{item.icon}</span>
+                <span>{item.label}</span>
+              </NavLink>
             ))}
-          </ul>
+          </div>
         </div>
       </div>
     </nav>

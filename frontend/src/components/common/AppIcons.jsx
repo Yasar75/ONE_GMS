@@ -237,6 +237,15 @@ export function CalendarIcon({ className }) {
   )
 }
 
+export function BellIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M6.5 9.5a5.5 5.5 0 1 1 11 0c0 4 1.7 5.8 2.5 6.5H4c.8-.7 2.5-2.5 2.5-6.5" />
+      <path d="M10 19a2.2 2.2 0 0 0 4 0" />
+    </svg>
+  )
+}
+
 export function XIcon({ className }) {
   return (
     <svg {...baseProps(className)}>
