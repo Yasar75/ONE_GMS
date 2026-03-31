@@ -9,8 +9,27 @@ import {
   toEmployeeApiPayload
 } from '../../utils/employee.js'
 import { authService } from './auth.service.js'
+import { AUTH_STORAGE_KEYS } from '../../utils/auth.js'
 
-const EMPLOYEE_DIRECTORY_CACHE_KEY = 'one_gms.employee.directory.cache'
+const EMPLOYEE_DIRECTORY_CACHE_KEY_PREFIX = 'one_gms.employee.directory.cache.v2'
+
+function clearEmployeeDirectoryCaches() {
+  if (typeof window === 'undefined') return
+
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const storageKey = window.localStorage.key(index)
+    if (!storageKey || !storageKey.startsWith(EMPLOYEE_DIRECTORY_CACHE_KEY_PREFIX)) continue
+    window.localStorage.removeItem(storageKey)
+  }
+}
+
+function getEmployeeDirectoryCacheKey() {
+  const currentUser = storage.get(AUTH_STORAGE_KEYS.user, null)
+  const cacheScope = String(currentUser?.uid || currentUser?.email || '').trim().toLowerCase()
+  return cacheScope
+    ? `${EMPLOYEE_DIRECTORY_CACHE_KEY_PREFIX}.${cacheScope}`
+    : EMPLOYEE_DIRECTORY_CACHE_KEY_PREFIX
+}
 
 function normalizeEmployeeDocumentRecord(document) {
   return {
@@ -242,7 +261,7 @@ function buildProfileBundle({ employee = null, profileDetails = null, skills = [
 }
 
 function readCachedEmployeeDirectoryRecords() {
-  const customCache = storage.get(EMPLOYEE_DIRECTORY_CACHE_KEY, [])
+  const customCache = storage.get(getEmployeeDirectoryCacheKey(), [])
   const directoryCache = readCachedQuery(['employees', 'directory'], [])
   const lookupCache = readCachedQuery(['employees', 'lookup-directory'], [])
 
@@ -250,7 +269,7 @@ function readCachedEmployeeDirectoryRecords() {
 }
 
 function writeCachedEmployeeDirectoryRecords(records = []) {
-  storage.set(EMPLOYEE_DIRECTORY_CACHE_KEY, sortEmployees((Array.isArray(records) ? records : [])
+  storage.set(getEmployeeDirectoryCacheKey(), sortEmployees((Array.isArray(records) ? records : [])
     .map((entry) => normalizeEmployee(entry))
     .filter(Boolean)))
 }
@@ -378,6 +397,10 @@ async function getCurrentEmployeeRecord({ allowMissing = false, rawUser = null }
 }
 
 export const employeeService = {
+  clearDirectoryCache() {
+    clearEmployeeDirectoryCaches()
+  },
+
   async getCurrentEmployee({ allowMissing = true } = {}) {
     const rawUser = allowMissing ? await getRawCurrentUser().catch(() => ({})) : await getRawCurrentUser()
     return getCurrentEmployeeRecord({ allowMissing, rawUser })

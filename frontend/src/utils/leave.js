@@ -6,10 +6,10 @@ const HOLIDAY_SCOPE_META = {
   company: { label: 'Company holiday', tone: 'company', color: '#d97706' },
   restricted: { label: 'Restricted holiday', tone: 'restricted', color: '#ea580c' },
   birthday: { label: 'Birthday', tone: 'birthday', color: '#db2777' },
-  work_anniversary: { label: 'Work anniversary', tone: 'work-anniversary', color: '#059669' },
+  work_anniversary: { label: 'Anniversary', tone: 'work-anniversary', color: '#059669' },
   meeting: { label: 'Meeting', tone: 'meeting', color: '#0891b2' },
   task: { label: 'Task', tone: 'task', color: '#475569' },
-  custom: { label: 'Custom event', tone: 'custom', color: '#0284c7' }
+  custom: { label: 'Custom Event', tone: 'custom', color: '#0284c7' }
 }
 
 function parseHolidayMeta(rawDescription = '') {

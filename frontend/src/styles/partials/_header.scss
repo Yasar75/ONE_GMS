@@ -308,9 +308,15 @@
   display: block;
   flex: 0 0 auto;
   align-self: center;
-  transform: none !important;
   filter: none !important;
   transition: none;
+  transform: rotate(0deg);
+  transform-origin: 50% 8%;
+  will-change: transform;
+}
+
+.header-notification-btn.has-unread:not(.is-open) .header-notification-btn__icon svg {
+  animation: headerNotificationRing 2.4s ease-in-out infinite;
 }
 
 .header-notification-btn.has-feed .header-notification-btn__pulse {

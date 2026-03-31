@@ -5,6 +5,7 @@ import PasswordResetRequestModal from '../components/PasswordResetRequestModal.j
 import logoUrl from '../../../asserts/headerLogo.svg'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
+import { useToast } from '../../../app/providers/ToastProvider.jsx'
 import { getErrorMessage, isProfileSetupRequired } from '../../../utils/auth.js'
 import ThemeToggle from '../../../components/header/ThemeToggle.jsx'
 import { authService } from '../../../api/services/auth.service.js'
@@ -13,6 +14,7 @@ export default function Login() {
   const navigate = useNavigate()
   const { login, isAuthenticated, isAuthReady } = useAuth()
   const { showStatus, runWithLoader } = useModal()
+  const { showToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false)
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
@@ -37,17 +39,12 @@ export default function Login() {
         }
       )
 
-      showStatus({
-        type: 'success',
+      showToast({
+        tone: 'success',
         title: 'Login successful',
-        message: `${result.user.firstName || 'User'}, your workspace is ready.`,
-        autoCloseMs: 950,
-        hideCloseButton: true,
-        dismissible: false,
-        onClose: () => {
-          navigate(isProfileSetupRequired(result.user) ? '/profile' : '/dashboard', { replace: true })
-        }
+        message: 'Fetching your latest workspace data and routing you to the right module.'
       })
+      navigate(isProfileSetupRequired(result.user) ? '/profile' : '/dashboard', { replace: true })
     } catch (err) {
       showStatus({
         type: 'error',

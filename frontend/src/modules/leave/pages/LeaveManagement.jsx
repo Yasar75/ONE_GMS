@@ -3,8 +3,8 @@ import PageHeader from '../../../components/common/PageHeader.jsx'
 import LeaveShared from '../components/LeaveShared.jsx'
 
 const LEAVE_MANAGEMENT_TABS = [
-  { key: 'holiday', label: 'Manage Holidays', helper: 'Org-wide holidays and closures' },
-  { key: 'management', label: 'Leaves Allocation', helper: 'Leave types and allocations' },
+  { key: 'holiday', label: 'Holiday Calendar', helper: 'Org-wide holidays and closures' },
+  { key: 'management', label: 'Leave Allocations', helper: 'Leave types and allocations' },
   { key: 'apply', label: 'Manage Leaves', helper: 'Balances, requests, and approvals' }
 ]
 

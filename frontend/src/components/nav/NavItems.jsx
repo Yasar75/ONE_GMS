@@ -7,7 +7,7 @@ export function getNavItems(user) {
   if (dashboardVariant === 'management') {
     items.push({ label: 'Dashboard', to: '/admin/dashboard', icon: '🏠' })
     if (canAccessAppPath(user, '/admin/employees-management')) {
-      items.push({ label: 'Employees Management', to: '/admin/employees-management', icon: '👥' })
+      items.push({ label: 'Employee Management', to: '/admin/employees-management', icon: '👥' })
     }
     if (canAccessAppPath(user, '/admin/attendance-management')) {
       items.push({ label: 'Attendance Management', to: '/admin/attendance-management', icon: '🕒' })

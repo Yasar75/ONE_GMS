@@ -64,7 +64,7 @@ const HOLIDAY_SCOPE_OPTIONS = [
   { value: 'international', label: 'International holiday' },
   { value: 'regional', label: 'Regional holiday' },
   { value: 'company', label: 'Company holiday' },
-  { value: 'custom', label: 'Custom event' }
+  { value: 'custom', label: 'Custom Event' }
 ]
 const CALENDAR_VIEW_OPTIONS = [
   { value: 'month', label: 'Month view' },
@@ -76,16 +76,18 @@ const MANAGEMENT_CALENDAR_EVENT_OPTIONS = [
   { value: 'company', label: 'Company holiday' },
   { value: 'restricted', label: 'Restricted holiday' },
   { value: 'birthday', label: 'Birthday' },
-  { value: 'work_anniversary', label: 'Work anniversary' },
+  { value: 'work_anniversary', label: 'Anniversary' },
   { value: 'meeting', label: 'Meeting' },
   { value: 'task', label: 'Task' },
-  { value: 'custom', label: 'Custom event' }
+  { value: 'custom', label: 'Custom Event' }
 ]
 
-const EMPLOYEE_CALENDAR_EVENT_OPTIONS = [
+const MY_CALENDAR_EVENT_OPTIONS = [
+  { value: 'birthday', label: 'Birthday' },
+  { value: 'work_anniversary', label: 'Anniversary' },
   { value: 'meeting', label: 'Meeting' },
   { value: 'task', label: 'Task' },
-  { value: 'custom', label: 'Custom event' }
+  { value: 'custom', label: 'Custom Event' }
 ]
 
 const PRESET_CALENDAR_COLORS = [
@@ -162,6 +164,18 @@ function getBalanceEntitlementDays(balance = {}) {
     balance.carryForwardIn,
     balance.manualGranted
   ].reduce((total, value) => total + Number(value || 0), 0)
+}
+
+function prioritizeRowsByEmployee(rows = [], employeeUid = '') {
+  const normalizedEmployeeUid = String(employeeUid || '').trim()
+  if (!normalizedEmployeeUid) return Array.isArray(rows) ? rows : []
+
+  return [...(Array.isArray(rows) ? rows : [])].sort((left, right) => {
+    const leftOwnsRecord = String(left?.employeeUid || '') === normalizedEmployeeUid
+    const rightOwnsRecord = String(right?.employeeUid || '') === normalizedEmployeeUid
+    if (leftOwnsRecord === rightOwnsRecord) return 0
+    return leftOwnsRecord ? -1 : 1
+  })
 }
 
 function getCalendarEntryColor(entry) {
@@ -454,7 +468,9 @@ function buildLeaveRequestErrors(draft) {
 function HolidayModal({ mode, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit, isPending, isManagementWorkspace = false }) {
   const isEdit = mode === 'edit'
   const entryLabel = draft.audience === 'personal' ? 'My calendar entry' : 'Organization calendar entry'
-  const baseEventTypeOptions = isManagementWorkspace ? MANAGEMENT_CALENDAR_EVENT_OPTIONS : EMPLOYEE_CALENDAR_EVENT_OPTIONS
+  const baseEventTypeOptions = isManagementWorkspace && draft.audience !== 'personal'
+    ? MANAGEMENT_CALENDAR_EVENT_OPTIONS
+    : MY_CALENDAR_EVENT_OPTIONS
   const eventTypeOptions = useMemo(() => {
     if (!['international', 'regional'].includes(String(draft.scope || ''))) return baseEventTypeOptions
     const lockedOption = {
@@ -699,8 +715,8 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     ? tabs
     : (isManagementWorkspace
       ? [
-        { key: 'holiday', label: 'Manage Holidays', helper: 'Org-wide holidays and closures' },
-        { key: 'management', label: 'Leaves Allocation', helper: 'Leave types and allocations' },
+        { key: 'holiday', label: 'Holiday Calendar', helper: 'Org-wide holidays and closures' },
+        { key: 'management', label: 'Leave Allocations', helper: 'Leave types and allocations' },
         { key: 'apply', label: 'Manage Leaves', helper: 'Balances, requests, and approvals' }
       ]
       : [
@@ -752,7 +768,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     enabled: canReadHolidayCalendar,
     staleTime: 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const leaveTypesQuery = useQuery({
@@ -763,7 +779,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     enabled: canViewManagementTab || canCreateLeaveRequest || canViewLeaveRequests || canViewMyLeaveBalance || canAccessManageLeaveQueue,
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const employeesQuery = useQuery({
@@ -774,7 +790,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     enabled: isManagementWorkspace && (canViewManagementTab || canAccessManageLeaveQueue),
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const myPunchLogsLookupQuery = useQuery({
@@ -786,7 +802,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const myRegularizationsLookupQuery = useQuery({
@@ -798,7 +814,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const employees = employeesQuery.data || []
@@ -826,7 +842,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const currentEmployeeUid = useMemo(() => {
@@ -856,7 +872,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const employeeBalancesQuery = useQuery({
@@ -868,7 +884,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const pendingRequestsQuery = useQuery({
@@ -880,7 +896,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const previewEnabled = Boolean(leaveForm.startDate && leaveForm.endDate && leaveForm.startDate <= leaveForm.endDate)
@@ -893,7 +909,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 0,
     staleTime: 30 * 1000,
     gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   useEffect(() => {
@@ -1147,6 +1163,48 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       status: (request) => request.status || ''
     }
   })
+  const leaveRequestRows = useMemo(() => {
+    const rowsByUid = new Map()
+
+    sortedMyRequests.forEach((request) => {
+      rowsByUid.set(String(request.uid), request)
+    })
+
+    sortedPendingRequests.forEach((request) => {
+      const rowKey = String(request.uid)
+      if (rowsByUid.has(rowKey)) {
+        rowsByUid.set(rowKey, {
+          ...request,
+          ...rowsByUid.get(rowKey)
+        })
+        return
+      }
+
+      rowsByUid.set(rowKey, request)
+    })
+
+    return Array.from(rowsByUid.values())
+  }, [sortedMyRequests, sortedPendingRequests])
+  const { items: sortedLeaveRequestRows, sortConfig: leaveRequestSortConfig, requestSort: requestLeaveRequestSort } = useSortableData(leaveRequestRows, {
+    initialKey: 'dateRange',
+    initialDirection: 'desc',
+    accessors: {
+      employee: (request) => {
+        const employee = employeeMap.get(request.employeeUid)
+        return employee ? `${employee.fullName} ${employee.employeeCode}`.trim() : String(request.employeeUid || '')
+      },
+      leaveType: (request) => {
+        const leaveType = leaveTypeMap.get(request.leaveTypeUid)
+        return leaveType ? `${leaveType.name} ${leaveType.code}`.trim() : String(request.leaveTypeUid || '')
+      },
+      dateRange: (request) => `${request.startDate || ''} ${request.endDate || ''}`.trim(),
+      appliedDays: (request) => Number(request.appliedDays || 0),
+      status: (request) => request.status || '',
+      reason: (request) => request.reason || '',
+      reviewerNote: (request) => request.reviewerNote || ''
+    }
+  })
+  const pinnedLeaveRequestRows = useMemo(() => prioritizeRowsByEmployee(sortedLeaveRequestRows, currentEmployeeUid), [currentEmployeeUid, sortedLeaveRequestRows])
   const hasExportableCalendarEntries = sortedVisibleRegisterHolidays.length > 0
   const focusedDayHolidays = useMemo(() => holidaysByDate[selectedCalendarDate] || [], [holidaysByDate, selectedCalendarDate])
 
@@ -1213,8 +1271,14 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
         nextDraft.startTime = ''
         nextDraft.endTime = ''
       }
-      if (name === 'audience' && value === 'personal' && !current.draft.color) {
-        nextDraft.color = '#0f766e'
+      if (name === 'audience' && value === 'personal') {
+        const allowedPersonalScopes = new Set(MY_CALENDAR_EVENT_OPTIONS.map((option) => option.value))
+        if (!allowedPersonalScopes.has(String(nextDraft.scope || ''))) {
+          nextDraft.scope = 'custom'
+        }
+        if (!current.draft.color) {
+          nextDraft.color = '#0f766e'
+        }
       }
       return { ...current, draft: nextDraft }
     })
@@ -1664,7 +1728,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
           </div>
 
           <CardShell
-            title="Organization Calendar"
+            title="Holiday Calendar"
             right={(
               <div className="leave-toolbar leave-toolbar-calendar-upgraded">
                 <AppSelect value={selectedYear} onChange={(value) => setSelectedYear(String(value))} options={yearOptions} placeholder="Year" hideSelectedDescription />
@@ -2148,84 +2212,54 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             </CardShell>
           ) : null}
 
-          {(canViewLeaveRequests || canCreateLeaveRequest) ? (
-            <CardShell title="My Leave Requests">
-              {myRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myRequestsQuery.error, 'Your leave requests could not be loaded.')}</div> : (
-                <PaginatedTable rows={sortedMyRequests}>
+          {(canViewLeaveRequests || canCreateLeaveRequest || canAccessManageLeaveQueue) ? (
+            <CardShell title="Leave Requests">
+              {(myRequestsQuery.isError && !isManagementWorkspace) || (pendingRequestsQuery.isError && isManagementWorkspace && !myRequests.length) ? (
+                <div className="alert alert-warning mb-0">{getErrorMessage(isManagementWorkspace ? pendingRequestsQuery.error : myRequestsQuery.error, 'Leave requests could not be loaded.')}</div>
+              ) : (
+                <PaginatedTable rows={pinnedLeaveRequestRows}>
                   {({ rows: paginatedRows }) => (
                     <table className="table employee-table workspace-table align-middle mb-0">
                       <thead>
                         <tr>
-                          <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                          <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                          <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                          <th><SortableHeader label="Status" sortKey="status" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                          <th><SortableHeader label="Reason" sortKey="reason" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                          <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginatedRows.length ? paginatedRows.map((request) => {
-                          const leaveType = leaveTypeMap.get(request.leaveTypeUid)
-                          return (
-                            <tr key={request.uid}>
-                              <td><TableCellStack title={leaveType ? leaveType.name : request.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
-                              <td><TableCellStack title={`${formatLeaveDate(request.startDate)} to ${formatLeaveDate(request.endDate)}`} subtitle={`${request.startDate} → ${request.endDate}`} /></td>
-                              <td><TableBadge value={formatLeaveDays(request.appliedDays)} tone="blue" /></td>
-                              <td><LeaveStatusBadge status={request.status} /></td>
-                              <td className="small text-muted">{request.reason || '—'}</td>
-                              <td className="small text-muted">{request.reviewerNote || '—'}</td>
-                            </tr>
-                          )
-                        }) : <tr><td colSpan="6"><div className="employee-empty-state text-center py-5 text-muted">No leave requests have been raised yet.</div></td></tr>}
-                      </tbody>
-                    </table>
-                  )}
-                </PaginatedTable>
-              )}
-            </CardShell>
-          ) : null}
-
-          {isManagementWorkspace && canAccessManageLeaveQueue ? (
-            <CardShell title="Team Leave Requests">
-              {pendingRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(pendingRequestsQuery.error, 'Employee leave requests could not be loaded.')}</div> : (
-                <PaginatedTable rows={sortedPendingRequests}>
-                  {({ rows: paginatedRows }) => (
-                    <table className="table employee-table workspace-table align-middle mb-0">
-                      <thead>
-                        <tr>
-                          <th><SortableHeader label="Employee" sortKey="employee" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Reason" sortKey="reason" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Status" sortKey="status" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th className="table-header-center">Decision</th>
+                          {isManagementWorkspace ? <th><SortableHeader label="Employee" sortKey="employee" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th> : null}
+                          <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Status" sortKey="status" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Reason" sortKey="reason" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          {isManagementWorkspace ? <th className="table-header-center">Action</th> : null}
                         </tr>
                       </thead>
                       <tbody>
                         {paginatedRows.length ? paginatedRows.map((request) => {
                           const employee = employeeMap.get(request.employeeUid)
                           const leaveType = leaveTypeMap.get(request.leaveTypeUid)
+                          const isPendingRequest = String(request.status || '').trim().toLowerCase() === 'pending'
+
                           return (
                             <tr key={request.uid}>
-                              <td><TableCellStack title={employee ? employee.fullName : request.employeeUid} subtitle={employee ? employee.employeeCode : 'Employee'} /></td>
+                              {isManagementWorkspace ? <td><TableCellStack title={employee ? employee.fullName : request.employeeUid} subtitle={employee ? employee.employeeCode : 'Employee'} /></td> : null}
                               <td><TableCellStack title={leaveType ? leaveType.name : request.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
                               <td><TableCellStack title={`${formatLeaveDate(request.startDate)} to ${formatLeaveDate(request.endDate)}`} subtitle={`${request.startDate} → ${request.endDate}`} /></td>
                               <td><TableBadge value={formatLeaveDays(request.appliedDays)} tone="blue" /></td>
-                              <td className="small text-muted">{request.reason || '—'}</td>
                               <td><LeaveStatusBadge status={request.status} /></td>
-                              <td className="table-actions-cell">
-                                {canReviewLeaveRequests ? (
-                                  <TableActionCluster>
-                                    <TableActionButton icon={<CheckCircleIcon />} label="Approve" variant="view" onClick={() => openDecision('approve', request)} />
-                                    <TableActionButton icon={<XCircleIcon />} label="Reject" variant="delete" onClick={() => openDecision('reject', request)} />
-                                  </TableActionCluster>
-                                ) : <TableBadge value="Read only" tone="neutral" />}
-                              </td>
+                              <td className="small text-muted">{request.reason || '—'}</td>
+                              <td className="small text-muted">{request.reviewerNote || '—'}</td>
+                              {isManagementWorkspace ? (
+                                <td className="table-actions-cell">
+                                  {canReviewLeaveRequests && isPendingRequest ? (
+                                    <TableActionCluster>
+                                      <TableActionButton icon={<CheckCircleIcon />} label="Approve" variant="view" onClick={() => openDecision('approve', request)} />
+                                      <TableActionButton icon={<XCircleIcon />} label="Reject" variant="delete" onClick={() => openDecision('reject', request)} />
+                                    </TableActionCluster>
+                                  ) : <TableBadge value="Read only" tone="neutral" />}
+                                </td>
+                              ) : null}
                             </tr>
                           )
-                        }) : <tr><td colSpan="7"><div className="employee-empty-state text-center py-5 text-muted">There are no pending leave requests waiting for review.</div></td></tr>}
+                        }) : <tr><td colSpan={isManagementWorkspace ? 8 : 6}><div className="employee-empty-state text-center py-5 text-muted">No leave requests are available right now.</div></td></tr>}
                       </tbody>
                     </table>
                   )}

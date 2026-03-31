@@ -13,6 +13,6 @@ export function useRegularizationLogsQuery(regularizationUid, enabled = true) {
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
     staleTime: 45 * 1000,
     gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 }

@@ -199,6 +199,9 @@ export default function EmployeeAdditionalDetailsEditor({ employee, profile }) {
   useEffect(() => {
     setLocalProfile(profile || null)
     setSkillsInput(normalizeSkills((profile?.skills || []).map((entry) => entry?.skill || '')).join(', '))
+  }, [profile])
+
+  useEffect(() => {
     setSelectedDocumentUid('')
     setDocumentDraft(emptyDocumentDraft())
     setDocumentFileInputKey((current) => current + 1)
@@ -208,7 +211,7 @@ export default function EmployeeAdditionalDetailsEditor({ employee, profile }) {
     setSelectedWorkExperienceUid('')
     setWorkExperienceDraft(emptyWorkExperienceDraft())
     setIsWorkExperienceEditorOpen(false)
-  }, [profile])
+  }, [employee?.uid])
 
   const documents = localProfile?.documents || []
   const skills = localProfile?.skills || []

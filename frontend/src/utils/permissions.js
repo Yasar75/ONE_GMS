@@ -1,3 +1,5 @@
+import { ROLES } from './role.js'
+
 const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
 const CRUD_ACTIONS = ['c', 'r', 'u', 'd']
 
@@ -21,7 +23,7 @@ const ROLE_MODULE_ALIAS_MAP = {
   'Profile': 'Profile Update',
   'Profile Image': 'Profile Update',
   'Profile nickname': 'Profile Update',
-  'Employees Skills': 'Employee Skills',
+  'Employees Skills': 'Employee Skills', 
   'My Skills': 'Employee Skills',
   'Employee Family Details': "Employee's Family Details",
   'Employee Family Detail': "Employee's Family Details",
@@ -306,9 +308,18 @@ export function normalizeAppPath(pathname = '') {
 
 export function canAccessAppPath(user, pathname = '') {
   const normalizedPath = normalizeAppPath(pathname)
+  const isAdminUser = user?.role === ROLES.ADMIN || isAdminBypassUser(user)
 
   if (!normalizedPath || normalizedPath === '/' || normalizedPath === '/dashboard' || normalizedPath === '/profile') {
     return true
+  }
+
+  if (normalizedPath.startsWith('/admin/') && !isAdminUser) {
+    return false
+  }
+
+  if (normalizedPath.startsWith('/employee/') && isAdminUser) {
+    return false
   }
 
   const requiredModules = APP_ROUTE_ACCESS[normalizedPath]

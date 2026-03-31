@@ -4,11 +4,12 @@ import ModalFrame from '../../components/common/ModalFrame.jsx'
 import StatusDialogContent from '../../components/common/StatusDialogContent.jsx'
 import ConfirmDialogContent from '../../components/common/ConfirmDialogContent.jsx'
 import GlobalLoaderContent from '../../components/common/GlobalLoaderContent.jsx'
+import { useToast } from './ToastProvider.jsx'
 
 const ModalContext = createContext(null)
 const DEFAULT_AUTO_LOADER = {
-  title: 'Loading workspace',
-  message: 'Fetching the latest data. Please stay on this screen.'
+  title: 'Fetching latest data',
+  message: 'This page is still loading in the background.'
 }
 
 function shouldShowBlockingQueryLoader(query) {
@@ -27,7 +28,7 @@ export function ModalProvider({ children }) {
   const timerRef = useRef(null)
   const confirmResolverRef = useRef(null)
   const autoLoaderTimerRef = useRef(null)
-
+  const autoLoaderToastRef = useRef(null)
   const blockingFetchCount = useIsFetching({
     predicate: shouldShowBlockingQueryLoader
   })
@@ -38,6 +39,7 @@ export function ModalProvider({ children }) {
   const [statusModal, setStatusModal] = useState(null)
   const [confirmModal, setConfirmModal] = useState(null)
   const [loaderModal, setLoaderModal] = useState(null)
+  const { showToast, dismissToast } = useToast()
 
   const clearStatusTimer = useCallback(() => {
     if (timerRef.current) {
@@ -112,7 +114,11 @@ export function ModalProvider({ children }) {
     const showTimer = window.setTimeout(() => {
       shownAt = Date.now()
       didShowLoader = true
-      showLoader(config)
+      setLoaderModal({
+        source: 'manual',
+        title: config.title || 'Please wait',
+        message: config.message || 'We are processing your request.',
+      })
     }, delayMs)
 
     try {
@@ -126,21 +132,38 @@ export function ModalProvider({ children }) {
         if (remaining > 0) {
           await wait(remaining)
         }
-        hideLoader()
+        setLoaderModal((current) => (current?.source === 'manual' ? null : current))
       }
     }
-  }, [hideLoader, showLoader])
+  }, [])
 
   useEffect(() => {
-    if (loaderModal?.source === 'manual') return undefined
+    if (loaderModal?.source === 'manual') {
+      if (autoLoaderTimerRef.current) {
+        window.clearTimeout(autoLoaderTimerRef.current)
+        autoLoaderTimerRef.current = null
+      }
+
+      if (autoLoaderToastRef.current) {
+        dismissToast(autoLoaderToastRef.current)
+        autoLoaderToastRef.current = null
+      }
+
+      return undefined
+    }
 
     const hasAutoActivity = (blockingFetchCount + blockingMutationCount) > 0
 
     if (hasAutoActivity) {
-      if (!autoLoaderTimerRef.current && !loaderModal) {
+      if (!autoLoaderTimerRef.current && !autoLoaderToastRef.current) {
         autoLoaderTimerRef.current = window.setTimeout(() => {
           autoLoaderTimerRef.current = null
-          setLoaderModal((current) => current ?? { source: 'auto', ...DEFAULT_AUTO_LOADER })
+          autoLoaderToastRef.current = showToast({
+            tone: 'info',
+            title: DEFAULT_AUTO_LOADER.title,
+            message: DEFAULT_AUTO_LOADER.message,
+            persist: true
+          })
         }, 700)
       }
     } else {
@@ -149,11 +172,14 @@ export function ModalProvider({ children }) {
         autoLoaderTimerRef.current = null
       }
 
-      setLoaderModal((current) => (current?.source === 'auto' ? null : current))
+      if (autoLoaderToastRef.current) {
+        dismissToast(autoLoaderToastRef.current)
+        autoLoaderToastRef.current = null
+      }
     }
 
     return undefined
-  }, [blockingFetchCount, blockingMutationCount, loaderModal])
+  }, [blockingFetchCount, blockingMutationCount, dismissToast, loaderModal, showToast])
 
   useEffect(() => () => {
     clearStatusTimer()
@@ -162,7 +188,12 @@ export function ModalProvider({ children }) {
       window.clearTimeout(autoLoaderTimerRef.current)
       autoLoaderTimerRef.current = null
     }
-  }, [clearStatusTimer])
+
+    if (autoLoaderToastRef.current) {
+      dismissToast(autoLoaderToastRef.current)
+      autoLoaderToastRef.current = null
+    }
+  }, [clearStatusTimer, dismissToast])
 
   const statusActionLabel = statusModal?.ctaLabel === false
     ? null

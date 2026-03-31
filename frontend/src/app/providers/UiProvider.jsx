@@ -17,7 +17,6 @@ export function UiProvider({ children }) {
   const [dialog, setDialog] = useState(null)
   const pendingRequestsRef = useRef(new Map())
   const loaderTimerRef = useRef(null)
-
   const clearNetworkTimer = useCallback(() => {
     if (loaderTimerRef.current) {
       window.clearTimeout(loaderTimerRef.current)
@@ -79,7 +78,10 @@ export function UiProvider({ children }) {
     const showTimer = window.setTimeout(() => {
       shownAt = Date.now()
       didShowLoader = true
-      showLoader(loader)
+      setManualLoader({
+        title: loader?.title || 'Please wait',
+        message: loader?.message || 'Working on your request.',
+      })
     }, delayMs)
 
     try {
@@ -93,10 +95,10 @@ export function UiProvider({ children }) {
         if (remaining > 0) {
           await wait(remaining)
         }
-        hideLoader()
+        setManualLoader(null)
       }
     }
-  }, [showLoader, hideLoader])
+  }, [])
 
   const closeDialog = useCallback(() => {
     setDialog((current) => {

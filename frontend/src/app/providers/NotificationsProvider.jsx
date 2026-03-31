@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from './AuthProvider.jsx'
 import { dashboardService } from '../../api/services/dashboard.service.js'
@@ -8,6 +8,7 @@ import { employeeService } from '../../api/services/employee.service.js'
 import { storage } from '../../utils/storage.js'
 import { canAccessAppPath, resolveDashboardVariant } from '../../utils/permissions.js'
 import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '../../utils/queryCache.js'
+import { useToast } from './ToastProvider.jsx'
 
 const NotificationsContext = createContext(null)
 const NOTIFICATION_STATE_KEY_PREFIX = 'one_gms.notifications.state.v1.'
@@ -152,7 +153,7 @@ function buildAdminNotifications({ dashboard = {}, pendingLeaveRequests = [], pe
       tone: 'warning',
       category: 'Pending approvals',
       title: `${sortedPendingRegularizations.length} regularization request${sortedPendingRegularizations.length === 1 ? '' : 's'} awaiting action`,
-      message: 'Open Manage Regularizations to verify attendance corrections.',
+      message: 'Open Manage Regularization to verify attendance corrections.',
       to: '/admin/attendance-management?tab=regularization',
       createdAt: parseTimestamp(sortedPendingRegularizations[0]?.updatedAt || sortedPendingRegularizations[0]?.createdAt),
       priority: 5
@@ -189,7 +190,7 @@ function buildAdminNotifications({ dashboard = {}, pendingLeaveRequests = [], pe
       tone: 'success',
       category: 'Calendar',
       title: holiday?.title || `Holiday update ${index + 1}`,
-      message: holiday?.date ? `Marked on ${holiday.date}. Open Manage Holidays to review the calendar.` : 'Open Manage Holidays to review the calendar.',
+      message: holiday?.date ? `Marked on ${holiday.date}. Open Holiday Calendar to review the calendar.` : 'Open Holiday Calendar to review the calendar.',
       to: '/admin/leave-management?tab=holiday',
       priority: 2
     }))
@@ -241,7 +242,7 @@ function buildEmployeeNotifications({ dashboard = {}, myLeaveRequests = [], myRe
       tone: 'warning',
       category: 'Attendance',
       title: `${pendingRegularizations.length} regularization request${pendingRegularizations.length === 1 ? '' : 's'} pending`,
-      message: 'Open Create Regularization to review reviewer progress and notes.',
+      message: 'Open Apply Regularization to review reviewer progress and notes.',
       to: '/employee/attendance?tab=regularization',
       createdAt: parseTimestamp(pendingRegularizations[0]?.updatedAt || pendingRegularizations[0]?.createdAt),
       priority: 5
@@ -272,8 +273,8 @@ function buildEmployeeNotifications({ dashboard = {}, myLeaveRequests = [], myRe
       category: 'Attendance',
       title: `Regularization ${normalizedStatus}`,
       message: normalizedStatus === 'approved'
-        ? 'An attendance correction was approved. Open Create Regularization for the full timeline.'
-        : 'An attendance correction was rejected. Open Create Regularization for the reviewer details.',
+        ? 'An attendance correction was approved. Open Apply Regularization for the full timeline.'
+        : 'An attendance correction was rejected. Open Apply Regularization for the reviewer details.',
       to: '/employee/attendance?tab=regularization',
       createdAt: parseTimestamp(latestResolvedRegularization.reviewedAt || latestResolvedRegularization.updatedAt || latestResolvedRegularization.createdAt),
       priority: 4
@@ -351,7 +352,7 @@ function buildNotificationQueryOptions({ queryKey, queryFn, enabled }) {
     gcTime: 15 * 60 * 1000,
     refetchInterval: enabled ? NOTIFICATION_REFRESH_MS : false,
     refetchIntervalInBackground: true,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: 'always',
     refetchOnReconnect: true,
     meta: {
       suppressGlobalLoader: true
@@ -361,9 +362,11 @@ function buildNotificationQueryOptions({ queryKey, queryFn, enabled }) {
 
 export function NotificationsProvider({ children }) {
   const { user, isAuthenticated } = useAuth()
+  const { showToast } = useToast()
   const dashboardVariant = resolveDashboardVariant(user)
   const notificationStateKey = useMemo(() => buildNotificationStateKey(user), [user])
   const [notificationState, setNotificationState] = useState(() => readNotificationState(notificationStateKey))
+  const surfacedNotificationIdsRef = useRef(new Set())
 
   const canViewAdminDashboard = isAuthenticated && dashboardVariant === 'management'
   const canViewEmployeeDashboard = isAuthenticated && dashboardVariant === 'employee'
@@ -425,6 +428,7 @@ export function NotificationsProvider({ children }) {
 
   useEffect(() => {
     setNotificationState(readNotificationState(notificationStateKey))
+    surfacedNotificationIdsRef.current.clear()
   }, [notificationStateKey])
 
   useEffect(() => {
@@ -497,6 +501,27 @@ export function NotificationsProvider({ children }) {
     || myLeaveRequestsQuery.isPending
     || myRegularizationsQuery.isPending
   )
+
+  useEffect(() => {
+    notifications.forEach((notification) => {
+      const notificationId = String(notification?.id || '')
+      if (!notificationId || surfacedNotificationIdsRef.current.has(notificationId)) return
+
+      surfacedNotificationIdsRef.current.add(notificationId)
+
+      const isEmployeeResolutionNotification = notificationId.startsWith('employee-leave-resolution-')
+        || notificationId.startsWith('employee-regularization-resolution-')
+
+      if (!isEmployeeResolutionNotification || !notification.isNewUnread) return
+
+      showToast({
+        tone: notification.tone === 'danger' ? 'danger' : 'success',
+        title: notification.title,
+        message: notification.message,
+        autoCloseMs: 4200
+      })
+    })
+  }, [notifications, showToast])
 
   const markNotificationsOpened = useCallback((notificationIds = []) => {
     updateNotificationState((currentState) => markOpenedInState(currentState, notificationIds))

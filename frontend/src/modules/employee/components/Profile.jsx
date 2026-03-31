@@ -875,6 +875,9 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!familyDetailItems.length) {
+      if (selectedFamilyDetailUid === NEW_FAMILY_DETAIL_UID && isFamilyDetailEditorOpen) {
+        return
+      }
       setSelectedFamilyDetailUid('')
       setFamilyDetailDraft(emptyFamilyDetailDraft())
       setFamilyDetailTouched({})
@@ -904,6 +907,9 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!workExperienceItems.length) {
+      if (selectedWorkExperienceUid === NEW_WORK_EXPERIENCE_UID && isWorkExperienceEditorOpen) {
+        return
+      }
       setSelectedWorkExperienceUid('')
       setWorkExperienceDraft(emptyWorkExperienceDraft())
       setWorkExperienceTouched({})

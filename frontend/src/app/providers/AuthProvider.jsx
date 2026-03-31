@@ -11,6 +11,7 @@ import { attendanceService } from '../../api/services/attendance.service.js'
 import { getTodayDateInput } from '../../utils/attendance.js'
 import { useModal } from './ModalProvider.jsx'
 import { canAccessAppPath, isAdminBypassUser, resolveDashboardVariant } from '../../utils/permissions.js'
+import { clearPersistentQueryCache } from '../../utils/queryCache.js'
 
 const AuthContext = createContext(null)
 const ACTIVITY_EVENTS = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart']
@@ -24,6 +25,49 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => storage.get(AUTH_STORAGE_KEYS.user, null))
   const [token, setToken] = useState(() => storage.get(AUTH_STORAGE_KEYS.accessToken, null))
   const [refreshToken, setRefreshToken] = useState(() => storage.get(AUTH_STORAGE_KEYS.refreshToken, null))
+
+  const clearBrowserSessionStorage = useCallback(() => {
+    if (typeof window === 'undefined') return
+
+    let rememberedLogin = null
+
+    try {
+      rememberedLogin = storage.get(AUTH_STORAGE_KEYS.rememberedLogin, null)
+    } catch {
+      rememberedLogin = null
+    }
+
+    try {
+      window.localStorage.clear()
+    } catch {
+      // Best-effort cleanup only.
+    }
+
+    try {
+      window.sessionStorage?.clear()
+    } catch {
+      // Best-effort cleanup only.
+    }
+
+    if (rememberedLogin?.rememberCredential) {
+      try {
+        window.localStorage.setItem(AUTH_STORAGE_KEYS.rememberedLogin, JSON.stringify(rememberedLogin))
+      } catch {
+        // Best-effort restore only.
+      }
+    }
+  }, [])
+
+  const clearBrowserRuntimeCache = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.caches) return
+
+    try {
+      const cacheKeys = await window.caches.keys()
+      await Promise.all(cacheKeys.map((cacheKey) => window.caches.delete(cacheKey)))
+    } catch {
+      // Best-effort cache cleanup only.
+    }
+  }, [])
 
   const hydrateEmployeeSetupState = useCallback(async (baseUser) => {
     if (!baseUser) return baseUser
@@ -77,7 +121,7 @@ export function AuthProvider({ children }) {
     queryFn: async () => hydrateEmployeeSetupState(await authService.getCurrentUser()),
     enabled: Boolean(token),
     retry: false,
-    staleTime: 5 * 60 * 1000
+    staleTime: 0
   })
 
   const clearIdleTimer = useCallback(() => {
@@ -87,24 +131,29 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  const clearAuthState = useCallback(() => {
+  const clearAuthState = useCallback(({ purgeBrowserState = false } = {}) => {
     clearIdleTimer()
     storage.remove(AUTH_STORAGE_KEYS.user)
     storage.remove(AUTH_STORAGE_KEYS.accessToken)
     storage.remove(AUTH_STORAGE_KEYS.refreshToken)
     storage.remove(AUTH_STORAGE_KEYS.lastActivityAt)
+    storage.remove(AUTH_STORAGE_KEYS.passwordSetupEmail)
+    clearPersistentQueryCache()
+    employeeService.clearDirectoryCache()
+
+    if (purgeBrowserState) {
+      clearBrowserSessionStorage()
+      void clearBrowserRuntimeCache()
+    }
+
     setUser(null)
     setToken(null)
     setRefreshToken(null)
-    queryClient.removeQueries({ queryKey: ['auth'] })
-    queryClient.removeQueries({ queryKey: ['dashboard'] })
-    queryClient.removeQueries({ queryKey: ['employees'] })
-    queryClient.removeQueries({ queryKey: ['employees', 'profile-requests'] })
-    queryClient.removeQueries({ queryKey: ['attendance'] })
-  }, [clearIdleTimer, queryClient])
+    queryClient.clear()
+  }, [clearBrowserRuntimeCache, clearBrowserSessionStorage, clearIdleTimer, queryClient])
 
   const handleIdleTimeout = useCallback(() => {
-    clearAuthState()
+    clearAuthState({ purgeBrowserState: true })
     showStatus({
       type: 'error',
       title: 'Session expired',
@@ -143,7 +192,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (sessionQuery.isError) {
-      clearAuthState()
+      clearAuthState({ purgeBrowserState: true })
     }
   }, [clearAuthState, sessionQuery.isError])
 
@@ -182,7 +231,7 @@ export function AuthProvider({ children }) {
       prefetchTasks.push(client.prefetchQuery({
         queryKey: ['dashboard', 'admin'],
         queryFn: dashboardService.getAdminDashboard,
-        staleTime: 5 * 60 * 1000
+        staleTime: 0
       }))
       client.removeQueries({ queryKey: ['dashboard', 'employee'], exact: true })
     }
@@ -191,7 +240,7 @@ export function AuthProvider({ children }) {
       prefetchTasks.push(client.prefetchQuery({
         queryKey: ['dashboard', 'employee'],
         queryFn: dashboardService.getEmployeeDashboard,
-        staleTime: 5 * 60 * 1000
+        staleTime: 0
       }))
       client.removeQueries({ queryKey: ['dashboard', 'admin'], exact: true })
     }
@@ -200,7 +249,7 @@ export function AuthProvider({ children }) {
       prefetchTasks.push(client.prefetchQuery({
         queryKey: ['employees', 'directory'],
         queryFn: employeeService.getDirectory,
-        staleTime: 5 * 60 * 1000
+        staleTime: 0
       }))
     } else {
       client.removeQueries({ queryKey: ['employees'], exact: false })
@@ -211,12 +260,12 @@ export function AuthProvider({ children }) {
         client.prefetchQuery({
           queryKey: ['attendance', 'admin', 'directory'],
           queryFn: () => attendanceService.getDirectoryAttendance(),
-          staleTime: 60 * 1000
+          staleTime: 0
         }),
         client.prefetchQuery({
           queryKey: ['attendance', 'admin', 'regularizations', 'pending'],
           queryFn: attendanceService.getManagerPendingRegularizations,
-          staleTime: 30 * 1000
+          staleTime: 0
         })
       )
     }
@@ -226,12 +275,12 @@ export function AuthProvider({ children }) {
         client.prefetchQuery({
           queryKey: ['attendance', 'employee', 'my-logs', todayDate],
           queryFn: () => attendanceService.getMyPunchLogs(todayDate),
-          staleTime: 30 * 1000
+          staleTime: 0
         }),
         client.prefetchQuery({
           queryKey: ['attendance', 'employee', 'regularizations', 'mine'],
           queryFn: attendanceService.getMyRegularizations,
-          staleTime: 60 * 1000
+          staleTime: 0
         })
       )
     }
@@ -241,6 +290,9 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async ({ email, password, role }) => {
     try {
+      clearPersistentQueryCache()
+      employeeService.clearDirectoryCache()
+      queryClient.clear()
       const loginResult = await authService.login({ email, password })
 
       storage.set(AUTH_STORAGE_KEYS.accessToken, loginResult.access_token)
@@ -278,7 +330,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async (reason = 'manual') => {
     if (reason === 'idle') {
-      clearAuthState()
+      clearAuthState({ purgeBrowserState: true })
       showStatus({
         type: 'error',
         title: 'Session expired',
@@ -301,7 +353,7 @@ export function AuthProvider({ children }) {
 
     await runWithLoader(
       async () => {
-        clearAuthState()
+        clearAuthState({ purgeBrowserState: true })
         navigate('/login', { replace: true })
       },
       {

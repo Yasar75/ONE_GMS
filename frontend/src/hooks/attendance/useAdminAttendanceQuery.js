@@ -13,6 +13,6 @@ export function useAdminAttendanceQuery(enabled = true) {
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 }

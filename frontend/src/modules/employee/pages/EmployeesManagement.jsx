@@ -98,6 +98,13 @@ const EMPLOYEE_VIEW_TABS = [
   { key: 'additional', label: 'Additional Details', helper: 'Employee-managed profile details' }
 ]
 
+const EMPLOYEE_PREVIEW_TABS = [
+  { key: 'basic-info', label: 'Basic Info', helper: 'Identity, contact, role, and status' },
+  { key: 'basic-details', label: 'Basic Details', helper: 'Organization and reporting details' },
+  { key: 'additional-details', label: 'Additional Details', helper: 'Personal profile and history' },
+  { key: 'documents-uploaded', label: 'Documents Uploaded', helper: 'Uploaded files and downloads' }
+]
+
 const METADATA_SECTIONS = [
   { key: 'roles', title: 'Roles', description: 'Auth roles used for login signup and employee assignment.' },
   { key: 'department', title: 'Department', description: 'Business units used in employee records.' },
@@ -129,7 +136,7 @@ const ROLE_MODULE_VISUAL_CONFIG = [
   {
     title: 'Employee Management',
     modules: [
-      { key: 'Employees Management', label: 'Employees Management' },
+      { key: 'Employees Management', label: 'Employee Management' },
       { key: 'Profile Update', label: 'Profile Update' },
       { key: 'Employee Documents', label: 'Employee Documents' },
       { key: 'Employee Metadata', label: 'Employee Metadata' },
@@ -143,8 +150,8 @@ const ROLE_MODULE_VISUAL_CONFIG = [
   {
     title: 'Attendance Management',
     modules: [
-      { key: 'Attendance Overview', label: 'Attendance Overview' },
-      { key: 'My Attendance Preview', label: 'My Attendance Preview' },
+      { key: 'Attendance Overview', label: 'Overview' },
+      { key: 'My Attendance Preview', label: 'Mark Attendance' },
       { key: 'Manage Regularization', label: 'Manage Regularization' },
       { key: 'Assign Shift', label: 'Assign Shift' },
       { key: 'My Shift', label: 'My Shift' },
@@ -154,11 +161,11 @@ const ROLE_MODULE_VISUAL_CONFIG = [
   {
     title: 'Leave Management',
     modules: [
-      { key: 'Assign Leave', label: 'Assign Leave' },
+      { key: 'Assign Leave', label: 'Leave Allocations' },
       { key: 'My Leave Balance', label: 'My Leave Balance' },
       { key: 'Holiday Calendar', label: 'Holiday Calendar' },
-      { key: 'Leave Request', label: 'Leave Request' },
-      { key: 'Manage Leave', label: 'Manage Leave' },
+      { key: 'Leave Request', label: 'Leave Requests' },
+      { key: 'Manage Leave', label: 'Manage Leaves' },
       { key: 'Leave Type', label: 'Leave Type' }
     ]
   }
@@ -479,6 +486,10 @@ function formatExperienceDuration(startDate, endDate = '', isCurrent = false) {
   if (!years) return `${months} mo`
   if (!months) return `${years} yr`
   return `${years} yr ${months} mo`
+}
+
+function getEmployeeProfileQueryKey(employeeUid) {
+  return ['employees', 'profile', String(employeeUid || '')]
 }
 
 function createEmptyEmployeeDraft() {
@@ -1030,14 +1041,11 @@ function EmployeeAdditionalDetailsPanel({ employee, profile }) {
   const skills = profile?.skills || []
   const workExperiences = profile?.workExperiences || []
   const familyDetails = profile?.familyDetails || []
-  const documents = profile?.documents || []
 
   return (
     <div className="d-flex flex-column gap-3">
       <div className="row g-2">
-        <div className="col-12 col-md-6"><strong>Nickname:</strong> {profile?.nickname || '—'}</div>
         <div className="col-12 col-md-6"><strong>Gender:</strong> {employee?.gender || '—'}</div>
-        <div className="col-12 col-md-6"><strong>Caste:</strong> {employee?.caste || '—'}</div>
         <div className="col-12 col-md-6"><strong>Date of Birth:</strong> {formatDate(employee?.dateOfBirth)}</div>
         <div className="col-12 col-md-6"><strong>Age:</strong> {formatEmployeeAge(employee?.dateOfBirth)}</div>
         <div className="col-12 col-md-6"><strong>Blood Group:</strong> {employee?.bloodGroup || '—'}</div>
@@ -1095,20 +1103,75 @@ function EmployeeAdditionalDetailsPanel({ employee, profile }) {
           </div>
         )) : <div className="text-muted small">No family details added yet.</div>}
       </div>
+    </div>
+  )
+}
 
-      <div className="profile-form-divider" />
-
-      <div className="d-flex flex-column gap-2">
-        <div className="fw-semibold">Documents</div>
-        {documents.length ? documents.map((document) => (
-          <a key={document.uid} href={document.fileUrl || '#'} target="_blank" rel="noreferrer" download={document.name || 'employee-document'} className="profile-doc-item">
-            <span className="profile-doc-item-title">{document.name || 'Document'}</span>
-            <span className="text-muted small">
-              {document.documentType || 'OTHER'} • {document.uploadDateLabel || '—'}
-            </span>
-          </a>
-        )) : <div className="text-muted small">No documents uploaded for this employee.</div>}
+function EmployeePreviewBasicInfoPanel({ employee, profile }) {
+  return (
+    <div className="row g-3 align-items-start">
+      <div className="col-12 col-md-4">
+        <div className="profile-photo-preview">
+          {profile?.profileImageUrl
+            ? <img src={profile.profileImageUrl} alt={employee?.fullName || 'Employee'} />
+            : <span>{String(employee?.fullName || 'E').charAt(0).toUpperCase()}</span>}
+        </div>
       </div>
+      <div className="col-12 col-md-8">
+        <div className="row g-2">
+          <div className="col-12 col-md-6"><strong>Employee Code:</strong> {employee?.employeeCode || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Name:</strong> {employee?.fullName || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Email:</strong> {employee?.email || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Mobile:</strong> {employee?.phone || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Role:</strong> {employee?.roleName || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Status:</strong> <EmployeeBadge value={employee?.status || '—'} type="status" /></div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmployeePreviewBasicDetailsPanel({ employee }) {
+  return (
+    <div className="row g-2">
+      <div className="col-12 col-md-6"><strong>Department:</strong> {employee?.department || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Position:</strong> {employee?.position || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Date of Joining:</strong> {formatDate(employee?.joinDate)}</div>
+      <div className="col-12 col-md-6"><strong>Work Location:</strong> {employee?.workLocation || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Employee Type:</strong> {employee?.employeeType || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Manager:</strong> {employee?.managerName || '—'}</div>
+      <div className="col-12 col-md-6"><strong>HR:</strong> {employee?.hrEmployeeName || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Lead:</strong> {employee?.teamLeadName || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Coordinator:</strong> {employee?.coordinatorName || '—'}</div>
+    </div>
+  )
+}
+
+function EmployeePreviewDocumentsPanel({ documents = [] }) {
+  return (
+    <div className="d-flex flex-column gap-2">
+      {documents.length ? documents.map((document) => (
+        <div key={document.uid} className="profile-doc-item profile-doc-item-modern">
+          <div className="d-flex flex-wrap align-items-start justify-content-between gap-2">
+            <div className="d-flex flex-column gap-1">
+              <span className="profile-doc-item-title">{document.name || 'Document'}</span>
+              <span className="text-muted small">
+                {document.documentType || 'OTHER'} • {document.uploadDateLabel || '—'}
+              </span>
+            </div>
+            <a
+              href={document.fileUrl || '#'}
+              target="_blank"
+              rel="noreferrer"
+              download={document.name || 'employee-document'}
+              className="btn btn-sm btn-outline-secondary btn-icon-inline"
+            >
+              <DownloadIcon />
+              <span>Download</span>
+            </a>
+          </div>
+        </div>
+      )) : <div className="text-muted small">No documents uploaded for this employee.</div>}
     </div>
   )
 }
@@ -1545,7 +1608,7 @@ export default function EmployeesManagement() {
     enabled: canViewRequests,
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const requestedTab = searchParams.get('tab')
@@ -1573,7 +1636,7 @@ export default function EmployeesManagement() {
   const [previewEmployee, setPreviewEmployee] = useState(null)
   const [previewEmployeeProfile, setPreviewEmployeeProfile] = useState(null)
   const [previewEmployeeProfileLoading, setPreviewEmployeeProfileLoading] = useState(false)
-  const [previewEmployeeTab, setPreviewEmployeeTab] = useState('basic')
+  const [previewEmployeeTab, setPreviewEmployeeTab] = useState('basic-info')
 
   const [metadataModal, setMetadataModal] = useState(null)
   const [metadataDraft, setMetadataDraft] = useState({ category: '', value: '', label: '', description: '', isActive: true, sortOrder: 0 })
@@ -1632,6 +1695,19 @@ export default function EmployeesManagement() {
   const employeeFormErrors = useMemo(() => buildEmployeeFormErrors(employeeDraft, employeeFormMode), [employeeDraft, employeeFormMode])
   const metadataErrors = useMemo(() => buildMetadataFormErrors(metadataDraft), [metadataDraft])
   const roleErrors = useMemo(() => buildRoleFormErrors(roleDraft), [roleDraft])
+  const getCachedEmployeeProfile = useCallback((employeeUid) => {
+    if (!employeeUid) return null
+    return queryClient.getQueryData(getEmployeeProfileQueryKey(employeeUid)) || null
+  }, [queryClient])
+  const fetchEmployeeProfile = useCallback((employeeUid) => {
+    if (!employeeUid) return Promise.resolve(null)
+    return queryClient.fetchQuery({
+      queryKey: getEmployeeProfileQueryKey(employeeUid),
+      queryFn: () => employeeService.getEmployeeProfile(employeeUid),
+      staleTime: 30 * 1000,
+      gcTime: 10 * 60 * 1000
+    })
+  }, [queryClient])
 
   const roleDirectory = useMemo(() => new Map(roles.map((role) => [String(role.uid), role.roleName])), [roles])
   const employeeNameDirectory = useMemo(() => new Map(employeeLookup.map((employee) => [String(employee.uid), employee.fullName])), [employeeLookup])
@@ -1718,7 +1794,18 @@ export default function EmployeesManagement() {
     'department',
     'email',
     'phone',
-    'emergencyContact'
+    'status',
+    'dateOfBirth',
+    'gender',
+    'bloodGroup',
+    'address',
+    'emergencyContact',
+    'workLocation',
+    'employeeType',
+    'managerName',
+    'hrEmployeeName',
+    'teamLeadName',
+    'coordinatorName'
   ]).filter((employee) => {
     const matchesSearch = true
 
@@ -1812,19 +1899,26 @@ export default function EmployeesManagement() {
       if (!previewEmployee?.uid) {
         setPreviewEmployeeProfile(null)
         setPreviewEmployeeProfileLoading(false)
-        setPreviewEmployeeTab('basic')
+        setPreviewEmployeeTab('basic-info')
         return
       }
 
-      setPreviewEmployeeTab('basic')
+      const cachedProfile = getCachedEmployeeProfile(previewEmployee.uid)
+      if (cachedProfile) {
+        setPreviewEmployeeProfile(cachedProfile)
+      } else {
+        setPreviewEmployeeProfile(null)
+      }
+
+      setPreviewEmployeeTab('basic-info')
       setPreviewEmployeeProfileLoading(true)
       try {
-        const profile = await employeeService.getEmployeeProfile(previewEmployee.uid)
+        const profile = await fetchEmployeeProfile(previewEmployee.uid)
         if (!isMounted) return
         setPreviewEmployeeProfile(profile)
       } catch (error) {
         if (!isMounted) return
-        setPreviewEmployeeProfile(null)
+        if (!cachedProfile) setPreviewEmployeeProfile(null)
         showStatus({
           type: 'error',
           title: 'Employee profile load failed',
@@ -1837,7 +1931,7 @@ export default function EmployeesManagement() {
 
     loadPreviewProfile()
     return () => { isMounted = false }
-  }, [previewEmployee, showStatus])
+  }, [fetchEmployeeProfile, getCachedEmployeeProfile, previewEmployee, showStatus])
 
   useEffect(() => {
     let isMounted = true
@@ -1850,15 +1944,22 @@ export default function EmployeesManagement() {
         return
       }
 
+      const cachedProfile = getCachedEmployeeProfile(selectedEmployee.uid)
+      if (cachedProfile) {
+        setEmployeeFormProfile(cachedProfile)
+      } else {
+        setEmployeeFormProfile(null)
+      }
+
       setEmployeeFormTab('basic')
       setEmployeeFormProfileLoading(true)
       try {
-        const profile = await employeeService.getEmployeeProfile(selectedEmployee.uid)
+        const profile = await fetchEmployeeProfile(selectedEmployee.uid)
         if (!isMounted) return
         setEmployeeFormProfile(profile)
       } catch (error) {
         if (!isMounted) return
-        setEmployeeFormProfile(null)
+        if (!cachedProfile) setEmployeeFormProfile(null)
         showStatus({
           type: 'error',
           title: 'Employee details load failed',
@@ -1871,7 +1972,7 @@ export default function EmployeesManagement() {
 
     loadEmployeeFormProfile()
     return () => { isMounted = false }
-  }, [employeeFormMode, isEmployeeFormOpen, selectedEmployee, showStatus])
+  }, [employeeFormMode, fetchEmployeeProfile, getCachedEmployeeProfile, isEmployeeFormOpen, selectedEmployee, showStatus])
 
   function resetDirectoryFilters() {
     setSearch('')
@@ -1903,11 +2004,17 @@ export default function EmployeesManagement() {
       showStatus({ type: 'error', title: 'Employee access blocked', message: 'Your role does not have permission to update employee records.' })
       return
     }
+
+    const cachedProfile = (previewEmployee?.uid && String(previewEmployee.uid) === String(employee?.uid))
+      ? (previewEmployeeProfile || getCachedEmployeeProfile(employee?.uid))
+      : getCachedEmployeeProfile(employee?.uid)
+
     setEmployeeFormMode('edit')
     setSelectedEmployee(employee)
     setEmployeeDraft(buildEmployeeDraft(employee))
     setEmployeeFormTouched({})
     setEmployeeFormTab('basic')
+    setEmployeeFormProfile(cachedProfile || null)
     setIsEmployeeFormOpen(true)
   }
 
@@ -1996,6 +2103,8 @@ export default function EmployeesManagement() {
           ? `${payload.fullName} was added successfully. Linked auth signup was provisioned with the default password Welcome@123.`
           : `${payload.fullName} was updated successfully.`
       })
+
+      await queryClient.invalidateQueries({ queryKey: ['employees', 'profile'], exact: false })
 
       setIsEmployeeFormOpen(false)
       setEmployeeDraft(createEmptyEmployeeDraft())
@@ -2398,7 +2507,7 @@ export default function EmployeesManagement() {
   if (isLoading) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
+        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
         <div className="card border-0 shadow-sm glass employee-directory-shell"><div className="card-body py-5 text-center"><div className="global-loader-spinner mb-3"><span /><span /></div><div className="fw-semibold mb-1">Loading employee management</div>
       {/* Mapping tab is under development and will be available in a future release. */}
       {/* <div className="text-muted small">Pulling directory, metadata, and mapping catalogs from the backend.</div></div></div> */}
@@ -2410,7 +2519,7 @@ export default function EmployeesManagement() {
   if (isError) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
+        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
         <div className="card border-0 shadow-sm glass employee-directory-shell">
           <div className="card-body py-5 text-center">
             <div className="fw-semibold mb-2">Employee management could not be loaded.</div>
@@ -2427,7 +2536,7 @@ export default function EmployeesManagement() {
     //   <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
     // <PageHeader title="Employee Management" tagline="Administer metadata, employee records, mapping structure, and linked auth signup from one operational console." />
     <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-      <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from one operational console." />
+      <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from one operational console." />
 
       <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />
 
@@ -2789,7 +2898,7 @@ export default function EmployeesManagement() {
         )}
       >
         <div className="d-flex flex-column gap-3">
-          <AttendanceTabs activeTab={employeeFormTab} onChange={setEmployeeFormTab} tabs={employeeFormTabs} />
+          {employeeFormMode === 'edit' ? <AttendanceTabs activeTab={employeeFormTab} onChange={setEmployeeFormTab} tabs={employeeFormTabs} /> : null}
 
           {employeeFormTab === 'basic' ? (
             <form ref={formRef}>
@@ -2814,12 +2923,15 @@ export default function EmployeesManagement() {
           ) : null}
 
           {employeeFormMode === 'edit' && employeeFormTab === 'additional' ? (
-            employeeFormProfileLoading ? (
-              <div className="text-muted small">Loading employee additional details…</div>
-            ) : (
+            employeeFormProfile ? (
               <div className="employee-overview-box">
                 <EmployeeAdditionalDetailsEditor employee={selectedEmployee} profile={employeeFormProfile} />
+                {employeeFormProfileLoading ? <div className="text-muted small mt-3">Refreshing employee additional details…</div> : null}
               </div>
+            ) : employeeFormProfileLoading ? (
+              <div className="text-muted small">Loading employee additional details…</div>
+            ) : (
+              <div className="text-muted small">Additional details are not available for this employee yet.</div>
             )
           ) : null}
         </div>
@@ -2860,12 +2972,12 @@ export default function EmployeesManagement() {
         onClose={() => {
           setPreviewEmployee(null)
           setPreviewEmployeeProfile(null)
-          setPreviewEmployeeTab('basic')
+          setPreviewEmployeeTab('basic-info')
         }}
         size="lg"
         footer={(
           <>
-            <button type="button" className="btn btn-outline-secondary" onClick={() => { setPreviewEmployee(null); setPreviewEmployeeProfile(null); setPreviewEmployeeTab('basic') }}>Close</button>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => { setPreviewEmployee(null); setPreviewEmployeeProfile(null); setPreviewEmployeeTab('basic-info') }}>Close</button>
             {previewEmployee && canUpdateEmployees ? <button type="button" className="btn btn-primary btn-icon-inline" onClick={() => { const current = previewEmployee; setPreviewEmployee(null); openEditEmployee(current) }}><PencilIcon /><span>Edit</span></button> : null}
           </>
         )}
@@ -2875,46 +2987,28 @@ export default function EmployeesManagement() {
             <AttendanceTabs
               activeTab={previewEmployeeTab}
               onChange={setPreviewEmployeeTab}
-              tabs={EMPLOYEE_VIEW_TABS.filter((tab) => tab.key === 'basic')}
+              tabs={EMPLOYEE_PREVIEW_TABS}
             />
 
-            {previewEmployeeProfileLoading ? (
-              <div className="text-muted small">Loading employee details…</div>
-            ) : (
-              <div className="employee-overview-box">
-                {previewEmployeeTab === 'basic' ? (
-                  <div className="row g-3 align-items-start">
-                    <div className="col-12 col-md-4">
-                      <div className="profile-photo-preview">
-                        {previewEmployeeProfile?.profileImageUrl
-                          ? <img src={previewEmployeeProfile.profileImageUrl} alt={previewEmployee.fullName || 'Employee'} />
-                          : <span>{String(previewEmployee.fullName || 'E').charAt(0).toUpperCase()}</span>}
-                      </div>
-                    </div>
-                    <div className="col-12 col-md-8">
-                      <div className="row g-2">
-                        <div className="col-12 col-md-6"><strong>Employee Code:</strong> {previewEmployee.employeeCode || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Name:</strong> {previewEmployee.fullName || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Email:</strong> {previewEmployee.email || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Mobile:</strong> {previewEmployee.phone || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Role:</strong> {previewEmployee.roleName || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Status:</strong> <EmployeeBadge value={previewEmployee.status || '—'} type="status" /></div>
-                        <div className="col-12 col-md-6"><strong>Department:</strong> {previewEmployee.department || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Position:</strong> {previewEmployee.position || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Date of Joining:</strong> {formatDate(previewEmployee.joinDate)}</div>
-                        <div className="col-12 col-md-6"><strong>Work Location:</strong> {previewEmployee.workLocation || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Employee Type:</strong> {previewEmployee.employeeType || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Manager:</strong> {previewEmployee.managerName || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>HR:</strong> {previewEmployee.hrEmployeeName || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Lead:</strong> {previewEmployee.teamLeadName || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Coordinator:</strong> {previewEmployee.coordinatorName || '—'}</div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-              </div>
-            )}
+            <div className="employee-overview-box">
+              {previewEmployeeTab === 'basic-info' ? <EmployeePreviewBasicInfoPanel employee={previewEmployee} profile={previewEmployeeProfile} /> : null}
+              {previewEmployeeTab === 'basic-details' ? <EmployeePreviewBasicDetailsPanel employee={previewEmployee} /> : null}
+              {previewEmployeeTab === 'additional-details' ? (
+                previewEmployeeProfile ? (
+                  <EmployeeAdditionalDetailsPanel employee={previewEmployee} profile={previewEmployeeProfile} />
+                ) : (
+                  <div className="text-muted small">{previewEmployeeProfileLoading ? 'Loading additional details…' : 'Additional details are not available for this employee yet.'}</div>
+                )
+              ) : null}
+              {previewEmployeeTab === 'documents-uploaded' ? (
+                previewEmployeeProfile ? (
+                  <EmployeePreviewDocumentsPanel documents={previewEmployeeProfile.documents || []} />
+                ) : (
+                  <div className="text-muted small">{previewEmployeeProfileLoading ? 'Loading uploaded documents…' : 'No uploaded documents are available for this employee yet.'}</div>
+                )
+              ) : null}
+              {previewEmployeeProfileLoading ? <div className="text-muted small mt-3">Refreshing employee details…</div> : null}
+            </div>
           </div>
         ) : null}
       </ModalFrame>

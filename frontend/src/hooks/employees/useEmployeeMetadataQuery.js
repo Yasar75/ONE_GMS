@@ -24,7 +24,7 @@ export function useEmployeeMetadataQuery(enabled = true) {
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(metadataQueryKey),
     staleTime: 10 * 60 * 1000,
     gcTime: 20 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 }
 
@@ -37,7 +37,7 @@ export function useRoleDirectoryQuery(enabled = true) {
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(roleQueryKey),
     staleTime: 10 * 60 * 1000,
     gcTime: 20 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 }
 
@@ -55,6 +55,6 @@ export function useRoleModulesQuery(enabled = true) {
     initialDataUpdatedAt: () => readNonEmptyCachedRoleModulesUpdatedAt(),
     staleTime: 10 * 60 * 1000,
     gcTime: 20 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 }
