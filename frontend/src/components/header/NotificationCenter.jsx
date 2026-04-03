@@ -9,16 +9,20 @@ export default function NotificationCenter() {
   const [isOpen, setIsOpen] = useState(false)
   const {
     notifications,
+    peekNotification,
     unreadCount,
     hasOpenedUnread,
     isLoading,
     markNotificationsOpened,
     markNotificationRead,
-    markAllAsRead
+    markAllAsRead,
+    dismissPeekNotification
   } = useNotifications()
 
   useEffect(() => {
     if (!isOpen) return undefined
+
+    dismissPeekNotification()
 
     markNotificationsOpened(notifications.map((item) => item.id))
 
@@ -40,11 +44,12 @@ export default function NotificationCenter() {
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen, markNotificationsOpened, notifications])
+  }, [dismissPeekNotification, isOpen, markNotificationsOpened, notifications])
 
   const showCountBadge = unreadCount > 0
   const showDotBadge = !showCountBadge && hasOpenedUnread
   const hasNotifications = notifications.length > 0
+  const showPeek = Boolean(peekNotification?.id) && !isOpen
 
   function handleNotificationSelect(notification) {
     if (!notification?.id || !notification?.to) return
@@ -70,6 +75,32 @@ export default function NotificationCenter() {
         {showCountBadge ? <span className="header-notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}
         {showDotBadge ? <span className="header-notification-dot" /> : null}
       </button>
+
+      {showPeek ? (
+        <div
+          className={`header-notification-peek tone-${peekNotification.tone || 'info'} is-visible`.trim()}
+          role="status"
+          aria-live="polite"
+        >
+          <button
+            type="button"
+            className="header-notification-peek__surface"
+            onClick={() => handleNotificationSelect(peekNotification)}
+          >
+            <span className="header-notification-peek__label">{peekNotification.category || 'Updates'}</span>
+            <span className="header-notification-peek__title">{peekNotification.title}</span>
+            <span className="header-notification-peek__message">{peekNotification.message}</span>
+          </button>
+          <button
+            type="button"
+            className="header-notification-peek__dismiss"
+            onClick={dismissPeekNotification}
+            aria-label="Dismiss live notification"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
 
       <div className={`header-notification-panel ${isOpen ? 'is-open' : ''}`.trim()}>
         <div className="header-notification-panel__header">

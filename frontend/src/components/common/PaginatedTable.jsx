@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from './AppIcons.jsx'
+import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, DoubleChevronLeftIcon, DoubleChevronRightIcon } from './AppIcons.jsx'
 
 const DEFAULT_ROWS_PER_PAGE_OPTIONS = [5, 10, 25, 50, 100]
 
@@ -10,6 +10,32 @@ function normalizeRowsPerPageOptions(options = DEFAULT_ROWS_PER_PAGE_OPTIONS) {
 
 function clampPage(page, totalPages) {
   return Math.min(Math.max(page, 1), totalPages)
+}
+
+function buildPaginationTokens(currentPage, totalPages) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }).map((_, index) => index + 1)
+  }
+
+  const windowPages = currentPage <= 3
+    ? [2, 3]
+    : currentPage >= totalPages - 2
+      ? [totalPages - 2, totalPages - 1]
+      : [currentPage - 1, currentPage, currentPage + 1]
+
+  const pages = [1, ...windowPages.filter((page) => page > 1 && page < totalPages), totalPages]
+  const uniquePages = [...new Set(pages)].sort((left, right) => left - right)
+  const tokens = []
+
+  uniquePages.forEach((page, index) => {
+    const previousPage = uniquePages[index - 1]
+    if (previousPage && page - previousPage > 1) {
+      tokens.push(`ellipsis-${previousPage}-${page}`)
+    }
+    tokens.push(page)
+  })
+
+  return tokens
 }
 
 export default function PaginatedTable({
@@ -76,6 +102,7 @@ export default function PaginatedTable({
   const startRow = totalRows ? ((currentPage - 1) * rowsPerPage) + 1 : 0
   const endRow = totalRows ? Math.min(currentPage * rowsPerPage, totalRows) : 0
   const resolvedMaxHeight = typeof maxHeight === 'number' ? `${maxHeight}px` : maxHeight
+  const paginationTokens = useMemo(() => buildPaginationTokens(currentPage, totalPages), [currentPage, totalPages])
 
   return (
     <div className={`employee-table-wrap employee-table-wrap--paginated ${className}`.trim()}>
@@ -140,13 +167,40 @@ export default function PaginatedTable({
           <button
             type="button"
             className="table-pagination-nav-btn"
+            onClick={() => setCurrentPage(1)}
+            disabled={currentPage <= 1}
+            aria-label="First page"
+            title="First page"
+          >
+            <DoubleChevronLeftIcon />
+          </button>
+          <button
+            type="button"
+            className="table-pagination-nav-btn"
             onClick={() => setCurrentPage((current) => clampPage(current - 1, totalPages))}
             disabled={currentPage <= 1}
             aria-label="Previous page"
           >
             <ChevronLeftIcon />
           </button>
-          <span className="table-pagination-page-indicator">{currentPage}</span>
+          <div className="table-pagination-pages" role="navigation" aria-label="Pagination pages">
+            {paginationTokens.map((token) => (
+              typeof token === 'number'
+                ? (
+                  <button
+                    key={token}
+                    type="button"
+                    className={`table-pagination-page-btn ${token === currentPage ? 'is-active' : ''}`.trim()}
+                    onClick={() => setCurrentPage(token)}
+                    aria-current={token === currentPage ? 'page' : undefined}
+                    aria-label={`Page ${token}`}
+                  >
+                    {token}
+                  </button>
+                  )
+                : <span key={token} className="table-pagination-ellipsis" aria-hidden="true">...</span>
+            ))}
+          </div>
           <button
             type="button"
             className="table-pagination-nav-btn"
@@ -155,6 +209,16 @@ export default function PaginatedTable({
             aria-label="Next page"
           >
             <ChevronRightIcon />
+          </button>
+          <button
+            type="button"
+            className="table-pagination-nav-btn"
+            onClick={() => setCurrentPage(totalPages)}
+            disabled={currentPage >= totalPages}
+            aria-label="Last page"
+            title="Last page"
+          >
+            <DoubleChevronRightIcon />
           </button>
         </div>
       </div>

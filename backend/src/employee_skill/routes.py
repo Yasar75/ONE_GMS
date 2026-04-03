@@ -23,10 +23,15 @@ employee_admin_module= "My Skills"
 async def get_all_employee_skill(session: AsyncSession = Depends(get_session)):
     return await skill_service.get_all_employee_skill(session)
 
+## Get skills by employee UID
+@employee_skill_router.get("/employee/{employee_uid}", response_model=List[EmployeeSkillRead], status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
+async def get_skills_by_employee_uid(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session)):
+    return await skill_service.get_skills_by_employee_uid(session, employee_uid)
+
 ## Get skill by UID
-@employee_skill_router.get("/{employee_uid}", response_model=EmployeeSkillRead, status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
-async def get_skill_by_uid(employee_uid: uuid.UUID,session: AsyncSession = Depends(get_session)):
-    return await skill_service.get_employee_skill_by_uid(session, employee_uid)
+@employee_skill_router.get("/{skill_uid}", response_model=EmployeeSkillRead, status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
+async def get_skill_by_uid(skill_uid: uuid.UUID,session: AsyncSession = Depends(get_session)):
+    return await skill_service.get_skill_by_uid(session, skill_uid)
 
 
 ##Create employees Skill

@@ -31,28 +31,47 @@ export function TableBadgeStack({ children, className = '' }) {
   return <div className={`employee-badge-stack table-badge-stack ${className}`.trim()}>{children}</div>
 }
 
-export function TableActionButton({ icon, label, variant = 'view', className = '', ...props }) {
+export function TableActionButton({ icon, label, variant = 'view', className = '', style = {}, ...props }) {
+  const safeLabel = String(label || '')
+  const labelChars = Math.min(Math.max(safeLabel.length, 4), 26)
+
   return (
-    <button type="button" className={`employee-action-btn employee-action-btn-${variant} ${className}`.trim()} aria-label={label} {...props}>
-      {icon}
-      <span>{label}</span>
+    <button
+      type="button"
+      className={`employee-action-btn employee-action-btn-${variant} ${className}`.trim()}
+      aria-label={safeLabel}
+      data-label={safeLabel}
+      style={{ '--action-label-chars': labelChars, ...style }}
+      {...props}
+    >
+      {icon ? <span className="employee-action-btn__icon" aria-hidden="true">{icon}</span> : null}
+      <span className="employee-action-btn__label" aria-hidden="true">{safeLabel}</span>
     </button>
   )
 }
 
 export function TableActionCluster({ children, className = '', style = {} }) {
-  const actionCount = Math.max(React.Children.count(children), 1)
-  const iconWidthRem = 2.5
-  const expandedWidthRem = 6.6
-  const gapRem = 0.35
-  const reservedWidthRem = (actionCount * iconWidthRem) + ((actionCount - 1) * gapRem) + (expandedWidthRem - iconWidthRem)
+  const actionItems = React.Children.toArray(children).filter(Boolean)
+  const actionCount = Math.max(actionItems.length, 1)
+
+  const maxLabelChars = actionItems.reduce((longest, item) => {
+    if (!React.isValidElement(item)) return longest
+    const candidate = String(item.props?.label || item.props?.['aria-label'] || '').trim()
+    const clampedLength = Math.min(Math.max(candidate.length, 4), 26)
+    return Math.max(longest, clampedLength)
+  }, 4)
+
+  const collapsedButtonWidthRem = 2.78
+  const actionGapRem = 0.45
+  const expansionExtraRem = (maxLabelChars * 0.6) + 1.6
+  const reservedClusterWidthRem = (actionCount * collapsedButtonWidthRem) + ((actionCount - 1) * actionGapRem) + expansionExtraRem
 
   return (
     <div
       className={`employee-action-cluster table-action-cluster ${className}`.trim()}
       style={{
         '--table-action-count': actionCount,
-        '--table-action-min-width': `${reservedWidthRem}rem`,
+        '--table-action-min-width': `${reservedClusterWidthRem.toFixed(2)}rem`,
         ...style
       }}
     >

@@ -142,10 +142,30 @@ function normalizeAccountStatus(record) {
   }
 }
 
-function deriveProfileCompletedAt(skills = [], documents = []) {
-  if (!skills.length || !documents.length) return null
+function hasCompletedMandatoryEmployeeFields(employee = null) {
+  if (!employee) return false
+
+  const requiredValues = [
+    employee.employeeCode,
+    employee.firstName,
+    employee.lastName,
+    employee.email,
+    employee.position,
+    employee.department,
+    employee.phone,
+    employee.joinDate,
+    employee.status,
+    employee.roleType
+  ]
+
+  return requiredValues.every((value) => hasMeaningfulValue(value))
+}
+
+function deriveProfileCompletedAt(employee = null, skills = [], documents = []) {
+  if (!hasCompletedMandatoryEmployeeFields(employee)) return null
 
   const timestamps = [
+    employee?.updatedAt || employee?.createdAt || null,
     ...skills.map((entry) => entry.updatedAt || entry.createdAt || null),
     ...documents.map((entry) => entry.updatedAt || entry.createdAt || entry.uploadDate || null)
   ]
@@ -241,7 +261,7 @@ function buildProfileBundle({ employee = null, profileDetails = null, skills = [
     documents: normalizedDocuments,
     familyDetails: normalizedFamilyDetails,
     workExperiences: normalizedWorkExperiences,
-    profileCompletedAt: deriveProfileCompletedAt(normalizedSkills, normalizedDocuments),
+    profileCompletedAt: deriveProfileCompletedAt(employee, normalizedSkills, normalizedDocuments),
     firstLoginAt: account?.firstLoginAt || null,
     firstLoginDeadlineAt: account?.firstLoginDeadlineAt || null,
     isLocked: isBackendLocked || isStatusLocked,
@@ -369,6 +389,31 @@ async function getEmployeeProfileDetails(employeeUid) {
   return response.data || {}
 }
 
+async function getEmployeeDetailRecord(employeeUid, fallbackRecord = null) {
+  const normalizedEmployeeUid = String(employeeUid || '').trim()
+  if (!normalizedEmployeeUid) return fallbackRecord
+
+  try {
+    const response = await http.get(endpoints.employee.detail(normalizedEmployeeUid))
+    const detailRecord = response.data || {}
+    const mergedRecord = {
+      ...(fallbackRecord || {}),
+      ...Object.fromEntries(Object.entries(detailRecord).filter(([, value]) => value != null && value !== ''))
+    }
+
+    return upsertCachedEmployeeRecord({
+      ...mergedRecord,
+      role_name: detailRecord?.role_name || fallbackRecord?.role_name || fallbackRecord?.roleName || '',
+      role_type: detailRecord?.role_type || fallbackRecord?.role_type || fallbackRecord?.roleType || null
+    }) || fallbackRecord
+  } catch (error) {
+    if ([401, 403, 404].includes(Number(error?.response?.status || 0))) {
+      return fallbackRecord
+    }
+    throw error
+  }
+}
+
 async function resolveEmployeeRecordFromFallback(rawUser = {}) {
   const cachedEmployee = findEmployeeForUser(readCachedEmployeeDirectoryRecords(), rawUser)
   if (cachedEmployee) return upsertCachedEmployeeRecord(cachedEmployee)
@@ -387,7 +432,14 @@ async function resolveEmployeeRecordFromFallback(rawUser = {}) {
 async function getCurrentEmployeeRecord({ allowMissing = false, rawUser = null } = {}) {
   try {
     const response = await http.get(endpoints.employee.me)
-    return upsertCachedEmployeeRecord(response.data)
+    const seededRecord = upsertCachedEmployeeRecord({
+      ...(response.data || {}),
+      role_name: response.data?.role_name || rawUser?.role_name || rawUser?.roleName || '',
+      role_type: response.data?.role_type || rawUser?.role_id || rawUser?.roleId || null
+    })
+
+    if (!seededRecord?.uid) return seededRecord
+    return await getEmployeeDetailRecord(seededRecord.uid, seededRecord)
   } catch (error) {
     if (allowMissing && [401, 403, 404].includes(Number(error?.response?.status || 0))) {
       return resolveEmployeeRecordFromFallback(rawUser || {})
@@ -404,6 +456,10 @@ export const employeeService = {
   async getCurrentEmployee({ allowMissing = true } = {}) {
     const rawUser = allowMissing ? await getRawCurrentUser().catch(() => ({})) : await getRawCurrentUser()
     return getCurrentEmployeeRecord({ allowMissing, rawUser })
+  },
+
+  async getEmployeeDetail(employeeUid) {
+    return getEmployeeDetailRecord(employeeUid)
   },
 
   async getLookupDirectory() {
@@ -474,7 +530,18 @@ export const employeeService = {
       })
     }
 
-    return employeeService.listEmployeeSkills(employeeUid)
+    try {
+      return await employeeService.listEmployeeSkills(employeeUid)
+    } catch {
+      return desiredSkills.map((skill, index) => ({
+        uid: existingByKey.get(skill.toLowerCase())?.uid || `local-skill-${employeeUid}-${index}`,
+        userUid: existingByKey.get(skill.toLowerCase())?.userUid || '',
+        employeeUid,
+        skill,
+        createdAt: existingByKey.get(skill.toLowerCase())?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }))
+    }
   },
 
   async updateEmployeeNickname(employeeUid, nickname) {

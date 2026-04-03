@@ -8,6 +8,11 @@ from sqlalchemy import Column, DateTime, ForeignKey, Text, UniqueConstraint, Boo
 from sqlalchemy.dialects import postgresql as pg
 from sqlmodel import SQLModel, Field
 
+class LeaveCancellationStatus(str, Enum):
+    NoneRequested = "NoneRequested"
+    Pending = "Pending"
+    Approved = "Approved"
+    Rejected = "Rejected"
 
 class LeaveRequestStatus(str, Enum):
     Pending = "Pending"
@@ -89,6 +94,17 @@ class LeaveRequest(SQLModel, table=True):
     approver_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True), ForeignKey("employees.uid", ondelete="SET NULL"), nullable=True, index=True))
     reviewer_note: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     reviewed_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
+
+    cancellation_status: LeaveCancellationStatus = Field(default=LeaveCancellationStatus.NoneRequested,sa_column=Column(pg.ENUM(LeaveCancellationStatus, name="leave_cancellation_status", create_type=True),nullable=False,server_default="NoneRequested",
+        index=True))
+    cancellation_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    cancellation_requested_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
+    cancellation_reviewer_note: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    cancellation_reviewed_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
+    cancellation_approver_employee_uid: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True))
+
     created_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=datetime.utcnow))
 

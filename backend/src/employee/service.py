@@ -169,6 +169,15 @@ class EmployeeService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
         return employee
 
+    async def get_employee_by_user_uid(self, session: AsyncSession, user_uid: uuid.UUID) -> Employee:
+        statement = select(Employee).where(Employee.user_uid == user_uid)
+        result = await session.exec(statement)
+        employee = result.first()
+
+        if employee is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found for current user")
+        return employee
+
     async def get_all_employee(self, session: AsyncSession) -> List[Employee]:
         statement = select(Employee).order_by(desc(Employee.created_at))
         result = await session.exec(statement)

@@ -8,12 +8,12 @@ import { employeeService } from '../../api/services/employee.service.js'
 import { storage } from '../../utils/storage.js'
 import { canAccessAppPath, resolveDashboardVariant } from '../../utils/permissions.js'
 import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '../../utils/queryCache.js'
-import { useToast } from './ToastProvider.jsx'
 
 const NotificationsContext = createContext(null)
 const NOTIFICATION_STATE_KEY_PREFIX = 'one_gms.notifications.state.v1.'
 const NOTIFICATION_REFRESH_MS = 3 * 60 * 1000
 const NOTIFICATION_STALE_MS = 2 * 60 * 1000
+const NOTIFICATION_PEEK_AUTO_HIDE_MS = 6200
 
 function parseTimestamp(value) {
   const parsedValue = Date.parse(value || '')
@@ -362,10 +362,10 @@ function buildNotificationQueryOptions({ queryKey, queryFn, enabled }) {
 
 export function NotificationsProvider({ children }) {
   const { user, isAuthenticated } = useAuth()
-  const { showToast } = useToast()
   const dashboardVariant = resolveDashboardVariant(user)
   const notificationStateKey = useMemo(() => buildNotificationStateKey(user), [user])
   const [notificationState, setNotificationState] = useState(() => readNotificationState(notificationStateKey))
+  const [peekNotification, setPeekNotification] = useState(null)
   const surfacedNotificationIdsRef = useRef(new Set())
 
   const canViewAdminDashboard = isAuthenticated && dashboardVariant === 'management'
@@ -428,6 +428,7 @@ export function NotificationsProvider({ children }) {
 
   useEffect(() => {
     setNotificationState(readNotificationState(notificationStateKey))
+    setPeekNotification(null)
     surfacedNotificationIdsRef.current.clear()
   }, [notificationStateKey])
 
@@ -514,36 +515,70 @@ export function NotificationsProvider({ children }) {
 
       if (!isEmployeeResolutionNotification || !notification.isNewUnread) return
 
-      showToast({
-        tone: notification.tone === 'danger' ? 'danger' : 'success',
+      setPeekNotification({
+        id: notificationId,
+        tone: notification.tone,
+        category: notification.category,
         title: notification.title,
         message: notification.message,
-        autoCloseMs: 4200
+        to: notification.to
       })
     })
-  }, [notifications, showToast])
+  }, [notifications])
+
+  useEffect(() => {
+    if (!peekNotification?.id) return undefined
+
+    const timeoutId = window.setTimeout(() => {
+      setPeekNotification((currentNotification) => {
+        if (!currentNotification?.id || currentNotification.id !== peekNotification.id) return currentNotification
+        return null
+      })
+    }, NOTIFICATION_PEEK_AUTO_HIDE_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [peekNotification])
 
   const markNotificationsOpened = useCallback((notificationIds = []) => {
     updateNotificationState((currentState) => markOpenedInState(currentState, notificationIds))
   }, [updateNotificationState])
 
   const markNotificationRead = useCallback((notificationId) => {
+    if (!notificationId) return
+    setPeekNotification((currentNotification) => (currentNotification?.id === notificationId ? null : currentNotification))
     updateNotificationState((currentState) => markReadInState(currentState, [notificationId]))
   }, [updateNotificationState])
 
   const markAllAsRead = useCallback(() => {
+    setPeekNotification(null)
     updateNotificationState((currentState) => markReadInState(currentState, notifications.map((item) => item.id)))
   }, [notifications, updateNotificationState])
 
+  const dismissPeekNotification = useCallback(() => {
+    setPeekNotification(null)
+  }, [])
+
   const value = useMemo(() => ({
     notifications,
+    peekNotification,
     unreadCount,
     hasOpenedUnread,
     isLoading,
     markNotificationsOpened,
     markNotificationRead,
-    markAllAsRead
-  }), [notifications, unreadCount, hasOpenedUnread, isLoading, markNotificationsOpened, markNotificationRead, markAllAsRead])
+    markAllAsRead,
+    dismissPeekNotification
+  }), [
+    notifications,
+    peekNotification,
+    unreadCount,
+    hasOpenedUnread,
+    isLoading,
+    markNotificationsOpened,
+    markNotificationRead,
+    markAllAsRead,
+    dismissPeekNotification
+  ])
 
   return (
     <NotificationsContext.Provider value={value}>

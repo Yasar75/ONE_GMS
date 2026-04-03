@@ -125,48 +125,56 @@ const ACCESS_LEVEL_OPTIONS = [
 
 const ROLE_ACCESS_EXPANDED_GROUPS_CACHE_KEY = 'one-gms:role-access-expanded-groups:v1'
 const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
-const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administration', 'Employee Management', 'Attendance Management', 'Leave Management', 'Other']
+const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Profile Management', 'Employees Management', 'Attendance Management', 'Leave Management', 'Other']
 const ROLE_MODULE_VISUAL_CONFIG = [
   {
-    title: 'Administration',
+    title: 'Administrative',
     modules: [
-      { key: 'Roles', label: 'Roles' }
+      { key: 'Roles', label: 'Manage Roles' },
+      { key: 'Employee Metadata', label: 'Metadata Entries' }
+    ]
+  },
+    {
+      title: 'Profile Management',
+      modules: [
+        { key: 'Profile Update', label: 'Profile Update', hidden: true },
+        { key: 'My Skills', label: 'My Skills' },
+        { key: 'Employee Skills', label: 'Employee Skills' },
+        { key: 'My Documents', label: 'My Documents' },
+      { key: 'Employee Documents', label: 'Employee Documents' },
+      { key: 'My Family Details', label: 'My Family Details' },
+      { key: "Employee's Family Details", label: "Employee's Family Details" },
+      { key: 'My Work Experience', label: 'My Work Experience' },
+      { key: 'Employee Work Experience', label: 'Employee Work Experience' }
     ]
   },
   {
-    title: 'Employee Management',
+    title: 'Employees Management',
     modules: [
-      { key: 'Employees Management', label: 'Employee Management' },
-      { key: 'Profile Update', label: 'Profile Update' },
-      { key: 'Employee Documents', label: 'Employee Documents' },
-      { key: 'Employee Metadata', label: 'Employee Metadata' },
-      { key: 'Employee Skills', label: 'Employee Skills' },
-      { key: 'Employee Work Experience', label: 'Employee Work Experience' },
-      { key: 'My Work Experience', label: 'My Work Experience' },
-      { key: 'My Family Details', label: 'My Family Details' },
-      { key: "Employee's Family Details", label: "Employee's Family Details" }
+      { key: 'Employees Management', label: 'Employee Entries' },
+      { key: 'User Status', label: 'Employee Status' }
     ]
   },
   {
     title: 'Attendance Management',
     modules: [
-      { key: 'Attendance Overview', label: 'Overview' },
+      { key: 'Attendance Overview', label: 'Employee Attendance Logs' },
       { key: 'My Attendance Preview', label: 'Mark Attendance' },
-      { key: 'Manage Regularization', label: 'Manage Regularization' },
+      { key: 'Manage Regularization', label: 'Manage Regularization Requests' },
+      { key: 'Shift Roster', label: 'Shift Roster' },
       { key: 'Assign Shift', label: 'Assign Shift' },
-      { key: 'My Shift', label: 'My Shift' },
-      { key: 'Shift Roster', label: 'Shift Roster' }
+      { key: 'My Shift', label: 'My Shift' }
     ]
   },
   {
     title: 'Leave Management',
     modules: [
-      { key: 'Assign Leave', label: 'Leave Allocations' },
-      { key: 'My Leave Balance', label: 'My Leave Balance' },
       { key: 'Holiday Calendar', label: 'Holiday Calendar' },
-      { key: 'Leave Request', label: 'Leave Requests' },
-      { key: 'Manage Leave', label: 'Manage Leaves' },
-      { key: 'Leave Type', label: 'Leave Type' }
+      { key: 'Leave type', label: 'Create Leaves' },
+      { key: 'Assign Leave', label: 'Leave Allocations' },
+      { key: 'My Leave Balance', label: 'My Leave Balances' },
+      { key: 'Leave Request', label: 'Apply Leave Requests' },
+      { key: 'Manage Leave', label: 'Manage Leave Requests' }
     ]
   }
 ]
@@ -272,10 +280,11 @@ function getRoleModuleGroupName(moduleName) {
   const configuredGroup = ROLE_MODULE_VISUAL_META.groupNameByKey[canonicalModuleName]
   if (configuredGroup) return configuredGroup
 
-  if (canonicalModuleName === 'Roles') return 'Administration'
-  if (['Employee Metadata', 'Employees Management', 'Profile Update', 'Employee Documents', 'Employee Skills', "Employee's Family Details", 'My Family Details', 'Employee Work Experience', 'My Work Experience'].includes(canonicalModuleName)) return 'Employee Management'
+  if (['Roles', 'Employee Metadata'].includes(canonicalModuleName)) return 'Administrative'
+  if (['Profile Update', 'My Skills', 'Employee Skills', 'My Documents', 'Employee Documents', "Employee's Family Details", 'My Family Details', 'Employee Work Experience', 'My Work Experience'].includes(canonicalModuleName)) return 'Profile Management'
+  if (['Employees Management', 'User Status'].includes(canonicalModuleName)) return 'Employees Management'
   if (['Attendance Overview', 'My Attendance Preview', 'Manage Regularization', 'Shift Roster', 'Assign Shift', 'My Shift'].includes(canonicalModuleName)) return 'Attendance Management'
-  if (['Holiday Calendar', 'Assign Leave', 'My Leave Balance', 'Leave Request', 'Manage Leave', 'Leave Type'].includes(canonicalModuleName)) return 'Leave Management'
+  if (['Holiday Calendar', 'Assign Leave', 'My Leave Balance', 'Leave Request', 'Manage Leave', 'Leave type'].includes(canonicalModuleName)) return 'Leave Management'
   return 'Other'
 }
 
@@ -840,17 +849,21 @@ function CellStack({ title, subtitle, meta = null, className = '' }) {
 }
 
 function ActionButton({ icon, label, variant = 'view', onClick, disabled = false }) {
+  const safeLabel = String(label || '')
+  const labelChars = Math.min(Math.max(safeLabel.length, 4), 26)
+
   return (
     <button
       type="button"
       className={`employee-action-btn employee-action-btn-${variant}`}
       onClick={onClick}
-      aria-label={label}
-      title={label}
+      aria-label={safeLabel}
+      title={safeLabel}
       disabled={disabled}
+      style={{ '--action-label-chars': labelChars }}
     >
-      {icon}
-      <span>{label}</span>
+      {icon ? <span className="employee-action-btn__icon" aria-hidden="true">{icon}</span> : null}
+      <span className="employee-action-btn__label">{safeLabel}</span>
     </button>
   )
 }
@@ -1583,11 +1596,11 @@ export default function EmployeesManagement() {
   const isAdminUser = isAdminBypassUser(user)
   const canViewMetadata = hasModuleVisibility(user, [...PERMISSION_MODULES.roles, ...PERMISSION_MODULES.employeeMetadata])
   const canViewEntries = hasModuleVisibility(user, PERMISSION_MODULES.employeeDirectory)
-  const canViewRequests = isAdminUser
+  const canViewRequests = hasModuleVisibility(user, PERMISSION_MODULES.employeeStatus)
   const canCreateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.create)
   const canUpdateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
   const canDeleteEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.delete)
-  const canManageEmployeeRequests = isAdminUser
+  const canManageEmployeeRequests = hasModulePermission(user, PERMISSION_MODULES.employeeStatus, PERMISSION_ACTIONS.create)
   const canReadRoles = hasModulePermission(user, PERMISSION_MODULES.roles, PERMISSION_ACTIONS.read)
   const canReadEmployeeMetadata = hasModulePermission(user, PERMISSION_MODULES.employeeMetadata, PERMISSION_ACTIONS.read)
   const defaultTab = canViewEntries ? 'entries' : (canViewMetadata ? 'metadata' : 'requests')
@@ -2284,16 +2297,23 @@ export default function EmployeesManagement() {
 
       setIsRoleSaving(true)
       try {
-        if (metadataModal.mode === 'create') {
-          await metadataService.createRole(sanitizedRolePayload)
-        } else {
-          await metadataService.updateRole(targetRoleUid, sanitizedRolePayload)
-        }
+        await runWithLoader(async () => {
+          if (metadataModal.mode === 'create') {
+            await metadataService.createRole(sanitizedRolePayload)
+          } else {
+            await metadataService.updateRole(targetRoleUid, sanitizedRolePayload)
+          }
 
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['employees', 'roles'] }),
-          queryClient.invalidateQueries({ queryKey: ['employees', 'role-modules', 'v2'] })
-        ])
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['employees', 'roles'] }),
+            queryClient.invalidateQueries({ queryKey: ['employees', 'role-modules', 'v2'] })
+          ])
+        }, {
+          title: metadataModal.mode === 'create' ? 'Creating role' : 'Updating role',
+          message: 'Saving the role matrix and syncing permission modules.',
+          minVisibleMs: 700,
+          delayMs: 0
+        })
 
         showStatus({ type: 'success', title: metadataModal.mode === 'create' ? 'Role created' : 'Role updated', message: `${sanitizedRolePayload.roleName} is now available for employee mapping.` })
         setMetadataModal(null)

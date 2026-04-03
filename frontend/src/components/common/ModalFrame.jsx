@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { XIcon } from './AppIcons.jsx'
 
 export default function ModalFrame({
   open,
@@ -46,8 +47,8 @@ export default function ModalFrame({
                 <h2 className="h5 fw-bold mb-0">{title}</h2>
               </div>
               {!hideCloseButton && dismissible ? (
-                <button type="button" className="btn btn-sm btn-light modal-frame-close" onClick={onClose} aria-label={closeLabel}>
-                  ×
+                <button type="button" className="modal-frame-close" onClick={onClose} aria-label={closeLabel}>
+                  <XIcon />
                 </button>
               ) : null}
             </div>

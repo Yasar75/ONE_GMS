@@ -155,11 +155,20 @@ export const attendanceService = {
 
   async getEmployeeShiftAssignmentByEmployee(employeeUid) {
     if (!employeeUid) return null
+
     try {
       const response = await http.get(endpoints.employeeShift.byEmployee(employeeUid))
       return normalizeEmployeeShift(response.data)
     } catch (error) {
-      if ([404, 405].includes(Number(error?.response?.status || 0))) return null
+      if ([404, 405].includes(Number(error?.response?.status || 0))) {
+        try {
+          const fallbackResponse = await http.get(endpoints.employeeShift.byEmployeeFallback(employeeUid))
+          return normalizeEmployeeShift(fallbackResponse.data)
+        } catch (fallbackError) {
+          if ([404, 405].includes(Number(fallbackError?.response?.status || 0))) return null
+          throw fallbackError
+        }
+      }
       throw error
     }
   },

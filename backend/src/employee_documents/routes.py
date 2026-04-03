@@ -16,10 +16,10 @@ from src.auth.dependencies import get_current_user, PermissionChecker
 
 
 employee_document_router = APIRouter()
-module = "Employee Documents"
+admin_module = "Employee Documents"
+employee_admin_module= "My Documents"
 
-
-@employee_document_router.post("/upload",response_model=EmployeeDocumentUploadResponse,status_code=status.HTTP_201_CREATED,dependencies=[Depends(PermissionChecker(module, "c"))])
+@employee_document_router.post("/upload",response_model=EmployeeDocumentUploadResponse,status_code=status.HTTP_201_CREATED,dependencies=[Depends(PermissionChecker(employee_admin_module, "c"))])
 async def upload_employee_document(
     employee_uid: uuid.UUID = Form(...),
     document_type: EmployeeDocumentType = Form(...),
@@ -39,7 +39,7 @@ async def upload_employee_document(
     return {"message": "Employee document uploaded successfully.","data": document}
 
 
-@employee_document_router.get("/employee/{employee_uid}",response_model=EmployeeDocumentListResponse,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
+@employee_document_router.get("/employee/{employee_uid}",response_model=EmployeeDocumentListResponse,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
 async def list_employee_documents(
     employee_uid: uuid.UUID,
     document_type: Optional[EmployeeDocumentType] = None,
@@ -54,7 +54,7 @@ async def list_employee_documents(
     return {"total": len(documents),"items": documents}
 
 @employee_document_router.get("/all",response_model=EmployeeDocumentListResponse,status_code=status.HTTP_200_OK,
-dependencies=[Depends(PermissionChecker(module, "r"))])
+dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def list_all_employee_documents(
     document_type: Optional[EmployeeDocumentType] = None,
     session: AsyncSession = Depends(get_session),
@@ -63,7 +63,7 @@ async def list_all_employee_documents(
     documents = await EmployeeDocumentService.list_all_documents(session=session,document_type=document_type)
     return {"total": len(documents),"items": documents}
 
-@employee_document_router.put("/{document_uid}/replace-file",response_model=EmployeeDocumentUploadResponse,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "u"))])
+@employee_document_router.put("/{document_uid}/replace-file",response_model=EmployeeDocumentUploadResponse,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "u"))])
 async def replace_employee_document_file(document_uid: uuid.UUID,file: UploadFile = File(...),
     name: Optional[str] = Form(default=None),document_type: Optional[EmployeeDocumentType] = Form(default=None),
     session: AsyncSession = Depends(get_session),current_user=Depends(get_current_user)):
@@ -71,7 +71,7 @@ async def replace_employee_document_file(document_uid: uuid.UUID,file: UploadFil
         current_user_uid=current_user.uid,file=file,name=name,document_type=document_type)
     return {"message": "Employee document file replaced successfully.", "data": document}
 
-@employee_document_router.get("/{document_uid}",response_model=EmployeeDocumentRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
+@employee_document_router.get("/{document_uid}",response_model=EmployeeDocumentRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
 async def get_employee_document(
     document_uid: uuid.UUID,
     session: AsyncSession = Depends(get_session),
@@ -80,7 +80,7 @@ async def get_employee_document(
     return await EmployeeDocumentService.get_document_by_uid(session, document_uid)
 
 
-@employee_document_router.put("/{document_uid}",response_model=EmployeeDocumentUploadResponse,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "u"))])
+@employee_document_router.put("/{document_uid}",response_model=EmployeeDocumentUploadResponse,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "u"))])
 async def update_employee_document_metadata(
     document_uid: uuid.UUID,
     name: Optional[str] = Form(default=None),
@@ -97,7 +97,7 @@ async def update_employee_document_metadata(
     return {"message": "Employee document updated successfully.","data": document}
 
 
-@employee_document_router.delete("/{document_uid}",status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "d"))])
+@employee_document_router.delete("/{document_uid}",status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "d"))])
 async def delete_employee_document(
     document_uid: uuid.UUID,
     session: AsyncSession = Depends(get_session),

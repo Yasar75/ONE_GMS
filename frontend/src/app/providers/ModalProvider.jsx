@@ -4,13 +4,13 @@ import ModalFrame from '../../components/common/ModalFrame.jsx'
 import StatusDialogContent from '../../components/common/StatusDialogContent.jsx'
 import ConfirmDialogContent from '../../components/common/ConfirmDialogContent.jsx'
 import GlobalLoaderContent from '../../components/common/GlobalLoaderContent.jsx'
-import { useToast } from './ToastProvider.jsx'
 
 const ModalContext = createContext(null)
 const DEFAULT_AUTO_LOADER = {
-  title: 'Fetching latest data',
-  message: 'This page is still loading in the background.'
+  title: 'Loading workspace',
+  message: 'We are still fetching live data for this page.'
 }
+const AUTO_LOADER_DELAY_MS = 2400
 
 function shouldShowBlockingQueryLoader(query) {
   if (!query || query.state?.fetchStatus !== 'fetching') return false
@@ -28,7 +28,6 @@ export function ModalProvider({ children }) {
   const timerRef = useRef(null)
   const confirmResolverRef = useRef(null)
   const autoLoaderTimerRef = useRef(null)
-  const autoLoaderToastRef = useRef(null)
   const blockingFetchCount = useIsFetching({
     predicate: shouldShowBlockingQueryLoader
   })
@@ -39,7 +38,6 @@ export function ModalProvider({ children }) {
   const [statusModal, setStatusModal] = useState(null)
   const [confirmModal, setConfirmModal] = useState(null)
   const [loaderModal, setLoaderModal] = useState(null)
-  const { showToast, dismissToast } = useToast()
 
   const clearStatusTimer = useCallback(() => {
     if (timerRef.current) {
@@ -144,27 +142,22 @@ export function ModalProvider({ children }) {
         autoLoaderTimerRef.current = null
       }
 
-      if (autoLoaderToastRef.current) {
-        dismissToast(autoLoaderToastRef.current)
-        autoLoaderToastRef.current = null
-      }
-
       return undefined
     }
 
     const hasAutoActivity = (blockingFetchCount + blockingMutationCount) > 0
 
     if (hasAutoActivity) {
-      if (!autoLoaderTimerRef.current && !autoLoaderToastRef.current) {
+      if (!autoLoaderTimerRef.current && loaderModal?.source !== 'auto') {
         autoLoaderTimerRef.current = window.setTimeout(() => {
           autoLoaderTimerRef.current = null
-          autoLoaderToastRef.current = showToast({
-            tone: 'info',
+          setLoaderModal({
+            source: 'auto',
             title: DEFAULT_AUTO_LOADER.title,
             message: DEFAULT_AUTO_LOADER.message,
-            persist: true
+            size: 'sm'
           })
-        }, 700)
+        }, AUTO_LOADER_DELAY_MS)
       }
     } else {
       if (autoLoaderTimerRef.current) {
@@ -172,14 +165,11 @@ export function ModalProvider({ children }) {
         autoLoaderTimerRef.current = null
       }
 
-      if (autoLoaderToastRef.current) {
-        dismissToast(autoLoaderToastRef.current)
-        autoLoaderToastRef.current = null
-      }
+      setLoaderModal((current) => (current?.source === 'auto' ? null : current))
     }
 
     return undefined
-  }, [blockingFetchCount, blockingMutationCount, dismissToast, loaderModal, showToast])
+  }, [blockingFetchCount, blockingMutationCount, loaderModal?.source])
 
   useEffect(() => () => {
     clearStatusTimer()
@@ -188,12 +178,7 @@ export function ModalProvider({ children }) {
       window.clearTimeout(autoLoaderTimerRef.current)
       autoLoaderTimerRef.current = null
     }
-
-    if (autoLoaderToastRef.current) {
-      dismissToast(autoLoaderToastRef.current)
-      autoLoaderToastRef.current = null
-    }
-  }, [clearStatusTimer, dismissToast])
+  }, [clearStatusTimer])
 
   const statusActionLabel = statusModal?.ctaLabel === false
     ? null

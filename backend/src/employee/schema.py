@@ -51,9 +51,9 @@ class EmployeeBase(BaseModel):
 
 
 class EmployeeCreate(BaseModel):
-    employee_code: str = PydField(max_length=20)
-    first_name: str = PydField(max_length=120)
-    last_name: str = PydField(max_length=120)
+    employee_code: str = " "
+    first_name: str = " "
+    last_name: str = " "
     position: Optional[str] = " "
     department: Optional[str] = " "
     email: Optional[EmailStr] = " "
@@ -72,7 +72,7 @@ class EmployeeCreate(BaseModel):
     hr_employee_uid: Optional[uuid.UUID] = " "
     team_lead_employee_uid: Optional[uuid.UUID] = " "
     coordinator_employee_uid: Optional[uuid.UUID] = " "
-    role_type: uuid.UUID
+    role_type: uuid.UUID = " "
 
 
 class EmployeeUpdate(BaseModel):

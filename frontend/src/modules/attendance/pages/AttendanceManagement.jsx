@@ -6,6 +6,7 @@ import CardShell from '../../../components/common/CardShell.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
+import PageContentLoader from '../../../components/common/PageContentLoader.jsx'
 import AppSearchField from '../../../components/common/AppSearchField.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
@@ -84,6 +85,7 @@ import {
   filterAccessibleTabs,
   hasModulePermission,
   hasModuleVisibility,
+  isAdminBypassUser,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
 import { filterCollectionByQuery } from '../../../utils/search.js'
@@ -503,16 +505,17 @@ export default function AttendanceManagement() {
   const { showStatus, runWithLoader, showConfirm } = useModal()
   const { showToast } = useToast()
   const { user } = useAuth()
-  const canViewAttendanceRegister = hasModulePermission(user, PERMISSION_MODULES.attendanceOverview, PERMISSION_ACTIONS.read)
-  const canViewSelfAttendance = hasModulePermission(user, PERMISSION_MODULES.myAttendancePreview, PERMISSION_ACTIONS.read)
-  const canViewShiftsTab = hasModuleVisibility(user, [...PERMISSION_MODULES.shiftRoster, ...PERMISSION_MODULES.assignShift])
-  const canViewOwnRegularizations = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.read)
+  const isAdminUser = isAdminBypassUser(user)
+  const canViewAttendanceRegister = hasModulePermission(user, PERMISSION_MODULES.attendanceLogs, PERMISSION_ACTIONS.read)
+  const canViewSelfAttendance = isAdminUser
+  const canViewShiftsTab = isAdminUser && hasModuleVisibility(user, [...PERMISSION_MODULES.shiftRoster, ...PERMISSION_MODULES.assignShift])
+  const canViewOwnRegularizations = isAdminUser
   const canViewRegularizationQueue = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.read)
-  const canSelfPunch = hasModulePermission(user, PERMISSION_MODULES.myAttendancePreview, PERMISSION_ACTIONS.create)
-  const canModifyAttendance = ATTENDANCE_EDIT_API_AVAILABLE && hasModulePermission(user, PERMISSION_MODULES.attendanceOverview, PERMISSION_ACTIONS.update)
-  const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
+  const canSelfPunch = isAdminUser
+  const canModifyAttendance = ATTENDANCE_EDIT_API_AVAILABLE && hasModulePermission(user, PERMISSION_MODULES.attendanceLogs, PERMISSION_ACTIONS.update)
+  const canCreateRegularization = isAdminUser
   const canReviewRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
-  const canViewRegularizationLogs = hasModulePermission(user, PERMISSION_MODULES.selfRegularizationLogs, PERMISSION_ACTIONS.read)
+  const canViewRegularizationLogs = canViewRegularizationQueue
   const canCreateShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.create)
   const canUpdateShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.update)
   const canDeleteShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.delete)
@@ -520,9 +523,9 @@ export default function AttendanceManagement() {
   const canUpdateAssignment = hasModulePermission(user, PERMISSION_MODULES.assignShift, PERMISSION_ACTIONS.update)
   const canDeleteAssignment = hasModulePermission(user, PERMISSION_MODULES.assignShift, PERMISSION_ACTIONS.delete)
   const canUseSelfAttendance = canViewSelfAttendance || canSelfPunch || canViewOwnRegularizations || canCreateRegularization
-  const canViewAttendanceTab = canViewAttendanceRegister || canUseSelfAttendance
-  const canViewRegularizationTab = canViewRegularizationQueue || canReviewRegularization || canViewRegularizationLogs || canViewOwnRegularizations || canCreateRegularization
-  const canViewOverview = canViewAttendanceRegister || canViewShiftsTab || canViewRegularizationQueue
+  const canViewAttendanceTab = canViewAttendanceRegister
+  const canViewRegularizationTab = canViewRegularizationQueue
+  const canViewOverview = isAdminUser && (canViewAttendanceRegister || canViewRegularizationQueue)
 
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'overview')
@@ -549,14 +552,14 @@ export default function AttendanceManagement() {
   const [selectedRegularizationLogRecord, setSelectedRegularizationLogRecord] = useState(null)
   const [punchControlVersion, setPunchControlVersion] = useState(0)
 
-  const employeesQuery = useEmployeeLookupQuery(canViewAttendanceRegister || canViewShiftsTab || canViewRegularizationQueue || canReviewRegularization || canViewRegularizationLogs)
+  const employeesQuery = useEmployeeLookupQuery(canViewAttendanceRegister || canViewShiftsTab || canViewRegularizationQueue)
   const attendanceQuery = useAdminAttendanceQuery(canViewAttendanceRegister || canModifyAttendance)
-  const pendingRegularizationsQuery = usePendingRegularizationsQuery(canViewRegularizationQueue || canReviewRegularization || canViewRegularizationLogs)
+  const pendingRegularizationsQuery = usePendingRegularizationsQuery(canViewRegularizationQueue)
   const shiftRosterQuery = useShiftRosterQuery(canViewShiftsTab || canViewOverview)
   const employeeShiftAssignmentsQuery = useEmployeeShiftAssignmentsQuery(canViewShiftsTab || canViewOverview)
-  const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canViewSelfAttendance || canSelfPunch)
-  const todayLogsQuery = useMyPunchLogsQuery(todayDate, canViewSelfAttendance || canSelfPunch)
-  const myRegularizationsQuery = useMyRegularizationsQuery(canViewOwnRegularizations || canCreateRegularization)
+  const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canUseSelfAttendance)
+  const todayLogsQuery = useMyPunchLogsQuery(todayDate, canUseSelfAttendance)
+  const myRegularizationsQuery = useMyRegularizationsQuery(canViewOwnRegularizations || canViewRegularizationQueue)
   const regularizationLogsQuery = useRegularizationLogsQuery(selectedRegularizationLogRecord?.uid, Boolean(selectedRegularizationLogRecord) && canViewRegularizationLogs)
 
   const employeeDirectory = employeesQuery.data || []
@@ -1282,13 +1285,13 @@ export default function AttendanceManagement() {
   const overviewItems = [
     { label: 'Pending approvals', value: `${regularizationRows.length} request(s)`, helper: 'Requests requiring admin verification', icon: <SparklesIcon /> },
     { label: 'Shift coverage', value: `${shiftSummary.activeAssignments} active assignment(s)`, helper: `${shiftSummary.activeShifts} active shift templates`, icon: <BriefcaseIcon /> },
-    { label: 'My punch state', value: todaySession.isClockedIn ? 'Clocked In' : (todaySession.totalPunches ? 'Completed' : 'Ready'), helper: `Latest personal request: ${latestRegularizationStatus}`, icon: <CalendarIcon /> }
+    { label: 'Attendance records', value: `${attendanceRows.length} record(s)`, helper: `${previewAttendance.length} recent register row(s) ready for review`, icon: <CalendarIcon /> }
   ]
 
   const isLoading = attendanceQuery.isLoading || employeesQuery.isLoading || pendingRegularizationsQuery.isLoading || shiftRosterQuery.isLoading || employeeShiftAssignmentsQuery.isLoading || selectedLogsQuery.isLoading || todayLogsQuery.isLoading || myRegularizationsQuery.isLoading
 
   if (isLoading) {
-    return <div className="text-muted">Loading attendance control center…</div>
+    return <PageContentLoader cards={4} />
   }
 
   return (
@@ -1337,8 +1340,8 @@ export default function AttendanceManagement() {
             ) : null}
           </div>
 
-          {canViewAttendanceTab ? (
-            <CardShell title="Attendance Register Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('attendance')}>Open full register</button>}>
+            {canViewAttendanceRegister ? (
+              <CardShell title="Attendance Register Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('attendance')}>Open full register</button>}>
             <PaginatedTable rows={previewAttendance}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--attendance-preview align-middle mb-0">
@@ -1368,8 +1371,8 @@ export default function AttendanceManagement() {
             </CardShell>
           ) : null}
 
-          {(canViewRegularizationQueue || canReviewRegularization || canViewRegularizationLogs) ? (
-            <CardShell title="Pending Regularization Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('regularization')}>Open full queue</button>}>
+            {canViewRegularizationQueue ? (
+              <CardShell title="Pending Regularization Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('regularization')}>Open full queue</button>}>
             <PaginatedTable rows={previewRegularizations}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-preview align-middle mb-0">
@@ -1401,6 +1404,13 @@ export default function AttendanceManagement() {
 
       {activeTab === 'attendance' ? (
         <>
+          <div className="row g-3">
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Register Records" value={filteredAttendanceRows.length} helper="Attendance rows after filters" tone="blue" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="My Punches Today" value={todaySession.totalPunches} helper="Self punches captured for today" tone="teal" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Active Assignments" value={shiftSummary.activeAssignments} helper="Employees currently mapped to shifts" tone="purple" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="My Session" value={todaySession.isClockedIn ? 'Clocked In' : (todaySession.hasSoftPunchOut ? 'Paused' : (todaySession.totalPunches ? 'Completed' : 'Ready'))} helper="Admin self-attendance state" tone="orange" /></div>
+          </div>
+
           {canUseSelfAttendance ? (
             <div className="row g-3">
               <div className="col-12 col-xl-5">
@@ -1631,6 +1641,13 @@ export default function AttendanceManagement() {
 
       {activeTab === 'regularization' ? (
         <>
+          <div className="row g-3">
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Pending Queue" value={regularizationRows.length} helper="Requests awaiting admin action" tone="blue" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="My Requests" value={myRegularizationRows.length} helper="Your submitted regularizations" tone="teal" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Latest Status" value={latestRegularizationStatus} helper="Most recent self-request state" tone="purple" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Queue Access" value={canReviewRegularization ? 'Review Enabled' : 'Read Only'} helper="Approve or reject availability" tone="orange" /></div>
+          </div>
+
           {(canCreateRegularization || canViewOwnRegularizations) ? (
             <CardShell title="Regularization Request Desk">
               <div className="row g-3 align-items-end">
@@ -1652,7 +1669,7 @@ export default function AttendanceManagement() {
             </CardShell>
           ) : null}
 
-          {(canViewRegularizationQueue || canReviewRegularization || canViewRegularizationLogs || canViewOwnRegularizations || canCreateRegularization) ? (
+          {canViewRegularizationQueue ? (
             <CardShell title="Regularization Requests">
               <PaginatedTable rows={pinnedRegularizationRequestRows}>
                 {({ rows: paginatedRows }) => (

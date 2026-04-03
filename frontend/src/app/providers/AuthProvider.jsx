@@ -15,12 +15,14 @@ import { clearPersistentQueryCache } from '../../utils/queryCache.js'
 
 const AuthContext = createContext(null)
 const ACTIVITY_EVENTS = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart']
+const ACTIVITY_WRITE_THROTTLE_MS = 10 * 1000
 
 export function AuthProvider({ children }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { showStatus, showConfirm, runWithLoader } = useModal()
   const idleTimerRef = useRef(null)
+  const lastActivitySyncRef = useRef(0)
 
   const [user, setUser] = useState(() => storage.get(AUTH_STORAGE_KEYS.user, null))
   const [token, setToken] = useState(() => storage.get(AUTH_STORAGE_KEYS.accessToken, null))
@@ -29,32 +31,10 @@ export function AuthProvider({ children }) {
   const clearBrowserSessionStorage = useCallback(() => {
     if (typeof window === 'undefined') return
 
-    let rememberedLogin = null
-
-    try {
-      rememberedLogin = storage.get(AUTH_STORAGE_KEYS.rememberedLogin, null)
-    } catch {
-      rememberedLogin = null
-    }
-
-    try {
-      window.localStorage.clear()
-    } catch {
-      // Best-effort cleanup only.
-    }
-
     try {
       window.sessionStorage?.clear()
     } catch {
       // Best-effort cleanup only.
-    }
-
-    if (rememberedLogin?.rememberCredential) {
-      try {
-        window.localStorage.setItem(AUTH_STORAGE_KEYS.rememberedLogin, JSON.stringify(rememberedLogin))
-      } catch {
-        // Best-effort restore only.
-      }
     }
   }, [])
 
@@ -78,7 +58,7 @@ export function AuthProvider({ children }) {
     try {
       const profile = await employeeService.getMyProfile()
       const hasEmployeeLink = Boolean(profile?.employee?.uid)
-      const setupIncomplete = hasEmployeeLink && (!profile?.skills?.length || !profile?.documents?.length)
+      const setupIncomplete = hasEmployeeLink && !profile?.profileCompletedAt
       const nickname = profile?.nickname ?? baseUser.nickname ?? ''
       const fallbackFirstName = profile?.employee?.firstName || baseUser.firstName || 'User'
 
@@ -121,7 +101,8 @@ export function AuthProvider({ children }) {
     queryFn: async () => hydrateEmployeeSetupState(await authService.getCurrentUser()),
     enabled: Boolean(token),
     retry: false,
-    staleTime: 0
+    staleTime: 0,
+    meta: { suppressGlobalLoader: true }
   })
 
   const clearIdleTimer = useCallback(() => {
@@ -133,6 +114,7 @@ export function AuthProvider({ children }) {
 
   const clearAuthState = useCallback(({ purgeBrowserState = false } = {}) => {
     clearIdleTimer()
+    lastActivitySyncRef.current = 0
     storage.remove(AUTH_STORAGE_KEYS.user)
     storage.remove(AUTH_STORAGE_KEYS.accessToken)
     storage.remove(AUTH_STORAGE_KEYS.refreshToken)
@@ -180,7 +162,12 @@ export function AuthProvider({ children }) {
 
   const registerActivity = useCallback(() => {
     if (!storage.get(AUTH_STORAGE_KEYS.accessToken, null)) return
-    storage.set(AUTH_STORAGE_KEYS.lastActivityAt, Date.now())
+
+    const now = Date.now()
+    if ((now - lastActivitySyncRef.current) < ACTIVITY_WRITE_THROTTLE_MS) return
+
+    lastActivitySyncRef.current = now
+    storage.set(AUTH_STORAGE_KEYS.lastActivityAt, now)
     scheduleIdleTimeout()
   }, [scheduleIdleTimeout])
 
@@ -231,7 +218,8 @@ export function AuthProvider({ children }) {
       prefetchTasks.push(client.prefetchQuery({
         queryKey: ['dashboard', 'admin'],
         queryFn: dashboardService.getAdminDashboard,
-        staleTime: 0
+        staleTime: 0,
+        meta: { suppressGlobalLoader: true }
       }))
       client.removeQueries({ queryKey: ['dashboard', 'employee'], exact: true })
     }
@@ -240,7 +228,8 @@ export function AuthProvider({ children }) {
       prefetchTasks.push(client.prefetchQuery({
         queryKey: ['dashboard', 'employee'],
         queryFn: dashboardService.getEmployeeDashboard,
-        staleTime: 0
+        staleTime: 0,
+        meta: { suppressGlobalLoader: true }
       }))
       client.removeQueries({ queryKey: ['dashboard', 'admin'], exact: true })
     }
@@ -249,7 +238,8 @@ export function AuthProvider({ children }) {
       prefetchTasks.push(client.prefetchQuery({
         queryKey: ['employees', 'directory'],
         queryFn: employeeService.getDirectory,
-        staleTime: 0
+        staleTime: 0,
+        meta: { suppressGlobalLoader: true }
       }))
     } else {
       client.removeQueries({ queryKey: ['employees'], exact: false })
@@ -260,12 +250,14 @@ export function AuthProvider({ children }) {
         client.prefetchQuery({
           queryKey: ['attendance', 'admin', 'directory'],
           queryFn: () => attendanceService.getDirectoryAttendance(),
-          staleTime: 0
+          staleTime: 0,
+          meta: { suppressGlobalLoader: true }
         }),
         client.prefetchQuery({
           queryKey: ['attendance', 'admin', 'regularizations', 'pending'],
           queryFn: attendanceService.getManagerPendingRegularizations,
-          staleTime: 0
+          staleTime: 0,
+          meta: { suppressGlobalLoader: true }
         })
       )
     }
@@ -275,12 +267,14 @@ export function AuthProvider({ children }) {
         client.prefetchQuery({
           queryKey: ['attendance', 'employee', 'my-logs', todayDate],
           queryFn: () => attendanceService.getMyPunchLogs(todayDate),
-          staleTime: 0
+          staleTime: 0,
+          meta: { suppressGlobalLoader: true }
         }),
         client.prefetchQuery({
           queryKey: ['attendance', 'employee', 'regularizations', 'mine'],
           queryFn: attendanceService.getMyRegularizations,
-          staleTime: 0
+          staleTime: 0,
+          meta: { suppressGlobalLoader: true }
         })
       )
     }
@@ -297,7 +291,9 @@ export function AuthProvider({ children }) {
 
       storage.set(AUTH_STORAGE_KEYS.accessToken, loginResult.access_token)
       storage.set(AUTH_STORAGE_KEYS.refreshToken, loginResult.refresh_token)
-      storage.set(AUTH_STORAGE_KEYS.lastActivityAt, Date.now())
+      const now = Date.now()
+      lastActivitySyncRef.current = now
+      storage.set(AUTH_STORAGE_KEYS.lastActivityAt, now)
 
       const currentUser = await authService.getCurrentUser()
       const requiresPasswordSetup = password === DEFAULT_EMPLOYEE_PASSWORD
@@ -359,7 +355,8 @@ export function AuthProvider({ children }) {
       {
         title: 'Logging out',
         message: 'Closing your session securely and returning to the login page.',
-        minVisibleMs: 900
+        minVisibleMs: 900,
+        delayMs: 0
       }
     )
   }, [clearAuthState, navigate, runWithLoader, showConfirm, showStatus])

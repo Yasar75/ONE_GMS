@@ -12,8 +12,10 @@ from src.db.models.leave_management import (
     LeaveRequest,
     LeaveRequestStatus,
     LeaveType,
+    LeaveCancellationStatus,
+    
 )
-from .schema import LeaveRequestCreate, LeaveRequestDecision
+from .schema import LeaveRequestCreate, LeaveRequestDecision,LeaveCancellationCreate,LeaveCancellationDecision,LeaveRequestUpdate
 from src.notification.employee_notifications import employee_notification_service
 from src.config import Config
 
@@ -102,6 +104,34 @@ class LeaveRequestService:
             "excluded_holidays": excluded_holidays,
             "applied_days": self._q2(applied_days),
         }
+    ## Helper function for reverse attendance after approved leave cancellation
+    async def _reverse_cancelled_leave_in_attendance(self, session: AsyncSession, leave_request: LeaveRequest) -> None:
+        holidays = await self._get_holidays_between(session, leave_request.start_date, leave_request.end_date)
+        holiday_dates = {holiday.holiday_date for holiday in holidays}
+
+        current_date = leave_request.start_date
+
+        while current_date <= leave_request.end_date:
+            if self._is_weekend(current_date) or current_date in holiday_dates:
+                current_date += timedelta(days=1)
+                continue
+
+            stmt = select(Attendance).where(
+                Attendance.employee_uid == leave_request.employee_uid,
+                Attendance.attendance_date == current_date,
+                Attendance.leave_request_uid == leave_request.uid,
+                Attendance.status == AttendanceStatus.Leave,
+            )
+            attendance = (await session.exec(stmt)).first()
+
+            if attendance:
+                attendance.status = AttendanceStatus.Absent
+                attendance.leave_request_uid = None
+                attendance.leave_type_uid = None
+                attendance.remarks = "Leave cancelled"
+                attendance.updated_at = datetime.utcnow()
+
+            current_date += timedelta(days=1)
 
     async def _mark_approved_leave_in_attendance(
         self,
@@ -321,6 +351,278 @@ class LeaveRequestService:
 
         return leave_request
 
+    async def request_leave_cancellation(self,session: AsyncSession,leave_request_uid: uuid.UUID,user_uid: uuid.UUID,email: str,
+    data: LeaveCancellationCreate):
+        employee = await self._get_employee_by_email(session, email)
+        leave_request = await self._get_request(session, leave_request_uid)
+
+        if leave_request.employee_uid != employee.uid:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can cancel only your own leave request.")
+
+        if leave_request.status not in {LeaveRequestStatus.Pending, LeaveRequestStatus.Approved}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only pending or approved leave request can be sent for cancellation.",
+            )
+
+        if leave_request.cancellation_status == LeaveCancellationStatus.Pending:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cancellation request is already pending.")
+
+        if leave_request.cancellation_status == LeaveCancellationStatus.Approved:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cancellation request is already approved.")
+
+        leave_request.user_uid = user_uid
+        leave_request.cancellation_status = LeaveCancellationStatus.Pending
+        leave_request.cancellation_reason = data.cancellation_reason
+        leave_request.cancellation_requested_at = datetime.utcnow()
+        leave_request.cancellation_reviewer_note = None
+        leave_request.cancellation_reviewed_at = None
+        leave_request.cancellation_approver_employee_uid = None
+
+        await session.commit()
+        await session.refresh(leave_request)
+        return leave_request
+    
+    async def list_pending_leave_cancellations(self, session: AsyncSession):
+        stmt = (
+            select(LeaveRequest)
+            .where(LeaveRequest.cancellation_status == LeaveCancellationStatus.Pending)
+            .order_by(LeaveRequest.cancellation_requested_at.asc())
+        )
+        return (await session.exec(stmt)).all()
+
+    async def approve_leave_cancellation(self,session: AsyncSession,leave_request_uid: uuid.UUID,email: str,
+    data: LeaveCancellationDecision,role_name: str = "",):
+        reviewer = await self._get_employee_by_email(session, email)
+        role_name_normalized = str(role_name or "").strip().lower()
+
+        if role_name_normalized not in {"admin", "hr"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only HR/Admin can approve cancellation.")
+
+        leave_request = await self._get_request(session, leave_request_uid)
+
+        if leave_request.cancellation_status != LeaveCancellationStatus.Pending:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only pending cancellation can be approved.")
+
+        balance = await self._get_balance(
+            session,
+            leave_request.employee_uid,
+            leave_request.leave_type_uid,
+            leave_request.start_date.year,
+        )
+        if not balance:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Leave balance not found.")
+
+        if leave_request.status == LeaveRequestStatus.Pending:
+            balance.pending_days = self._q2(balance.pending_days - leave_request.applied_days)
+
+        elif leave_request.status == LeaveRequestStatus.Approved:
+            balance.used_days = self._q2(balance.used_days - leave_request.applied_days)
+            await self._reverse_cancelled_leave_in_attendance(session, leave_request)
+
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cancellation approval is allowed only for pending or approved leave request.",
+            )
+
+        leave_request.status = LeaveRequestStatus.Cancelled
+        leave_request.cancellation_status = LeaveCancellationStatus.Approved
+        leave_request.cancellation_reviewer_note = data.reviewer_note
+        leave_request.cancellation_reviewed_at = datetime.utcnow()
+        leave_request.cancellation_approver_employee_uid = reviewer.uid
+
+        await session.commit()
+        await session.refresh(leave_request)
+        return leave_request
+    
+    async def reject_leave_cancellation(self,session: AsyncSession,leave_request_uid: uuid.UUID,email: str,data: LeaveCancellationDecision,
+    role_name: str = ""):
+        reviewer = await self._get_employee_by_email(session, email)
+        role_name_normalized = str(role_name or "").strip().lower()
+
+        if role_name_normalized not in {"admin", "hr"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only HR/Admin can reject cancellation.")
+
+        leave_request = await self._get_request(session, leave_request_uid)
+
+        if leave_request.cancellation_status != LeaveCancellationStatus.Pending:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only pending cancellation can be rejected.")
+
+        leave_request.cancellation_status = LeaveCancellationStatus.Rejected
+        leave_request.cancellation_reviewer_note = data.reviewer_note
+        leave_request.cancellation_reviewed_at = datetime.utcnow()
+        leave_request.cancellation_approver_employee_uid = reviewer.uid
+
+        await session.commit()
+        await session.refresh(leave_request)
+        return leave_request
+    
+    async def edit_leave_request(self,session: AsyncSession,leave_request_uid: uuid.UUID,user_uid: uuid.UUID,
+    email: str,data: LeaveRequestUpdate):
+        employee = await self._get_employee_by_email(session, email)
+        leave_request = await self._get_request(session, leave_request_uid)
+        await self._get_leave_type(session, data.leave_type_uid)
+
+        if leave_request.employee_uid != employee.uid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can edit only your own leave request.",
+            )
+
+        if leave_request.status != LeaveRequestStatus.Pending:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only pending leave request can be edited.",
+            )
+
+        if leave_request.cancellation_status == LeaveCancellationStatus.Pending:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Leave request cannot be edited while cancellation is pending.",
+            )
+
+        if data.start_date > data.end_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="start_date cannot be greater than end_date.",
+            )
+
+        if employee.join_date and data.start_date < employee.join_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Leave cannot be applied before joining date.",
+            )
+
+        if data.start_date.year != data.end_date.year:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cross year leave request is not allowed.",
+            )
+
+        old_balance = await self._get_balance(
+            session,
+            leave_request.employee_uid,
+            leave_request.leave_type_uid,
+            leave_request.start_date.year,
+        )
+        if not old_balance:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Existing leave balance not found.",
+            )
+
+        # first release old pending days
+        old_balance.pending_days = self._q2(old_balance.pending_days - leave_request.applied_days)
+
+        preview = await self.preview_leave_days(session, data.start_date, data.end_date)
+        new_applied_days = preview["applied_days"]
+
+        if new_applied_days <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only weekends/holidays found in range.",
+            )
+
+        new_balance = await self._get_balance(
+            session,
+            leave_request.employee_uid,
+            data.leave_type_uid,
+            data.start_date.year,
+        )
+        if not new_balance:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Leave balance not found. Generate leave balances first.",
+            )
+
+        available_balance = self._q2(
+            new_balance.opening_balance
+            + new_balance.annual_allocation
+            + new_balance.carry_forward_in
+            + new_balance.manual_granted
+            - new_balance.used_days
+            - new_balance.pending_days
+            - new_balance.lapsed_days
+        )
+
+        if available_balance < new_applied_days:
+            # rollback old pending days in memory before error
+            old_balance.pending_days = self._q2(old_balance.pending_days + leave_request.applied_days)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Insufficient leave balance.",
+            )
+
+        overlap_stmt = select(LeaveRequest).where(
+            LeaveRequest.employee_uid == employee.uid,
+            LeaveRequest.uid != leave_request.uid,
+            LeaveRequest.status.in_([LeaveRequestStatus.Pending, LeaveRequestStatus.Approved]),
+            LeaveRequest.start_date <= data.end_date,
+            LeaveRequest.end_date >= data.start_date,
+        )
+        overlap = (await session.exec(overlap_stmt)).first()
+        if overlap:
+            old_balance.pending_days = self._q2(old_balance.pending_days + leave_request.applied_days)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Overlapping leave request already exists.",
+            )
+
+        new_balance.pending_days = self._q2(new_balance.pending_days + new_applied_days)
+
+        leave_request.user_uid = user_uid
+        leave_request.leave_type_uid = data.leave_type_uid
+        leave_request.start_date = data.start_date
+        leave_request.end_date = data.end_date
+        leave_request.applied_days = new_applied_days
+        leave_request.reason = data.reason
+        leave_request.updated_at = datetime.utcnow()
+
+        await session.commit()
+        await session.refresh(leave_request)
+        return leave_request
+    
+    async def delete_leave_request(self,session: AsyncSession,leave_request_uid: uuid.UUID,email: str):
+        employee = await self._get_employee_by_email(session, email)
+        leave_request = await self._get_request(session, leave_request_uid)
+
+        if leave_request.employee_uid != employee.uid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can delete only your own leave request.",
+            )
+
+        if leave_request.status != LeaveRequestStatus.Pending:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only pending leave request can be deleted.",
+            )
+
+        if leave_request.cancellation_status == LeaveCancellationStatus.Pending:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Leave request cannot be deleted while cancellation is pending.",
+            )
+
+        balance = await self._get_balance(
+            session,
+            leave_request.employee_uid,
+            leave_request.leave_type_uid,
+            leave_request.start_date.year,
+        )
+        if not balance:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Leave balance not found.",
+            )
+
+        balance.pending_days = self._q2(balance.pending_days - leave_request.applied_days)
+
+        await session.delete(leave_request)
+        await session.commit()
+
+        return {"message": "Leave request deleted successfully."}
 ###### Manager Level Leave Approve and Reject function ################3
     # async def list_manager_pending_leave_requests(self, session: AsyncSession, manager_email: str):
     #     manager = await self._get_employee_by_email(session, manager_email)

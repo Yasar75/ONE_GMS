@@ -16,7 +16,7 @@ from .service import employee_leave_balance_service
 employee_leave_balance_router = APIRouter()
 access_token_bearer = AccessTokenBearer()
 role_checker = Depends(RoleChecker(["admin", "hr"]))
-admin_module= "Assign Leave"
+admin_module= "Assign Leave" #delete leave
 employee_admin_module= "My Leave Balance"
 
 @employee_leave_balance_router.post("/generate",response_model=List[EmployeeLeaveBalanceRead],status_code=status.HTTP_201_CREATED,dependencies=[Depends(PermissionChecker(admin_module, "c"))])

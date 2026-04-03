@@ -6,11 +6,14 @@ import CardShell from '../../../components/common/CardShell.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
+import PageContentLoader from '../../../components/common/PageContentLoader.jsx'
 import { SearchIcon } from '../../../components/common/AppIcons.jsx'
 import { TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { useMyPunchLogsQuery } from '../../../hooks/attendance/useMyPunchLogsQuery.js'
 import { useMyRegularizationsQuery } from '../../../hooks/attendance/useMyRegularizationsQuery.js'
 import { attendanceService } from '../../../api/services/attendance.service.js'
+import { endpoints } from '../../../api/endpoints.js'
+import { http } from '../../../api/http.js'
 import { employeeService } from '../../../api/services/employee.service.js'
 import {
   PUNCH_CONTROL_CHANGED_EVENT,
@@ -24,6 +27,7 @@ import {
   getLatestRegularizationStatus,
   getPunchSessionState,
   getTodayDateInput,
+  normalizeShiftRoster,
   rememberPunchOutMode,
   rememberSoftPunchResume,
   toDateTimeLocalValue
@@ -33,6 +37,7 @@ import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
 import { useToast } from '../../../app/providers/ToastProvider.jsx'
 import {
+  AttendanceBadge,
   AttendanceTabs,
   DownloadActionGroup,
   PunchSessionCard,
@@ -48,11 +53,7 @@ import {
   markFieldsTouched
 } from '../../../utils/validation.js'
 import {
-  PERMISSION_ACTIONS,
-  PERMISSION_MODULES,
   filterAccessibleTabs,
-  hasModulePermission,
-  hasModuleVisibility,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
 import { useSortableData } from '../../../hooks/common/useSortableData.js'
@@ -148,12 +149,13 @@ export default function MarkAttendance() {
   const { showStatus, runWithLoader, showConfirm } = useModal()
   const { showToast } = useToast()
   const { user } = useAuth()
-  const canViewAttendanceLogs = hasModulePermission(user, PERMISSION_MODULES.myAttendancePreview, PERMISSION_ACTIONS.read)
-  const canSelfPunch = hasModulePermission(user, PERMISSION_MODULES.myAttendancePreview, PERMISSION_ACTIONS.create)
-  const canViewMyShift = hasModulePermission(user, PERMISSION_MODULES.myShift, PERMISSION_ACTIONS.read)
-  const canViewAttendanceTab = canViewAttendanceLogs || canSelfPunch
-  const canViewRegularizationTab = hasModuleVisibility(user, PERMISSION_MODULES.manageRegularization)
-  const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
+  const canViewAttendanceLogs = true
+  const canSelfPunch = true
+  // Employee shift panel should always use employee roster lookup for the logged-in employee.
+  const canViewMyShift = true
+  const canViewAttendanceTab = true
+  const canViewRegularizationTab = true
+  const canCreateRegularization = true
 
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'attendance')
@@ -166,15 +168,26 @@ export default function MarkAttendance() {
   const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canViewAttendanceLogs || canSelfPunch)
   const todayLogsQuery = useMyPunchLogsQuery(todayDate, canViewAttendanceLogs || canSelfPunch)
   const regularizationsQuery = useMyRegularizationsQuery(canViewRegularizationTab)
+  const selectedLogsRaw = selectedLogsQuery.data || []
+  const todayLogsRaw = todayLogsQuery.data || []
+  const regularizations = regularizationsQuery.data || []
   const currentEmployeeQuery = useQuery({
     queryKey: ['employees', 'me', 'record', 'attendance'],
     queryFn: () => employeeService.getCurrentEmployee(),
-    enabled: canViewMyShift,
+    enabled: Boolean(user),
     retry: false,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: 'always'
   })
-  const currentEmployeeUid = String(currentEmployeeQuery.data?.uid || user?.employeeUid || '')
+  const currentEmployeeUid = useMemo(() => {
+    const fallbackEmployeeUid = selectedLogsRaw.find((entry) => entry?.employeeUid)?.employeeUid
+      || todayLogsRaw.find((entry) => entry?.employeeUid)?.employeeUid
+      || regularizations.find((entry) => entry?.employeeUid)?.employeeUid
+      || user?.employeeUid
+      || ''
+
+    return String(currentEmployeeQuery.data?.uid || fallbackEmployeeUid || '').trim()
+  }, [currentEmployeeQuery.data?.uid, regularizations, selectedLogsRaw, todayLogsRaw, user?.employeeUid])
   const myShiftAssignmentQuery = useQuery({
     queryKey: ['attendance', 'employee', 'my-shift', currentEmployeeUid],
     queryFn: () => attendanceService.getEmployeeShiftAssignmentByEmployee(currentEmployeeUid),
@@ -183,17 +196,44 @@ export default function MarkAttendance() {
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: 'always'
   })
+  const attendanceRegisterQuery = useQuery({
+    queryKey: ['attendance', 'employee', 'register', currentEmployeeUid],
+    queryFn: async () => {
+      if (!currentEmployeeUid) return []
+
+      try {
+        return await attendanceService.getDirectoryAttendance({ employeeUid: currentEmployeeUid })
+      } catch (error) {
+        if ([401, 403, 404, 405].includes(Number(error?.response?.status || 0))) {
+          return []
+        }
+        throw error
+      }
+    },
+    enabled: canViewAttendanceTab && Boolean(currentEmployeeUid),
+    retry: false,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: 'always'
+  })
   const myShiftRosterQuery = useQuery({
-    queryKey: ['attendance', 'employee', 'my-shift-roster'],
-    queryFn: async () => attendanceService.getShiftRoster().catch(() => []),
-    enabled: canViewMyShift,
+    queryKey: ['attendance', 'employee', 'my-shift-roster', myShiftAssignmentQuery.data?.shiftUid || ''],
+    queryFn: async () => {
+      const shiftUid = String(myShiftAssignmentQuery.data?.shiftUid || '').trim()
+      if (!shiftUid) return null
+
+      try {
+        const response = await http.get(endpoints.shiftRoster.detail(shiftUid))
+        return normalizeShiftRoster(response.data)
+      } catch (error) {
+        if ([401, 403, 404, 405].includes(Number(error?.response?.status || 0))) return null
+        throw error
+      }
+    },
+    enabled: canViewMyShift && Boolean(myShiftAssignmentQuery.data?.shiftUid),
     retry: false,
     staleTime: 10 * 60 * 1000,
     refetchOnWindowFocus: 'always'
   })
-
-  const selectedLogsRaw = selectedLogsQuery.data || []
-  const todayLogsRaw = todayLogsQuery.data || []
   const selectedLogs = useMemo(
     () => applyLocalPunchControl(selectedLogsRaw, selectedDate),
     [punchControlVersion, selectedDate, selectedLogsRaw]
@@ -202,7 +242,6 @@ export default function MarkAttendance() {
     () => applyLocalPunchControl(todayLogsRaw, todayDate),
     [punchControlVersion, todayDate, todayLogsRaw]
   )
-  const regularizations = regularizationsQuery.data || []
   const { items: sortedSelectedLogs, sortConfig: selectedLogsSortConfig, requestSort: requestSelectedLogsSort } = useSortableData(selectedLogs, {
     initialKey: 'punchTime',
     initialDirection: 'desc',
@@ -228,24 +267,57 @@ export default function MarkAttendance() {
       updatedAt: (request) => request.updatedAt || request.createdAt || ''
     }
   })
+  const attendanceRegisterRows = useMemo(() => {
+    const employeeName = currentEmployeeQuery.data?.fullName || user?.displayName || user?.firstName || 'Employee'
+    const employeeCode = currentEmployeeQuery.data?.employeeCode || '—'
+
+    return (attendanceRegisterQuery.data || []).map((record) => ({
+      ...record,
+      employeeName,
+      employeeCode
+    }))
+  }, [attendanceRegisterQuery.data, currentEmployeeQuery.data?.employeeCode, currentEmployeeQuery.data?.fullName, user?.displayName, user?.firstName])
+  const { items: sortedAttendanceRegisterRows, sortConfig: attendanceRegisterSortConfig, requestSort: requestAttendanceRegisterSort } = useSortableData(attendanceRegisterRows, {
+    initialKey: 'attendanceDate',
+    initialDirection: 'desc',
+    accessors: {
+      attendanceDate: (row) => row.attendanceDate || '',
+      status: (row) => row.status || '',
+      firstPunchIn: (row) => row.firstPunchIn || '',
+      lastPunchOut: (row) => row.lastPunchOut || '',
+      totalWorkedHours: (row) => Number(row.totalWorkedHours ?? -1),
+      totalAssignedShiftHours: (row) => Number(row.totalAssignedShiftHours ?? -1),
+      regularized: (row) => (row.isRegularized ? 'Regularized' : 'Standard'),
+      remarks: (row) => row.remarks || ''
+    }
+  })
 
   const todaySession = useMemo(() => getPunchSessionState(todayLogs), [todayLogs])
   const selectedSession = useMemo(() => getPunchSessionState(selectedLogs), [selectedLogs])
   const latestRegularizationStatus = useMemo(() => getLatestRegularizationStatus(regularizations), [regularizations])
+  const latestAttendanceRegisterEntry = useMemo(() => (
+    attendanceRegisterRows.find((record) => record.attendanceDate === todayDate)
+      || attendanceRegisterRows[0]
+      || null
+  ), [attendanceRegisterRows, todayDate])
   const myShiftDetails = useMemo(() => {
     const assignment = myShiftAssignmentQuery.data
     if (!assignment) return null
 
-    const shift = (myShiftRosterQuery.data || []).find((entry) => String(entry.uid) === String(assignment.shiftUid)) || null
+    const shift = myShiftRosterQuery.data || null
     return {
       ...assignment,
       shiftName: shift?.name || 'Assigned shift',
       shiftCode: shift?.code || (assignment.shiftUid ? String(assignment.shiftUid).slice(0, 8).toUpperCase() : '—'),
-      shiftWindow: formatShiftWindow(shift),
-      shiftActive: shift?.isActive ?? null,
+      shiftWindow: shift
+        ? formatShiftWindow(shift)
+        : (latestAttendanceRegisterEntry?.totalAssignedShiftHours
+            ? `${formatHours(latestAttendanceRegisterEntry.totalAssignedShiftHours)} scheduled`
+            : 'Assigned roster linked'),
+      shiftActive: shift?.isActive ?? assignment.isActive ?? null,
       hasRosterDetails: Boolean(shift)
     }
-  }, [myShiftAssignmentQuery.data, myShiftRosterQuery.data])
+  }, [latestAttendanceRegisterEntry, myShiftAssignmentQuery.data, myShiftRosterQuery.data])
   const assignedShiftCard = useMemo(() => {
     if (!canViewMyShift) return null
     if (currentEmployeeQuery.isLoading || myShiftAssignmentQuery.isLoading) {
@@ -278,7 +350,7 @@ export default function MarkAttendance() {
       code: myShiftDetails.shiftCode,
       window: myShiftDetails.shiftWindow,
       status: myShiftDetails.shiftActive ? 'Assigned' : 'Inactive',
-      helper: myShiftDetails.hasRosterDetails ? '' : 'Full shift timing is not available from the current My Shift API.'
+      helper: ''
     }
   }, [canViewMyShift, currentEmployeeQuery.isError, currentEmployeeQuery.isLoading, myShiftAssignmentQuery.isError, myShiftAssignmentQuery.isLoading, myShiftDetails])
   const attendanceStateLabel = todaySession.isClockedIn ? 'Clocked In' : todaySession.hasSoftPunchOut ? 'Paused' : todaySession.totalPunches > 0 ? 'Completed' : 'Ready'
@@ -476,10 +548,11 @@ export default function MarkAttendance() {
     setRegularizationTouched((current) => ({ ...current, [fieldName]: true }))
   }
 
-  const isLoading = selectedLogsQuery.isLoading || todayLogsQuery.isLoading || regularizationsQuery.isLoading
+  const isAttendanceTabLoading = selectedLogsQuery.isLoading || todayLogsQuery.isLoading || attendanceRegisterQuery.isLoading
+  const isRegularizationTabLoading = regularizationsQuery.isLoading
 
-  if (isLoading) {
-    return <div className="text-muted">Loading attendance workspace…</div>
+  if ((activeTab === 'attendance' && isAttendanceTabLoading) || (activeTab === 'regularization' && isRegularizationTabLoading)) {
+    return <PageContentLoader cards={3} />
   }
 
   return (
@@ -520,7 +593,7 @@ export default function MarkAttendance() {
             ) : null}
 
             <div className={`col-12 ${canSelfPunch || canViewMyShift ? 'col-lg-7' : ''}`.trim()}>
-              <CardShell title="Attendance Register" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.xls`)} align="end" />}>
+              <CardShell title="Daily Punch In / Punch Out Log" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.xls`)} align="end" />}>
                 <div className="attendance-toolbar mb-3">
                   <div className="employee-toolbar-left">
                     <div className="employee-search-field attendance-date-field">
@@ -569,6 +642,41 @@ export default function MarkAttendance() {
               </CardShell>
             </div>
           </div>
+
+          <CardShell title="Attendance Register">
+            <PaginatedTable rows={sortedAttendanceRegisterRows}>
+              {({ rows: paginatedRows }) => (
+                <table className="table employee-table workspace-table workspace-table--attendance-register align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Date" sortKey="attendanceDate" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="First In" sortKey="firstPunchIn" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Last Out" sortKey="lastPunchOut" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Worked" sortKey="totalWorkedHours" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Shift" sortKey="totalAssignedShiftHours" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Regularized" sortKey="regularized" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Remarks" sortKey="remarks" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedRows.length ? paginatedRows.map((row) => (
+                      <tr key={row.uid}>
+                        <td><TableCellStack title={formatDate(row.attendanceDate)} subtitle={row.employeeCode} /></td>
+                        <td><AttendanceBadge status={row.status} /></td>
+                        <td><TableCellStack title={formatDateTime(row.firstPunchIn)} subtitle={formatTime(row.firstPunchIn)} /></td>
+                        <td><TableCellStack title={formatDateTime(row.lastPunchOut)} subtitle={formatTime(row.lastPunchOut)} /></td>
+                        <td><TableBadge value={formatHours(row.totalWorkedHours)} tone="blue" /></td>
+                        <td><TableBadge value={formatHours(row.totalAssignedShiftHours)} tone="violet" /></td>
+                        <td>{row.isRegularized ? <TableBadge value="Yes" tone="success" /> : <TableBadge value="No" tone="neutral" />}</td>
+                        <td className="text-muted small attendance-reason-cell">{row.remarks || '—'}</td>
+                      </tr>
+                    )) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No attendance records are currently available for your account.</div></td></tr>}
+                  </tbody>
+                </table>
+              )}
+            </PaginatedTable>
+          </CardShell>
         </>
       ) : null}
 

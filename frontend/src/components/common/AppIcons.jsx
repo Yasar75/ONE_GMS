@@ -279,10 +279,28 @@ export function ChevronLeftIcon({ className }) {
   )
 }
 
+export function DoubleChevronLeftIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="m16.5 6-6 6 6 6" />
+      <path d="m12.5 6-6 6 6 6" />
+    </svg>
+  )
+}
+
 export function ChevronRightIcon({ className }) {
   return (
     <svg {...baseProps(className)}>
       <path d="m10 6 6 6-6 6" />
+    </svg>
+  )
+}
+
+export function DoubleChevronRightIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="m7.5 6 6 6-6 6" />
+      <path d="m11.5 6 6 6-6 6" />
     </svg>
   )
 }

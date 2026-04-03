@@ -4,68 +4,20 @@ const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
 const CRUD_ACTIONS = ['c', 'r', 'u', 'd']
 
 const ROLE_MODULE_ALIAS_MAP = {
-  // Canonical module list is taken from backend `.env` MODULES_LIST.
-  // Aliases below come from the backend route guards and older stored permission keys.
-
-  // Administrative aliases
+  // Canonical keys come from backend `.env` MODULES_LIST.
+  // Values below map the custom role-matrix labels back to those canonical module names.
   'Manage Roles': 'Roles',
-  
-  // Employee Management related aliases
-  'Employee': 'Employees Management',
-  'Employee Management': 'Employees Management',
-  'Employees Entries': 'Employees Management',
   'Metadata Entries': 'Employee Metadata',
   'Employee Entries': 'Employees Management',
-  'Employee Status': 'Employees Management',
-
-  // Profile Update related aliases
-  'Profile Picture': 'Profile Update',
-  'Profile': 'Profile Update',
-  'Profile Image': 'Profile Update',
-  'Profile nickname': 'Profile Update',
-  'Employees Skills': 'Employee Skills', 
-  'My Skills': 'Employee Skills',
-  'Employee Family Details': "Employee's Family Details",
-  'Employee Family Detail': "Employee's Family Details",
-  'Employees Family Details': "Employee's Family Details",
-  'My Family Detail': "My Family Details",
-  'Employees Documents': 'Employee Documents',
-  'My Documents': 'Employee Documents',
-  'Employee Work Experience': 'Employee Work Experience',
-  'My Work Experience': 'My Work Experience',
-
-  // Attendance Management related aliases
-  'Attendance': 'Attendance Overview',
-  'Attendance Management': 'Attendance Overview',
-  'Overview': 'Attendance Overview',
-  'Shift Roster': 'Shift Roster',
-  'Assign Shift': 'Assign Shift',
-  'My Shift': 'My Shift',
-  'Manage Attendance': 'Attendance Overview',
-  'Mark Attendance': 'Attendance Overview',
-  'Employees Attendance Punch Logs': 'My Attendance Preview',
-  'Attendance Punch Log': 'My Attendance Preview',
-  'Attendance Punch Logs': 'My Attendance Preview',
-  'My Attendance Punch Log': 'My Attendance Preview',
-  'Manage Regularization': 'Manage Regularization',
-  'Apply Regularization': 'Manage Regularization',
-  'Attendance Regularization': 'Manage Regularization',
-  'Attendance Regularization Logs': 'Manage Regularization',
-  'Self Regularization Logs': 'Manage Regularization',
-  'Employees Regularization Logs': 'Manage Regularization',
-  
-  // Leave Management related aliases
-  'Holiday Calender': 'Holiday Calendar',
-  'Holiday Calandar': 'Holiday Calendar',
-  'Organization Calandar': 'Holiday Calendar',
-  'My Calendar': 'Holiday Calendar',
-  'Leave Type Entries': 'Leave Type',
-  'Leave Entries': 'Assign Leave',
-  'Manage Leaves': 'Manage Leave',
-  'Employees Leave Balance': 'Assign Leave',
-  'My Leave Balance': 'My Leave Balance',
-  'Leave Requests': 'Leave Request',
-  'Manage Leaves Requests': 'Leave Request',  
+  'Employee Status': 'User Status',
+  'Employee Employee Attendance Logs': 'Attendance Overview',
+  'Mark Attendance': 'My Attendance Preview',
+  'Manage Regularization Requests': 'Manage Regularization',
+  'Create Leaves': 'Leave type',
+  'Leave Allocations': 'Assign Leave',
+  'My Leave Balances': 'My Leave Balance',
+  'Apply Leave Requests': 'Leave Request',
+  'Manage Leave Requests': 'Manage Leave'
 }
 
 export const PERMISSION_ACTIONS = {
@@ -78,66 +30,68 @@ export const PERMISSION_ACTIONS = {
 export const PERMISSION_MODULES = {
   roles: ['Roles', 'Manage Roles'],
   employeeMetadata: ['Employee Metadata', 'Metadata Entries'],
-  employeeManagement: ['Employees Management', 'Employee Management', 'Employee', 'Employees Entries', 'Employee Entries', 'Employee Status'],
-  employeeDirectory: ['Employees Management', 'Employee Management', 'Employee', 'Employees Entries', 'Employee Entries', 'Employee Status'],
-  profileUpdate: ['Profile Update', 'Profile Picture', 'Profile', 'Profile Image', 'Profile Photo', 'Profile nickname'],
-  profilePicture: ['Profile Update', 'Profile Picture', 'Profile', 'Profile Image', 'Profile Photo', 'Profile nickname'],
-  employeeDocuments: ['Employee Documents', 'Employees Documents', 'My Documents'],
-  employeeSkills: ['Employee Skills', 'My Skills', 'Employees Skills'],
-  mySkills: ['Employee Skills', 'My Skills', 'Employees Skills'],
-  employeeFamilyDetails: ["Employee's Family Details", 'Employee Family Details', 'Employee Family Detail', 'Employees Family Details', 'Family Details'],
-  myFamilyDetails: ['My Family Details', 'My Family Detail', 'Employee Family Details', 'Employee Family Detail', 'Employees Family Details', 'Family Details'],
+  employeeStatus: ['User Status', 'Employee Status'],
+  employeeManagement: ['Employees Management', 'Employee Entries'],
+  employeeDirectory: ['Employees Management', 'Employee Entries'],
+  employeeDocuments: ['Employee Documents'],
+  myDocuments: ['My Documents'],
+  employeeSkills: ['Employee Skills'],
+  mySkills: ['My Skills'],
+  employeeFamilyDetails: ["Employee's Family Details"],
+  myFamilyDetails: ['My Family Details'],
   employeeWorkExperience: ['Employee Work Experience'],
-  myWorkExperience: ['My Work Experience', 'Employee Work Experience'],
-  employeeRequests: ['Employee Requests', 'Employee Request', 'Employees Request'],
-  attendanceOverview: ['Attendance Overview', 'Attendance', 'Attendance Entries', 'Attendance Management', 'Overview', 'Manage Attendance', 'Mark Attendance'],
-  attendance: ['Attendance Overview', 'Attendance', 'Attendance Entries', 'Attendance Management', 'Overview', 'Manage Attendance', 'Mark Attendance'],
-  myAttendancePreview: ['My Attendance Preview', 'Attendance Punch Log', 'Attendance Punch Logs', 'Employees Attendance Punch Logs', 'My Attendance Punch Log'],
-  attendanceLogs: ['My Attendance Preview', 'Attendance Punch Log', 'Attendance Punch Logs', 'Employees Attendance Punch Logs', 'My Attendance Punch Log'],
-  manageRegularization: ['Manage Regularization', 'Attendance Regularization', 'Apply Regularization', 'Employees Regularization Logs'],
-  attendanceRegularization: ['Manage Regularization', 'Attendance Regularization', 'Apply Regularization', 'Employees Regularization Logs'],
-  selfRegularizationLogs: ['Manage Regularization', 'Self Regularization Logs', 'Attendance Regularization Logs', 'Apply Regularization', 'Employees Regularization Logs'],
-  attendanceRegularizationLogs: ['Manage Regularization', 'Self Regularization Logs', 'Attendance Regularization Logs', 'Apply Regularization', 'Employees Regularization Logs'],
+  myWorkExperience: ['My Work Experience'],
+  attendanceOverview: ['Attendance Overview', 'Employee Attendance Logs'],
+  attendance: ['Attendance Overview', 'Employee Attendance Logs'],
+  attendanceLogs: ['Attendance Overview', 'Employee Attendance Logs'],
+  myAttendancePreview: ['My Attendance Preview', 'Mark Attendance'],
+  manageRegularization: ['Manage Regularization', 'Manage Regularization Requests'],
+  attendanceRegularization: ['Manage Regularization', 'Manage Regularization Requests'],
+  selfRegularizationLogs: ['Manage Regularization', 'Manage Regularization Requests'],
+  attendanceRegularizationLogs: ['Manage Regularization', 'Manage Regularization Requests'],
   shiftRoster: ['Shift Roster'],
-  assignShift: ['Assign Shift', 'Assign Shifts'],
+  assignShift: ['Assign Shift'],
   myShift: ['My Shift'],
-  holidayCalendar: ['Holiday Calendar', 'Holiday Calender', 'Holiday Calandar', 'Organization Calandar', 'My Calendar'],
-  leaveType: ['Leave Type', 'Leave Type Entries'],
-  assignLeave: ['Assign Leave', 'Assign Leaves', 'Leave Entries', 'Leave Balance', 'Employee Leave Balance', 'Employees Leave Balance'],
-  myLeaveBalance: ['My Leave Balance', 'Leave Balance', 'Employee Leave Balance', 'Employees Leave Balance'],
-  leaveRequest: ['Leave Request', 'Leave Requests', 'Manage Leaves Requests'],
-  manageLeave: ['Manage Leave', 'Manage Leaves']
+  holidayCalendar: ['Holiday Calendar'],
+  leaveType: ['Leave type', 'Create Leaves'],
+  assignLeave: ['Assign Leave', 'Leave Allocations'],
+  myLeaveBalance: ['My Leave Balance', 'My Leave Balances'],
+  leaveRequest: ['Leave Request', 'Apply Leave Requests'],
+  manageLeave: ['Manage Leave', 'Manage Leave Requests']
 }
 
 export const ROLE_MATRIX_MODULES = dedupePermissionModules([
-  'Employees Management',
-  'Profile Update',
-  'Employee Documents',
+  'Roles',
   'Employee Metadata',
-  'Attendance Overview',
-  'Employee Work Experience',
-  'My Work Experience',
-  'My Attendance Preview',
-  'Manage Regularization',
-  'Assign Shift',
-  'My Shift',
+  'User Status',
+  'Employees Management',
+  'My Skills',
   'Employee Skills',
+  'My Documents',
+  'Employee Documents',
   'My Family Details',
   "Employee's Family Details",
+  'My Work Experience',
+  'Employee Work Experience',
+  'Attendance Overview',
+  'My Attendance Preview',
+  'Manage Regularization',
+  'Shift Roster',
+  'Assign Shift',
+  'My Shift',
+  'Holiday Calendar',
+  'Leave type',
   'Assign Leave',
   'My Leave Balance',
-  'Holiday Calendar',
   'Leave Request',
-  'Manage Leave',
-  'Leave Type',
-  'Shift Roster',
-  'Roles'
+  'Manage Leave'
 ])
 
 export const EMPLOYEE_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
   ...PERMISSION_MODULES.roles,
   ...PERMISSION_MODULES.employeeMetadata,
-  ...PERMISSION_MODULES.employeeManagement
+  ...PERMISSION_MODULES.employeeManagement,
+  ...PERMISSION_MODULES.employeeStatus
 ])
 
 export const ATTENDANCE_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
@@ -314,6 +268,11 @@ export function canAccessAppPath(user, pathname = '') {
     return true
   }
 
+  if (normalizedPath === '/admin/dashboard') return isAdminUser
+  if (normalizedPath === '/employee/dashboard') return !isAdminUser
+  if (normalizedPath === '/employee/attendance') return !isAdminUser
+  if (normalizedPath === '/employee/apply-leave') return !isAdminUser
+
   if (normalizedPath.startsWith('/admin/') && !isAdminUser) {
     return false
   }
@@ -337,8 +296,8 @@ export function resolveHomePath(user) {
 }
 
 export function resolveDashboardVariant(user) {
-  if (canAccessAppPath(user, '/admin/dashboard')) return 'management'
-  if (canAccessAppPath(user, '/employee/dashboard')) return 'employee'
+  if (isAdminBypassUser(user) || user?.role === ROLES.ADMIN) return 'management'
+  if (user) return 'employee'
   return null
 }
 
