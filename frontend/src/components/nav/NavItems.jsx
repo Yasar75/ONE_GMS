@@ -1,4 +1,6 @@
+import React from 'react'
 import { canAccessAppPath, resolveDashboardVariant } from '../../utils/permissions.js'
+import { BriefcaseIcon } from '../common/AppIcons.jsx'
 
 export function getNavItems(user) {
   const dashboardVariant = resolveDashboardVariant(user)
@@ -14,6 +16,9 @@ export function getNavItems(user) {
     }
     if (canAccessAppPath(user, '/admin/leave-management')) {
       items.push({ label: 'Leave Management', to: '/admin/leave-management', icon: '🗓️' })
+    }
+    if (canAccessAppPath(user, '/admin/project-management')) {
+      items.push({ label: 'Project Management', to: '/admin/project-management', icon: <BriefcaseIcon /> })
     }
     return items
   }

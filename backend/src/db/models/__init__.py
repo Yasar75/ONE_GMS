@@ -8,3 +8,6 @@ from .leave_management import HolidayCalendar,LeaveType,EmployeeLeaveBalance,Lea
 from .attendance_management import Attendance,AttendancePunchLog,AttendanceRegularization,AttendanceRegularizationLog,AttendanceStatus,PunchType,RegularizationStatus
 
 from .employee_metadata import EmployeeMetadata, MetadataCategory
+from .project_management import Project,ProjectAssignment,ProjectTask
+
+ 

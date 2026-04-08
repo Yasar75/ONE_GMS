@@ -21,6 +21,9 @@ class EmployeeType(str, Enum):
     Contract = "Contract"
     Intern = "Intern"
 
+# class BillingStatus(str, Enum):
+#     Billable = "Billable"
+#     NonBillable = "NonBillable"
 
 class Employee(SQLModel, table=True):
     __tablename__ = "employees"
@@ -44,6 +47,7 @@ class Employee(SQLModel, table=True):
     gender: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     caste:  Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     emergency_contact: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    billing_status: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     blood_group: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(10), nullable=True))
     employee_type: Optional[EmployeeType] = Field(default=None,sa_column=Column(pg.ENUM(EmployeeType, name="employee_type", create_type=True),nullable=True,))
     work_location: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))

@@ -121,5 +121,10 @@ export const endpoints = {
       approveCancellation: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/approve-leave-cancellation`,
       rejectCancellation: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/reject-leave-cancellation`
     }
+  },
+  project: {
+    list: '/api/v1/Project',
+    create: '/api/v1/Project',
+    detail: (projectUid) => `/api/v1/Project/${projectUid}`
   }
 }

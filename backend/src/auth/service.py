@@ -87,13 +87,13 @@ class UserService:
         <p>please contact the admin team immediately.</p>
         """
 
-        await SendGridMail.sendMailUsingSendGrid(
-            API,
-            from_email,
-            email,
-            subject="Verify Your Email.",
-            html_content=html_message,
-        )
+        # await SendGridMail.sendMailUsingSendGrid(
+        #     API,
+        #     from_email,
+        #     email,
+        #     subject="Verify Your Email.",
+        #     html_content=html_message,
+        # )
 
         return {
             "message": "Account Created! Check email to verify your account",

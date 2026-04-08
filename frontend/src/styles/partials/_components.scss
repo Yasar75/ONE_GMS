@@ -1891,8 +1891,17 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .project-toolbar-filters {
+    grid-template-columns: 1fr;
+  }
+
   .employee-filter-field-range,
   .employee-filter-actions {
+    grid-column: 1 / -1;
+  }
+
+  .project-toolbar-filters .employee-filter-field,
+  .project-toolbar-filters .employee-filter-actions {
     grid-column: 1 / -1;
   }
 
@@ -3131,6 +3140,23 @@
   gap: 0.75rem;
 }
 
+.project-toolbar-filters {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+}
+
+.project-toolbar-filters .app-select-trigger,
+.project-toolbar-filters .form-control,
+.project-toolbar-filters .input-group-text,
+.project-toolbar-filters .employee-toolbar-btn,
+.project-toolbar-filters .employee-filter-reset-btn {
+  min-height: 3rem;
+  border-radius: 0.95rem;
+}
+
+.project-toolbar-filters .employee-filter-actions {
+  justify-content: flex-end;
+}
+
 .employee-toolbar-filters .form-label {
   margin-bottom: 0.2rem;
   font-size: 0.78rem;
@@ -3808,6 +3834,10 @@
 
   .employee-toolbar-filters {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .project-toolbar-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .employee-filter-actions {

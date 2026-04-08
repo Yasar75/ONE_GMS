@@ -126,8 +126,17 @@
 
 .app-topnav__current-icon,
 .app-topnav__link-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 1rem;
   line-height: 1;
+}
+
+.app-topnav__current-icon svg,
+.app-topnav__link-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .app-topnav__current-label {

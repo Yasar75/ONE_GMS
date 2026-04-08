@@ -23,7 +23,9 @@ from src.attendance_management.attendance_punch_logs.routes import attendance_pu
 from src.attendance_management.attendance_regularizations.routes import attendance_regularization_router
 from src.attendance_management.attendance_regularization_logs.routes import attendance_regularization_log_router
 from src.transaction_history.routes import transaction_history_router
- 
+
+from src.project_management.project.routes import project_router
+
 from src.sendgrid_mail.routes import sendgrid_router
 
 from src.middleware import register_middleware
@@ -83,6 +85,9 @@ app.include_router(holiday_calender_router, prefix=f"/api/{version}/holiday-cale
 app.include_router(leave_type_router, prefix=f"/api/{version}/leave-types", tags=["Leave Types"])
 app.include_router(employee_leave_balance_router, prefix=f"/api/{version}/employee-leave-balances", tags=["Employee Leave Balances"])
 app.include_router(leave_request_router, prefix=f"/api/{version}/leave-requests", tags=["Leave Requests"])
+
+## Project Management
+app.include_router(project_router, prefix=f"/api/{version}/Project", tags=["Project"])
 
 ##Send mail through SendGridMail api
 app.include_router(sendgrid_router, prefix=f"/api/{version}/sendgrid-mail", tags=["SendGridMail"])

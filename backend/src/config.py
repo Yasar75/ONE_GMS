@@ -31,6 +31,7 @@ DEFAULT_ROLE_MODULES = [
     "My Leave Balance",
     "Leave Request",
     "Manage Leave",
+    "Project",
 ]
 
 class Settings(BaseSettings):
