@@ -46,6 +46,7 @@ class EmployeeBase(BaseModel):
     team_lead_employee_uid: Optional[uuid.UUID] = None
     coordinator_employee_uid: Optional[uuid.UUID] = None
     role_type: Optional[uuid.UUID] = None
+    billing_status:Optional[str] 
     created_at: datetime
     updated_at: datetime
 

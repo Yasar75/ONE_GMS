@@ -15,6 +15,7 @@ import { useEmployeesQuery } from '../../../hooks/employees/useEmployeesQuery.js
 import { useEmployeeLookupQuery } from '../../../hooks/employees/useEmployeeLookupQuery.js'
 import { useEmployeeDirectoryActions } from '../../../hooks/employees/useEmployeeDirectoryActions.js'
 import { useEmployeeMetadataQuery, useRoleDirectoryQuery, useRoleModulesQuery } from '../../../hooks/employees/useEmployeeMetadataQuery.js'
+import { useProjectAssignmentsQuery } from '../../../hooks/project/useProjectAssignmentsQuery.js'
 import { useSortableData } from '../../../hooks/common/useSortableData.js'
 import {
   EMPLOYEE_BLOOD_GROUP_OPTIONS,
@@ -125,6 +126,8 @@ const ACCESS_LEVEL_OPTIONS = [
 
 const ROLE_ACCESS_EXPANDED_GROUPS_CACHE_KEY = 'one-gms:role-access-expanded-groups:v1'
 const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
+const BILLABLE_ASSIGNMENT_STATUSES = new Set(['assigned', 'active'])
+const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['released', 'hold', 'terminated', 'inactive', 'completed'])
 const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Profile Management', 'Employees Management', 'Attendance Management', 'Leave Management', 'Other']
 const ROLE_MODULE_VISUAL_CONFIG = [
   {
@@ -580,6 +583,35 @@ function buildSelectOptions(values = [], placeholderLabel = 'All', placeholderVa
       return { value: entry, label: entry, description: `${entry} records` }
     })
   ]
+}
+
+function normalizeAssignmentStatus(status) {
+  return String(status || '').trim().toLowerCase()
+}
+
+function formatAssignmentStatus(status) {
+  const normalized = normalizeAssignmentStatus(status)
+  if (!normalized) return ''
+  return normalized
+    .split(/\s+/)
+    .map((part) => (part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : ''))
+    .join(' ')
+}
+
+function resolveBillingStatus(assignmentStatuses = []) {
+  const normalizedStatuses = Array.from(new Set((Array.isArray(assignmentStatuses) ? assignmentStatuses : [])
+    .map(normalizeAssignmentStatus)
+    .filter(Boolean)))
+
+  if (normalizedStatuses.some((status) => BILLABLE_ASSIGNMENT_STATUSES.has(status))) {
+    return 'Billable'
+  }
+
+  if (normalizedStatuses.length && normalizedStatuses.every((status) => NON_BILLABLE_ASSIGNMENT_STATUSES.has(status))) {
+    return 'Non Billable'
+  }
+
+  return 'Non Billable'
 }
 
 function mergeOptionValues(seedOptions = [], records = []) {
@@ -1152,6 +1184,8 @@ function EmployeePreviewBasicDetailsPanel({ employee }) {
       <div className="col-12 col-md-6"><strong>Date of Joining:</strong> {formatDate(employee?.joinDate)}</div>
       <div className="col-12 col-md-6"><strong>Work Location:</strong> {employee?.workLocation || '—'}</div>
       <div className="col-12 col-md-6"><strong>Employee Type:</strong> {employee?.employeeType || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Billing Status:</strong> <EmployeeBadge value={employee?.billingStatus || 'Non Billable'} type="billingStatus" /></div>
+      <div className="col-12"><strong>Assignment Statuses:</strong> {employee?.assignmentStatusSummary || 'No assignment'}</div>
       <div className="col-12 col-md-6"><strong>Manager:</strong> {employee?.managerName || '—'}</div>
       <div className="col-12 col-md-6"><strong>HR:</strong> {employee?.hrEmployeeName || '—'}</div>
       <div className="col-12 col-md-6"><strong>Lead:</strong> {employee?.teamLeadName || '—'}</div>
@@ -1608,6 +1642,7 @@ export default function EmployeesManagement() {
   const { data: employeeLookup = [] } = useEmployeeLookupQuery(canViewEntries || canViewRequests)
   const { data: metadataEntries = [] } = useEmployeeMetadataQuery(canViewMetadata || canViewEntries)
   const { data: roles = [] } = useRoleDirectoryQuery(canViewMetadata || canViewEntries)
+  const projectAssignmentsQuery = useProjectAssignmentsQuery(canViewEntries)
   const { data: roleModules = [], isFetching: roleModulesFetching } = useRoleModulesQuery(canViewMetadata)
   const { addEmployee, bulkAddEmployees, updateEmployee, deleteEmployee } = useEmployeeDirectoryActions()
   const {
@@ -1633,6 +1668,13 @@ export default function EmployeesManagement() {
   const [positionFilter, setPositionFilter] = useState('All')
   const [roleFilter, setRoleFilter] = useState('All')
   const [employeeTypeFilter, setEmployeeTypeFilter] = useState('All')
+  const [genderFilter, setGenderFilter] = useState('All')
+  const [bloodGroupFilter, setBloodGroupFilter] = useState('All')
+  const [billingStatusFilter, setBillingStatusFilter] = useState('All')
+  const [managerFilter, setManagerFilter] = useState('All')
+  const [hrFilter, setHrFilter] = useState('All')
+  const [teamLeadFilter, setTeamLeadFilter] = useState('All')
+  const [coordinatorFilter, setCoordinatorFilter] = useState('All')
   const [joinDateRange, setJoinDateRange] = useState({ start: '', end: '' })
   const [mappingSearch, setMappingSearch] = useState('')
 
@@ -1724,6 +1766,22 @@ export default function EmployeesManagement() {
 
   const roleDirectory = useMemo(() => new Map(roles.map((role) => [String(role.uid), role.roleName])), [roles])
   const employeeNameDirectory = useMemo(() => new Map(employeeLookup.map((employee) => [String(employee.uid), employee.fullName])), [employeeLookup])
+  const projectAssignments = useMemo(() => (Array.isArray(projectAssignmentsQuery.data?.items) ? projectAssignmentsQuery.data.items : []), [projectAssignmentsQuery.data?.items])
+  const assignmentStatusesByEmployeeUid = useMemo(() => {
+    const lookup = new Map()
+
+    projectAssignments.forEach((assignment) => {
+      const employeeUid = String(assignment?.employeeUid || '').trim()
+      const normalizedStatus = normalizeAssignmentStatus(assignment?.status)
+      if (!employeeUid || !normalizedStatus) return
+
+      const bucket = lookup.get(employeeUid) || new Set()
+      bucket.add(normalizedStatus)
+      lookup.set(employeeUid, bucket)
+    })
+
+    return new Map(Array.from(lookup.entries()).map(([employeeUid, statusSet]) => [employeeUid, Array.from(statusSet)]))
+  }, [projectAssignments])
 
   const employees = useMemo(() => employeesData.map((employee) => ({
     ...employee,
@@ -1731,8 +1789,11 @@ export default function EmployeesManagement() {
     managerName: employeeNameDirectory.get(String(employee.managerEmployeeUid || '')) || '',
     hrEmployeeName: employeeNameDirectory.get(String(employee.hrEmployeeUid || '')) || '',
     teamLeadName: employeeNameDirectory.get(String(employee.teamLeadEmployeeUid || '')) || '',
-    coordinatorName: employeeNameDirectory.get(String(employee.coordinatorEmployeeUid || '')) || ''
-  })), [employeesData, roleDirectory, employeeNameDirectory])
+    coordinatorName: employeeNameDirectory.get(String(employee.coordinatorEmployeeUid || '')) || '',
+    assignmentStatuses: assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || [],
+    assignmentStatusSummary: (assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || []).map(formatAssignmentStatus).join(', ') || 'No assignment',
+    billingStatus: resolveBillingStatus(assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || [])
+  })), [assignmentStatusesByEmployeeUid, employeesData, roleDirectory, employeeNameDirectory])
   const employeeDirectoryByUid = useMemo(() => new Map(employees.map((employee) => [String(employee.uid), employee])), [employees])
 
   const positionValues = useMemo(() => mergeOptionValues(
@@ -1777,6 +1838,16 @@ export default function EmployeesManagement() {
   const statusFilterOptions = useMemo(() => buildSelectOptions(statusValues), [statusValues])
   const workLocationFilterOptions = useMemo(() => buildSelectOptions(workLocationValues), [workLocationValues])
   const employeeTypeFilterOptions = useMemo(() => buildSelectOptions(employeeTypeValues), [employeeTypeValues])
+  const genderFilterOptions = useMemo(() => buildSelectOptions(genderValues), [genderValues])
+  const bloodGroupFilterOptions = useMemo(() => buildSelectOptions(bloodGroupValues), [bloodGroupValues])
+  const billingStatusFilterOptions = useMemo(() => buildSelectOptions([
+    { value: 'Billable', label: 'Billable', description: 'Project assignment status is assigned or active.' },
+    { value: 'Non Billable', label: 'Non Billable', description: 'Project assignment status is released, hold, terminated, inactive, or completed.' }
+  ], 'All billing'), [])
+  const managerFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.managerName)), 'All managers'), [employees])
+  const hrFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.hrEmployeeName)), 'All HRs'), [employees])
+  const teamLeadFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.teamLeadName)), 'All team leads'), [employees])
+  const coordinatorFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.coordinatorName)), 'All coordinators'), [employees])
 
   const positionFormOptions = useMemo(() => positionValues.map((value) => ({ value, label: value })), [positionValues])
   const departmentFormOptions = useMemo(() => departmentValues.map((value) => ({ value, label: value })), [departmentValues])
@@ -1818,7 +1889,9 @@ export default function EmployeesManagement() {
     'managerName',
     'hrEmployeeName',
     'teamLeadName',
-    'coordinatorName'
+    'coordinatorName',
+    'assignmentStatusSummary',
+    'billingStatus'
   ]).filter((employee) => {
     const matchesSearch = true
 
@@ -1828,10 +1901,48 @@ export default function EmployeesManagement() {
     const matchesPosition = positionFilter === 'All' || employee.position === positionFilter
     const matchesRole = roleFilter === 'All' || String(employee.roleType || '') === String(roleFilter)
     const matchesEmployeeType = employeeTypeFilter === 'All' || employee.employeeType === employeeTypeFilter
+    const matchesGender = genderFilter === 'All' || employee.gender === genderFilter
+    const matchesBloodGroup = bloodGroupFilter === 'All' || employee.bloodGroup === bloodGroupFilter
+    const matchesBillingStatus = billingStatusFilter === 'All' || employee.billingStatus === billingStatusFilter
+    const matchesManager = managerFilter === 'All' || employee.managerName === managerFilter
+    const matchesHr = hrFilter === 'All' || employee.hrEmployeeName === hrFilter
+    const matchesTeamLead = teamLeadFilter === 'All' || employee.teamLeadName === teamLeadFilter
+    const matchesCoordinator = coordinatorFilter === 'All' || employee.coordinatorName === coordinatorFilter
     const matchesJoinDate = isJoinDateInRange(employee.joinDate, joinDateRange)
 
-    return matchesSearch && matchesStatus && matchesWorkLocation && matchesDepartment && matchesPosition && matchesRole && matchesEmployeeType && matchesJoinDate
-  }), [deferredSearch, departmentFilter, employeeTypeFilter, employees, joinDateRange, positionFilter, roleFilter, statusFilter, workLocationFilter])
+    return matchesSearch
+      && matchesStatus
+      && matchesWorkLocation
+      && matchesDepartment
+      && matchesPosition
+      && matchesRole
+      && matchesEmployeeType
+      && matchesGender
+      && matchesBloodGroup
+      && matchesBillingStatus
+      && matchesManager
+      && matchesHr
+      && matchesTeamLead
+      && matchesCoordinator
+      && matchesJoinDate
+  }), [
+    billingStatusFilter,
+    bloodGroupFilter,
+    coordinatorFilter,
+    deferredSearch,
+    departmentFilter,
+    employeeTypeFilter,
+    employees,
+    genderFilter,
+    hrFilter,
+    joinDateRange,
+    managerFilter,
+    positionFilter,
+    roleFilter,
+    statusFilter,
+    teamLeadFilter,
+    workLocationFilter
+  ])
 
   const { items: sortedEmployees, sortConfig: employeeSortConfig, requestSort: requestEmployeeSort } = useSortableData(filteredEmployees, {
     initialKey: 'employee',
@@ -1842,7 +1953,8 @@ export default function EmployeesManagement() {
       contact: (employee) => `${employee.email || ''} ${employee.phone || ''}`.trim(),
       positionDepartment: (employee) => `${employee.position || ''} ${employee.department || ''}`.trim(),
       statusJoinDate: (employee) => `${employee.status || ''} ${employee.joinDate || ''}`.trim(),
-      locationType: (employee) => `${employee.workLocation || ''} ${employee.employeeType || ''}`.trim()
+      locationType: (employee) => `${employee.workLocation || ''} ${employee.employeeType || ''}`.trim(),
+      billingStatus: (employee) => `${employee.billingStatus || ''} ${employee.assignmentStatusSummary || ''}`.trim()
     }
   })
   const { items: sortedProfileRequests, sortConfig: profileRequestSortConfig, requestSort: requestProfileRequestSort } = useSortableData(profileRequests, {
@@ -1995,6 +2107,13 @@ export default function EmployeesManagement() {
     setPositionFilter('All')
     setRoleFilter('All')
     setEmployeeTypeFilter('All')
+    setGenderFilter('All')
+    setBloodGroupFilter('All')
+    setBillingStatusFilter('All')
+    setManagerFilter('All')
+    setHrFilter('All')
+    setTeamLeadFilter('All')
+    setCoordinatorFilter('All')
     setJoinDateRange({ start: '', end: '' })
   }
 
@@ -2618,7 +2737,7 @@ export default function EmployeesManagement() {
           <div className="card border-0 shadow-sm glass employee-directory-shell">
             <div className="card-body d-flex flex-column gap-3">
               <div className="employee-toolbar employee-toolbar-top">
-                <AppSearchField className="employee-toolbar-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by code, employee, role, department, email, or phone" />
+                <AppSearchField className="employee-toolbar-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by any table value, including billing status and reporting details" />
 
                 <div className="employee-toolbar-actions">
                   {canCreateEmployees ? (
@@ -2654,6 +2773,10 @@ export default function EmployeesManagement() {
                   <AppSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions} placeholder="All" />
                 </div>
                 <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Billing Status</label>
+                  <AppSelect value={billingStatusFilter} onChange={setBillingStatusFilter} options={billingStatusFilterOptions} placeholder="All billing" />
+                </div>
+                <div className="employee-filter-field">
                   <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Work Location</label>
                   <AppSelect value={workLocationFilter} onChange={setWorkLocationFilter} options={workLocationFilterOptions} placeholder="All" />
                 </div>
@@ -2673,6 +2796,30 @@ export default function EmployeesManagement() {
                   <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Employee Type</label>
                   <AppSelect value={employeeTypeFilter} onChange={setEmployeeTypeFilter} options={employeeTypeFilterOptions} placeholder="All" />
                 </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Gender</label>
+                  <AppSelect value={genderFilter} onChange={setGenderFilter} options={genderFilterOptions} placeholder="All" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Blood Group</label>
+                  <AppSelect value={bloodGroupFilter} onChange={setBloodGroupFilter} options={bloodGroupFilterOptions} placeholder="All" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Manager</label>
+                  <AppSelect value={managerFilter} onChange={setManagerFilter} options={managerFilterOptions} placeholder="All managers" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> HR</label>
+                  <AppSelect value={hrFilter} onChange={setHrFilter} options={hrFilterOptions} placeholder="All HRs" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Team Lead</label>
+                  <AppSelect value={teamLeadFilter} onChange={setTeamLeadFilter} options={teamLeadFilterOptions} placeholder="All team leads" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Coordinator</label>
+                  <AppSelect value={coordinatorFilter} onChange={setCoordinatorFilter} options={coordinatorFilterOptions} placeholder="All coordinators" />
+                </div>
                 <div className="employee-filter-field employee-filter-field-range">
                   <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Join Date</label>
                   <AppDateRangeField value={joinDateRange} onChange={setJoinDateRange} className="employee-range-field" placeholder="[Select range]" />
@@ -2685,6 +2832,12 @@ export default function EmployeesManagement() {
                 </div>
               </div>
 
+              {projectAssignmentsQuery.isError ? (
+                <div className="alert alert-warning py-2 mb-0">
+                  Billing status is currently unavailable because project assignment records could not be loaded.
+                </div>
+              ) : null}
+
               <PaginatedTable rows={sortedEmployees}>
                 {({ rows: paginatedRows }) => (
                   <table className="table align-middle mb-0 employee-table employee-table-dense">
@@ -2695,6 +2848,7 @@ export default function EmployeesManagement() {
                       <col className="employee-col-role" />
                       <col className="employee-col-status" />
                       <col className="employee-col-join" />
+                      <col className="employee-col-billing" />
                       <col className="employee-col-actions" />
                     </colgroup>
                     <thead>
@@ -2705,6 +2859,7 @@ export default function EmployeesManagement() {
                         <th><SortableHeader label="Position (Dept)" sortKey="positionDepartment" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
                         <th><SortableHeader label="Status (DOJ)" sortKey="statusJoinDate" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
                         <th><SortableHeader label="Work Location (Type)" sortKey="locationType" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
+                        <th><SortableHeader label="Billing Status" sortKey="billingStatus" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
                         <th className="text-center">Actions</th>
                       </tr>
                     </thead>
@@ -2729,6 +2884,13 @@ export default function EmployeesManagement() {
                           <td className="employee-cell-wrap">
                             <CellStack title={<EmployeeBadge value={employee.workLocation || '—'} type="workLocation" />} subtitle={<EmployeeBadge value={employee.employeeType || '—'} type="employeeType" />} className="employee-cell-wrap" />
                           </td>
+                          <td className="employee-cell-wrap">
+                            <CellStack
+                              title={<EmployeeBadge value={employee.billingStatus || 'Non Billable'} type="billingStatus" />}
+                              subtitle={employee.assignmentStatusSummary || 'No assignment'}
+                              className="employee-cell-wrap"
+                            />
+                          </td>
                           <td className="employee-actions-cell">
                             <div className="employee-action-cluster">
                               <ActionButton icon={<ViewIcon />} label="View" variant="view" onClick={() => setPreviewEmployee(employee)} />
@@ -2739,7 +2901,7 @@ export default function EmployeesManagement() {
                         </tr>
                       )) : (
                         <tr>
-                          <td colSpan="7">
+                          <td colSpan="8">
                             <div className="employee-empty-state text-center py-4">
                               <div className="fw-semibold mb-1">No employees matched the current filters.</div>
                               <div className="text-muted small">Reset the search terms or filter criteria to widen the directory view.</div>

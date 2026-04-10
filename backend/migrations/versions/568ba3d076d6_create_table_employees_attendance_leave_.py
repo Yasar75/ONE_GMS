@@ -15,10 +15,7 @@ from sqlalchemy.dialects import postgresql as pg
 from migrations.helpers import (
     table_exists,
     index_exists,
-    drop_constraint_if_exists,
     is_postgres,
-    _create_pg_enum_if_not_exists,
-    _drop_pg_enum_if_exists,
 )
 
 # revision identifiers, used by Alembic.
@@ -30,6 +27,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def _q_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
+
 
 def _create_pg_enum_if_not_exists(enum_name: str, values: list[str]) -> None:
     if not is_postgres():
@@ -53,6 +51,7 @@ def _create_pg_enum_if_not_exists(enum_name: str, values: list[str]) -> None:
             """
         )
     )
+
 
 def _drop_pg_enum_if_exists(enum_name: str) -> None:
     if not is_postgres():
@@ -94,16 +93,12 @@ def upgrade() -> None:
             sa.Column("birth_date", sa.DATE(), nullable=True),
             sa.Column("address", sa.Text(), nullable=True),
             sa.Column("emergency_contact", sa.Text(), nullable=True),
-            sa.Column("blood_group", sa.VARCHAR(10), nullable=True),
             sa.Column(
                 "employee_type",
                 pg.ENUM(name="employee_type", create_type=False),
                 nullable=True,
             ),
             sa.Column("work_location", sa.VARCHAR(120), nullable=True),
-
-            # FIX: your model uses "manager_employee_id" but references employees.id (wrong).
-            # We create a correct FK to employees.uid.
             sa.Column(
                 "manager_employee_uid",
                 pg.UUID(as_uuid=True),
@@ -114,7 +109,6 @@ def upgrade() -> None:
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         )
 
-    # constraints / indexes (idempotent)
     if table_exists("employees"):
         if not index_exists("employees", "ix_employees_user_uid"):
             op.create_index("ix_employees_user_uid", "employees", ["user_uid"])
@@ -123,7 +117,6 @@ def upgrade() -> None:
         if not index_exists("employees", "ix_employees_employee_code"):
             op.create_index("ix_employees_employee_code", "employees", ["employee_code"], unique=True)
         if not index_exists("employees", "ix_employees_email"):
-            # email is nullable; unique index is fine in Postgres (allows multiple NULLs)
             op.create_index("ix_employees_email", "employees", ["email"], unique=True)
 
     # -------------------------
@@ -217,16 +210,12 @@ def upgrade() -> None:
             "attendance",
             sa.Column("uid", pg.UUID(as_uuid=True), primary_key=True, nullable=False),
             sa.Column("user_uid", pg.UUID(as_uuid=True), sa.ForeignKey("users.uid", ondelete="RESTRICT"), nullable=False),
-
             sa.Column("employee_uid", pg.UUID(as_uuid=True), sa.ForeignKey("employees.uid", ondelete="CASCADE"), nullable=False),
-            sa.Column("att_date", sa.DATE(), nullable=False),
+            sa.Column("attendance_date", sa.DATE(), nullable=False),
             sa.Column("check_in", sa.Time(), nullable=True),
             sa.Column("check_out", sa.Time(), nullable=True),
-
-            # same enum type name used for both columns; create_type=False so it doesn't try to recreate
             sa.Column("check_in_status", pg.ENUM(name="inout_status", create_type=False), nullable=True),
             sa.Column("check_out_status", pg.ENUM(name="inout_status", create_type=False), nullable=True),
-
             sa.Column("working_hours", sa.Numeric(5, 2), nullable=False, server_default="0"),
             sa.Column(
                 "status",
@@ -236,15 +225,19 @@ def upgrade() -> None:
             ),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-            sa.UniqueConstraint("employee_uid", "att_date", name="uq_attendance_employee_uid_att_date"),
+            sa.UniqueConstraint(
+                "employee_uid",
+                "attendance_date",
+                name="uq_attendance_employee_uid_attendance_date",
+            ),
         )
     if table_exists("attendance"):
         if not index_exists("attendance", "ix_attendance_user_uid"):
             op.create_index("ix_attendance_user_uid", "attendance", ["user_uid"])
         if not index_exists("attendance", "ix_attendance_employee_uid"):
             op.create_index("ix_attendance_employee_uid", "attendance", ["employee_uid"])
-        if not index_exists("attendance", "ix_attendance_att_date"):
-            op.create_index("ix_attendance_att_date", "attendance", ["att_date"])
+        if not index_exists("attendance", "ix_attendance_attendance_date"):
+            op.create_index("ix_attendance_attendance_date", "attendance", ["attendance_date"])
 
     # -------------------------
     # 8) leave_request
@@ -255,13 +248,11 @@ def upgrade() -> None:
             sa.Column("uid", pg.UUID(as_uuid=True), primary_key=True, nullable=False),
             sa.Column("user_uid", pg.UUID(as_uuid=True), sa.ForeignKey("users.uid", ondelete="RESTRICT"), nullable=False),
             sa.Column("employee_uid", pg.UUID(as_uuid=True), sa.ForeignKey("employees.uid", ondelete="CASCADE"), nullable=False),
-
             sa.Column("leave_type", sa.VARCHAR(80), nullable=False),
             sa.Column("start_date", sa.DATE(), nullable=False),
             sa.Column("end_date", sa.DATE(), nullable=False),
             sa.Column("days", sa.Integer(), nullable=False),
             sa.Column("reason", sa.Text(), nullable=True),
-
             sa.Column(
                 "status",
                 pg.ENUM(name="leave_status", create_type=False),
@@ -283,7 +274,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Drop child tables first (safe)
     if table_exists("leave_request"):
         op.drop_table("leave_request")
 
@@ -305,7 +295,6 @@ def downgrade() -> None:
     if table_exists("employees"):
         op.drop_table("employees")
 
-    # Drop enum types after tables
     _drop_pg_enum_if_exists("leave_status")
     _drop_pg_enum_if_exists("attendance_status")
     _drop_pg_enum_if_exists("inout_status")

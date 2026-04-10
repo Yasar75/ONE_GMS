@@ -126,5 +126,15 @@ export const endpoints = {
     list: '/api/v1/Project',
     create: '/api/v1/Project',
     detail: (projectUid) => `/api/v1/Project/${projectUid}`
+  },
+  projectAssignment: {
+    list: '/api/v1/Project-Assignment',
+    create: '/api/v1/Project-Assignment',
+    detail: (assignmentUid) => `/api/v1/Project-Assignment/${assignmentUid}`
+  },
+  projectTask: {
+    list: '/api/v1/Project-Task',
+    create: '/api/v1/Project-Task',
+    detail: (taskUid) => `/api/v1/Project-Task/${taskUid}`
   }
 }

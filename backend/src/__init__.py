@@ -25,6 +25,8 @@ from src.attendance_management.attendance_regularization_logs.routes import atte
 from src.transaction_history.routes import transaction_history_router
 
 from src.project_management.project.routes import project_router
+from src.project_management.project_assignment.routes import project_assignment_router
+from src.project_management.project_task.routes import project_task_router
 
 from src.sendgrid_mail.routes import sendgrid_router
 
@@ -88,6 +90,8 @@ app.include_router(leave_request_router, prefix=f"/api/{version}/leave-requests"
 
 ## Project Management
 app.include_router(project_router, prefix=f"/api/{version}/Project", tags=["Project"])
+app.include_router(project_assignment_router, prefix=f"/api/{version}/Project-Assignment", tags=["Project Assignment"])
+app.include_router(project_task_router, prefix=f"/api/{version}/Project-Task", tags=["Project Task"])
 
 ##Send mail through SendGridMail api
 app.include_router(sendgrid_router, prefix=f"/api/{version}/sendgrid-mail", tags=["SendGridMail"])

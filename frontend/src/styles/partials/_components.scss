@@ -3241,6 +3241,10 @@
   width: 12%;
 }
 
+.employee-col-billing {
+  width: 14%;
+}
+
 .employee-col-actions {
   width: 220px;
 }
@@ -3363,6 +3367,18 @@
   background: rgba(20, 184, 166, 0.12);
   border-color: rgba(20, 184, 166, 0.2);
   color: #0f766e;
+}
+
+.employee-badge.billingStatus.billable {
+  color: #0f9d58;
+  background: rgba(15, 157, 88, 0.12);
+  border-color: rgba(15, 157, 88, 0.18);
+}
+
+.employee-badge.billingStatus.non-billable {
+  color: #b35a00;
+  background: rgba(255, 136, 0, 0.12);
+  border-color: rgba(255, 136, 0, 0.2);
 }
 
 .employee-badge.bloodGroup {
@@ -6146,6 +6162,157 @@
     max-inline-size: 0;
     opacity: 0;
     margin-inline-start: 0;
+  }
+}
+
+/* Employee entries filter alignment and sizing normalization */
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) {
+  --employee-filter-column-min: 12.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(var(--employee-filter-column-min), 1fr));
+  align-items: stretch;
+  gap: 0.8rem;
+}
+
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-field,
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-actions,
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-field-range {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .form-label {
+  min-height: 1.2rem;
+  margin-bottom: 0.34rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-field .app-select,
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-field-range .app-date-range {
+  width: 100%;
+}
+
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-field .app-select-trigger,
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-field .form-control,
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-field .input-group-text,
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-field-range .app-select-trigger,
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-reset-btn {
+  min-height: 3rem;
+  height: 3rem;
+}
+
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .app-select-trigger-copy {
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .app-select-trigger-value,
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .app-select-trigger-description {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-actions {
+  align-self: stretch;
+  justify-content: flex-end;
+}
+
+.employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) .employee-filter-reset-btn {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Keep metadata action button expansion contained inside the action column */
+.metadata-table-wrap .employee-table {
+  min-width: 960px;
+  table-layout: fixed;
+}
+
+.metadata-table th:last-child,
+.metadata-table td:last-child {
+  width: 17.5rem;
+  min-width: 17.5rem;
+  max-width: 17.5rem;
+}
+
+.metadata-action-cluster {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.metadata-table .employee-actions-cell {
+  overflow: hidden;
+  text-align: left;
+}
+
+.metadata-table .employee-action-btn {
+  flex: 0 1 auto;
+}
+
+@media (max-width: 1919.98px) {
+  .employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) {
+    --employee-filter-column-min: 12rem;
+  }
+}
+
+@media (max-width: 1439.98px) {
+  .employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) {
+    --employee-filter-column-min: 11.5rem;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .metadata-table th:last-child,
+  .metadata-table td:last-child {
+    width: 16rem;
+    min-width: 16rem;
+    max-width: 16rem;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metadata-table th:last-child,
+  .metadata-table td:last-child {
+    width: 14rem;
+    min-width: 14rem;
+    max-width: 14rem;
+  }
+
+  .metadata-table .employee-action-btn,
+  .metadata-table .employee-action-btn:hover,
+  .metadata-table .employee-action-btn:focus-visible {
+    inline-size: 2.65rem;
+    min-inline-size: 2.65rem;
+    max-inline-size: 2.65rem;
+    justify-content: center;
+    padding: 0.36rem;
+  }
+
+  .metadata-table .employee-action-btn__label,
+  .metadata-table .employee-action-btn:hover .employee-action-btn__label,
+  .metadata-table .employee-action-btn:focus-visible .employee-action-btn__label {
+    max-inline-size: 0;
+    opacity: 0;
+    margin-inline-start: 0;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -205,6 +205,48 @@ export function BriefcaseIcon({ className }) {
   )
 }
 
+export function HomeIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="m3 11 9-7 9 7" />
+      <path d="M6.5 10.5V20h11V10.5" />
+      <path d="M10 20v-5h4v5" />
+    </svg>
+  )
+}
+
+export function UsersIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <circle cx="9" cy="9" r="3" />
+      <path d="M4 19a5 5 0 0 1 10 0" />
+      <circle cx="17.2" cy="9.8" r="2.2" />
+      <path d="M14.8 18.3a4.2 4.2 0 0 1 5.2-2.7" />
+    </svg>
+  )
+}
+
+export function ClockIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5v5l3.5 2" />
+    </svg>
+  )
+}
+
+export function ChecklistIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="4" y="5" width="16" height="15" rx="2" />
+      <path d="m7.5 10 1.5 1.6L11 9.3" />
+      <path d="M13 10h4" />
+      <path d="m7.5 15 1.5 1.6L11 14.3" />
+      <path d="M13 15h4" />
+    </svg>
+  )
+}
+
 
 export function CheckIcon({ className }) {
   return (

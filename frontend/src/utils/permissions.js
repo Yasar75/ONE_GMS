@@ -19,7 +19,10 @@ const ROLE_MODULE_ALIAS_MAP = {
   'Apply Leave Requests': 'Leave Request',
   'Manage Leave Requests': 'Manage Leave',
   'Project Management': 'Project',
-  'Project Mapping': 'Project'
+  'Project Mapping': 'Project Assignment',
+  'Project Assignments': 'Project Assignment',
+  'Task Management': 'Project Task',
+  'Project Tasks': 'Project Task'
 }
 
 export const PERMISSION_ACTIONS = {
@@ -60,7 +63,9 @@ export const PERMISSION_MODULES = {
   myLeaveBalance: ['My Leave Balance', 'My Leave Balances'],
   leaveRequest: ['Leave Request', 'Apply Leave Requests'],
   manageLeave: ['Manage Leave', 'Manage Leave Requests'],
-  project: ['Project', 'Project Management', 'Project Mapping']
+  project: ['Project', 'Project Management'],
+  projectAssignment: ['Project Assignment', 'Project Mapping', 'Project Assignments'],
+  projectTask: ['Project Task', 'Task Management', 'Project Tasks']
 }
 
 export const ROLE_MATRIX_MODULES = dedupePermissionModules([
@@ -88,7 +93,9 @@ export const ROLE_MATRIX_MODULES = dedupePermissionModules([
   'My Leave Balance',
   'Leave Request',
   'Manage Leave',
-  'Project'
+  'Project',
+  'Project Assignment',
+  'Project Task'
 ])
 
 export const EMPLOYEE_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
@@ -113,7 +120,12 @@ export const LEAVE_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
 ])
 
 export const PROJECT_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
-  ...PERMISSION_MODULES.project
+  ...PERMISSION_MODULES.project,
+  ...PERMISSION_MODULES.projectAssignment
+])
+
+export const TASK_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
+  ...PERMISSION_MODULES.projectTask
 ])
 
 export const SELF_SERVICE_ATTENDANCE_ROUTE_MODULES = dedupePermissionModules([
@@ -133,12 +145,14 @@ const APP_ROUTE_ACCESS = {
     ...EMPLOYEE_MANAGEMENT_ROUTE_MODULES,
     ...ATTENDANCE_MANAGEMENT_ROUTE_MODULES,
     ...LEAVE_MANAGEMENT_ROUTE_MODULES,
-    ...PROJECT_MANAGEMENT_ROUTE_MODULES
+    ...PROJECT_MANAGEMENT_ROUTE_MODULES,
+    ...TASK_MANAGEMENT_ROUTE_MODULES
   ]),
   '/admin/employees-management': EMPLOYEE_MANAGEMENT_ROUTE_MODULES,
   '/admin/attendance-management': ATTENDANCE_MANAGEMENT_ROUTE_MODULES,
   '/admin/leave-management': LEAVE_MANAGEMENT_ROUTE_MODULES,
   '/admin/project-management': PROJECT_MANAGEMENT_ROUTE_MODULES,
+  '/admin/task-management': TASK_MANAGEMENT_ROUTE_MODULES,
   '/employee/dashboard': dedupePermissionModules([
     ...SELF_SERVICE_ATTENDANCE_ROUTE_MODULES,
     ...SELF_SERVICE_LEAVE_ROUTE_MODULES
@@ -153,6 +167,7 @@ const HOME_ROUTE_ORDER = [
   '/admin/attendance-management',
   '/admin/leave-management',
   '/admin/project-management',
+  '/admin/task-management',
   '/employee/dashboard',
   '/employee/attendance',
   '/employee/apply-leave'

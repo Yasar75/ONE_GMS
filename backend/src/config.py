@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = Field(default=30, ge=1)
     DB_POOL_RECYCLE: int = Field(default=1800, ge=0)
     # SSL toggles + certs (config-driven)
-    DB_FORCE_SSL: bool = False
+    DB_FORCE_SSL: bool = True
     DB_DISABLE_SSL: bool = False
     DB_SSL_CA_CERT: str | None = None          # PEM (multiline)
     DB_APP_NAME: str | None = None
