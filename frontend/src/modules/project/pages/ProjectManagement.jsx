@@ -974,12 +974,12 @@ function TaskFormModal({
     </ModalFrame>
   )
 }
-export default function ProjectManagement({ view = 'project' }) {
+export default function ProjectManagement() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const { showStatus, showConfirm, runWithLoader } = useModal()
   const { user } = useAuth()
-  const isTaskView = view === 'task'
+  const isTaskView = false
   const todayIsoDate = getTodayIsoDate()
   const projectExportMenuId = 'projectManagementExportMenu'
   const taskExportMenuId = 'taskManagementExportMenu'
