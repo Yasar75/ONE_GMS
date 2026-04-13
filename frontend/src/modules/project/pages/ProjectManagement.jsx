@@ -8,7 +8,8 @@ import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import AppSearchField from '../../../components/common/AppSearchField.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
-import { FilterIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from '../../../components/common/AppIcons.jsx'
+import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
+import { DownloadIcon, ExportIcon, FilterIcon, ImportIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from '../../../components/common/AppIcons.jsx'
 import { TableActionButton, TableActionCluster, TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { AttendanceTabs } from '../../attendance/components/AttendanceShared.jsx'
 
@@ -29,6 +30,19 @@ import {
   hasModuleVisibility,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
+import { isIsoDateInput, normalizeDateInput } from '../../../utils/employee.js'
+import {
+  downloadProjectImportTemplateCsv,
+  downloadProjectImportTemplateExcel,
+  downloadProjectsAsCsv,
+  downloadProjectsAsExcel,
+  downloadTaskImportTemplateCsv,
+  downloadTaskImportTemplateExcel,
+  downloadTasksAsCsv,
+  downloadTasksAsExcel,
+  parseProjectManagementImportFile,
+  pickImportValue
+} from '../../../utils/projectManagement.js'
 import { filterCollectionByQuery } from '../../../utils/search.js'
 import { getDateRangeValidationMessage, getRequiredFieldMessage, hasValidationErrors, markFieldsTouched } from '../../../utils/validation.js'
 
@@ -45,16 +59,59 @@ const PROJECT_STATUS_OPTIONS = ['Draft', 'Planned', 'Active', 'On Hold', 'Comple
 const ASSIGNMENT_STATUS_OPTIONS = ['Assigned', 'Active', 'Released', 'Hold', 'Completed', 'Terminated', 'Inactive']
 const PROJECT_REQUIRED_FIELDS = ['projectCode', 'projectName']
 const ASSIGNMENT_REQUIRED_FIELDS = ['projectUid', 'employeeUid']
-const TASK_REQUIRED_FIELDS = ['projectUid', 'employeeUid']
+const TASK_REQUIRED_FIELDS = ['employeeUid', 'projectUid', 'taskDate']
+const TASK_DEFAULT_STANDARD_HOURS = 8
+const PROJECT_TIMELINE_FILTER_OPTIONS = [
+  { value: 'All', label: 'All timelines', description: 'No filter applied' },
+  { value: 'Upcoming', label: 'Upcoming', description: 'Starts after today' },
+  { value: 'Ongoing', label: 'Ongoing', description: 'Within active timeline' },
+  { value: 'Ended', label: 'Ended', description: 'Ended before today' },
+  { value: 'No Schedule', label: 'No schedule', description: 'Missing timeline dates' }
+]
+const PROJECT_ASSIGNMENT_COVERAGE_FILTER_OPTIONS = [
+  { value: 'All', label: 'All assignment coverage', description: 'No filter applied' },
+  { value: 'Assigned', label: 'Assigned projects', description: 'Has one or more assignments' },
+  { value: 'Unassigned', label: 'Unassigned projects', description: 'No assignments mapped' },
+  { value: 'Active Assignments', label: 'Active assignments', description: 'At least one active/billable assignment' },
+  { value: 'Multi Employee', label: 'Multiple employees', description: 'Mapped to more than one employee' }
+]
+const PROJECT_TASK_COVERAGE_FILTER_OPTIONS = [
+  { value: 'All', label: 'All task coverage', description: 'No filter applied' },
+  { value: 'With Tasks', label: 'With tasks', description: 'Has task entries' },
+  { value: 'No Tasks', label: 'No tasks', description: 'No task entries' },
+  { value: 'Hours Logged', label: 'Hours logged', description: 'Has logged work hours' },
+  { value: 'No Hours', label: 'No hours', description: 'No logged work hours' }
+]
+const TASK_HOURS_FILTER_OPTIONS = [
+  { value: 'All', label: 'All hours', description: 'No filter applied' },
+  { value: 'Standard', label: 'Standard (<=8)', description: 'Up to standard workday hours' },
+  { value: 'Overtime', label: 'Overtime (>8)', description: 'More than standard workday hours' },
+  { value: 'Zero Hours', label: 'Zero hours', description: 'No logged hours' },
+  { value: 'Logged Hours', label: 'Logged hours', description: 'At least one hour logged' }
+]
+const TASK_REVIEW_FILTER_OPTIONS = [
+  { value: 'All', label: 'All review buckets', description: 'No filter applied' },
+  { value: 'Rejected', label: 'Rejected', description: 'Rejected volume is present' },
+  { value: 'Approved', label: 'Approved', description: 'Approved volume is present' },
+  { value: 'Reviewed', label: 'Reviewed', description: 'Reviewed volume is present' },
+  { value: 'Rework', label: 'Rework', description: 'Rework volume is present' },
+  { value: 'In Progress', label: 'In Progress', description: 'In progress volume is present' },
+  { value: 'Completed', label: 'Completed', description: 'Completed volume is present' },
+  { value: 'No Volume', label: 'No volume', description: 'No status volumes logged' }
+]
+const BILLABLE_ASSIGNMENT_STATUSES = new Set(['assigned', 'active'])
+const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['released', 'hold', 'terminated', 'inactive', 'completed'])
 const TASK_NUMBER_FIELDS = [
   { key: 'hourWork', label: 'Hours worked' },
-  { key: 'taskCompleted', label: 'Tasks completed' },
-  { key: 'taskInprogress', label: 'Tasks in progress' },
-  { key: 'taskRework', label: 'Tasks in rework' },
-  { key: 'taskApproved', label: 'Tasks approved' },
-  { key: 'taskRejected', label: 'Tasks rejected' },
-  { key: 'taskReviewed', label: 'Tasks reviewed' }
+  { key: 'taskCompleted', label: 'Tasks completed', tone: 'green' },
+  { key: 'taskInprogress', label: 'Tasks in progress', tone: 'blue' },
+  { key: 'taskRework', label: 'Tasks in rework', tone: 'orange' },
+  { key: 'taskApproved', label: 'Tasks approved', tone: 'teal' },
+  { key: 'taskRejected', label: 'Tasks rejected', tone: 'red' },
+  { key: 'taskReviewed', label: 'Tasks reviewed', tone: 'purple' }
 ]
+
+const TASK_STATUS_NUMBER_FIELDS = TASK_NUMBER_FIELDS.filter((field) => field.key !== 'hourWork')
 
 function compactUid(value) {
   const normalizedValue = String(value || '').trim()
@@ -103,6 +160,115 @@ function parseApiError(error, fallbackMessage) {
   return error?.response?.data?.detail || error?.message || fallbackMessage
 }
 
+function toIsoDateString(value) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getTodayIsoDate() {
+  return toIsoDateString(new Date())
+}
+
+function normalizeAssignmentStatus(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function resolveBillingStatus(assignmentStatuses = []) {
+  const normalizedStatuses = Array.from(new Set((Array.isArray(assignmentStatuses) ? assignmentStatuses : [])
+    .map(normalizeAssignmentStatus)
+    .filter(Boolean)))
+
+  if (normalizedStatuses.some((status) => BILLABLE_ASSIGNMENT_STATUSES.has(status))) {
+    return 'Billable'
+  }
+
+  if (normalizedStatuses.length && normalizedStatuses.every((status) => NON_BILLABLE_ASSIGNMENT_STATUSES.has(status))) {
+    return 'Non Billable'
+  }
+
+  return 'Non Billable'
+}
+
+function toBillingStatusTone(status) {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (normalized === 'billable') return 'green'
+  if (normalized === 'non billable' || normalized === 'nonbillable') return 'red'
+  return 'gray'
+}
+
+function parseStrictWholeNumber(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  if (!/^-?\d+$/.test(raw)) return Number.NaN
+  return Number.parseInt(raw, 10)
+}
+
+function parseYesNoBoolean(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return false
+  return ['1', 'true', 'yes', 'y'].includes(raw)
+}
+
+function isAssignmentActiveForDate(assignment, taskDateValue = '') {
+  if (!assignment) return false
+
+  const normalizedTaskDate = String(taskDateValue || '').trim()
+  if (!normalizedTaskDate) {
+    const status = normalizeAssignmentStatus(assignment.status)
+    return BILLABLE_ASSIGNMENT_STATUSES.has(status)
+  }
+
+  const assignedFrom = String(assignment.assignedFrom || '').trim()
+  const assignedTo = String(assignment.assignedTo || '').trim()
+  if (assignedFrom && assignedFrom > normalizedTaskDate) return false
+  if (assignedTo && assignedTo < normalizedTaskDate) return false
+  return true
+}
+
+function resolveTaskAssignmentUid(assignments = [], { employeeUid = '', projectUid = '', taskDate = '', preferredUid = '' } = {}) {
+  const normalizedEmployeeUid = String(employeeUid || '').trim()
+  const normalizedProjectUid = String(projectUid || '').trim()
+  if (!normalizedEmployeeUid || !normalizedProjectUid) return ''
+
+  const compatibleAssignments = (Array.isArray(assignments) ? assignments : [])
+    .filter((assignment) => (
+      String(assignment.employeeUid || '') === normalizedEmployeeUid
+        && String(assignment.projectUid || '') === normalizedProjectUid
+        && String(assignment.uid || '').trim()
+    ))
+
+  if (!compatibleAssignments.length) return ''
+
+  const normalizedPreferredUid = String(preferredUid || '').trim()
+  if (normalizedPreferredUid && compatibleAssignments.some((assignment) => String(assignment.uid || '') === normalizedPreferredUid)) {
+    return normalizedPreferredUid
+  }
+
+  const dateScopedAssignments = compatibleAssignments.filter((assignment) => isAssignmentActiveForDate(assignment, taskDate))
+  const pool = dateScopedAssignments.length ? dateScopedAssignments : compatibleAssignments
+
+  const sorted = [...pool].sort((left, right) => {
+    const leftStatusRank = BILLABLE_ASSIGNMENT_STATUSES.has(normalizeAssignmentStatus(left.status)) ? 1 : 0
+    const rightStatusRank = BILLABLE_ASSIGNMENT_STATUSES.has(normalizeAssignmentStatus(right.status)) ? 1 : 0
+    if (leftStatusRank !== rightStatusRank) return rightStatusRank - leftStatusRank
+
+    const leftAssignedFrom = Date.parse(left.assignedFrom || '') || 0
+    const rightAssignedFrom = Date.parse(right.assignedFrom || '') || 0
+    if (leftAssignedFrom !== rightAssignedFrom) return rightAssignedFrom - leftAssignedFrom
+
+    const leftUpdated = Date.parse(left.updatedAt || left.createdAt || '') || 0
+    const rightUpdated = Date.parse(right.updatedAt || right.createdAt || '') || 0
+    return rightUpdated - leftUpdated
+  })
+
+  return String(sorted[0]?.uid || '')
+}
+
 function toProjectStatusTone(status) {
   const normalized = String(status || '').trim().toLowerCase()
   if (normalized === 'active') return 'green'
@@ -122,21 +288,49 @@ function toAssignmentStatusTone(status) {
   return 'gray'
 }
 
-function toTaskReviewTone(task) {
-  if (Number(task?.taskRejected || 0) > 0) return 'red'
-  if (Number(task?.taskApproved || 0) > 0) return 'green'
-  if (Number(task?.taskReviewed || 0) > 0) return 'teal'
-  if (Number(task?.taskInprogress || 0) > 0 || Number(task?.taskRework || 0) > 0) return 'amber'
-  return 'gray'
+function resolveProjectTimelineBucket(project, todayIsoDate) {
+  const startDate = String(project?.startDate || '').trim()
+  const endDate = String(project?.endDate || '').trim()
+
+  if (!startDate && !endDate) return 'No Schedule'
+  if (startDate && startDate > todayIsoDate) return 'Upcoming'
+  if (endDate && endDate < todayIsoDate) return 'Ended'
+  if (startDate && startDate <= todayIsoDate && (!endDate || endDate >= todayIsoDate)) return 'Ongoing'
+  return 'No Schedule'
+}
+
+function isDateInRange(dateValue, range) {
+  if (!dateValue) return !range?.start && !range?.end
+  const normalizedValue = String(dateValue || '').trim()
+  if (range?.start && normalizedValue < String(range.start)) return false
+  if (range?.end && normalizedValue > String(range.end)) return false
+  return true
+}
+
+function resolveTaskReviewBucket(task) {
+  if (Number(task?.taskRejected || 0) > 0) return 'Rejected'
+  if (Number(task?.taskApproved || 0) > 0) return 'Approved'
+  if (Number(task?.taskReviewed || 0) > 0) return 'Reviewed'
+  if (Number(task?.taskRework || 0) > 0) return 'Rework'
+  if (Number(task?.taskInprogress || 0) > 0) return 'In Progress'
+  if (Number(task?.taskCompleted || 0) > 0) return 'Completed'
+  return 'No Volume'
 }
 
 function createProjectDraft(project = null) {
+  const todayIsoDate = getTodayIsoDate()
+  const initialStartDate = project
+    ? (normalizeDateInput(project?.startDate || '') || '')
+    : todayIsoDate
+  const initialEndDate = normalizeDateInput(project?.endDate || '')
+
   return {
     projectCode: project?.projectCode || '',
     projectName: project?.projectName || '',
     description: project?.description || '',
-    startDate: project?.startDate || '',
-    endDate: project?.endDate || '',
+    startDate: initialStartDate,
+    endDate: initialEndDate,
+    isInactive: Boolean(initialEndDate),
     status: project?.status || ''
   }
 }
@@ -156,12 +350,17 @@ function createAssignmentDraft(assignment = null) {
 }
 
 function createTaskDraft(task = null) {
+  const todayIsoDate = getTodayIsoDate()
+  const resolvedHourWork = parseNonNegativeInteger(task?.hourWork, TASK_DEFAULT_STANDARD_HOURS)
+  const normalizedTaskDate = normalizeDateInput(task?.taskDate || todayIsoDate)
+
   return {
     projectUid: task?.projectUid || '',
     employeeUid: task?.employeeUid || '',
     projectAssignmentUid: task?.projectAssignmentUid || '',
-    taskDate: task?.taskDate || '',
-    hourWork: String(task?.hourWork ?? 0),
+    taskDate: normalizedTaskDate || todayIsoDate,
+    hourWork: String(resolvedHourWork),
+    overtime: resolvedHourWork > TASK_DEFAULT_STANDARD_HOURS,
     taskCompleted: String(task?.taskCompleted ?? 0),
     taskInprogress: String(task?.taskInprogress ?? 0),
     taskRework: String(task?.taskRework ?? 0),
@@ -173,13 +372,18 @@ function createTaskDraft(task = null) {
 }
 
 function buildProjectErrors(draft) {
-  return {
-    projectCode: getRequiredFieldMessage(draft.projectCode, 'Project code'),
-    projectName: getRequiredFieldMessage(draft.projectName, 'Project name'),
-    endDate: getDateRangeValidationMessage(draft.startDate, draft.endDate, {
+  const endDateRequired = draft.isInactive ? getRequiredFieldMessage(draft.endDate, 'End date') : ''
+  const endDateRange = draft.isInactive
+    ? getDateRangeValidationMessage(draft.startDate, draft.endDate, {
       startLabel: 'Start date',
       endLabel: 'End date'
     })
+    : ''
+
+  return {
+    projectCode: getRequiredFieldMessage(draft.projectCode, 'Project code'),
+    projectName: getRequiredFieldMessage(draft.projectName, 'Project name'),
+    endDate: endDateRequired || endDateRange
   }
 }
 
@@ -202,9 +406,15 @@ function buildAssignmentErrors(draft) {
 }
 
 function buildTaskErrors(draft) {
+  const todayIsoDate = getTodayIsoDate()
   const errors = {
+    employeeUid: getRequiredFieldMessage(draft.employeeUid, 'Employee'),
     projectUid: getRequiredFieldMessage(draft.projectUid, 'Project'),
-    employeeUid: getRequiredFieldMessage(draft.employeeUid, 'Employee')
+    taskDate: getRequiredFieldMessage(draft.taskDate, 'Task date')
+  }
+
+  if (!errors.taskDate && draft.taskDate && String(draft.taskDate) > todayIsoDate) {
+    errors.taskDate = 'Task date cannot be in the future.'
   }
 
   TASK_NUMBER_FIELDS.forEach(({ key, label }) => {
@@ -222,6 +432,11 @@ function buildTaskErrors(draft) {
 
     if (numeric < 0) {
       errors[key] = `${label} cannot be negative.`
+      return
+    }
+
+    if (key === 'hourWork' && !draft.overtime && numeric > TASK_DEFAULT_STANDARD_HOURS) {
+      errors[key] = `Enable Overtime to log more than ${TASK_DEFAULT_STANDARD_HOURS} hours.`
       return
     }
 
@@ -271,14 +486,213 @@ function buildAssignmentOptions(assignments = [], projectByUid = new Map(), empl
   return [{ value: 'All', label: 'All assignments', description: 'No filter applied' }, ...options]
 }
 
-function isAssignmentCompatible(assignment, projectUid = '', employeeUid = '') {
-  if (!assignment) return false
-  const normalizedProjectUid = String(projectUid || '').trim()
-  const normalizedEmployeeUid = String(employeeUid || '').trim()
-  const projectMatch = !normalizedProjectUid || String(assignment.projectUid || '') === normalizedProjectUid
-  const employeeMatch = !normalizedEmployeeUid || String(assignment.employeeUid || '') === normalizedEmployeeUid
-  return projectMatch && employeeMatch
+function buildProjectImportPayloads(rows = [], projects = []) {
+  const existingCodes = new Set((Array.isArray(projects) ? projects : [])
+    .map((project) => String(project.projectCode || '').trim().toUpperCase())
+    .filter(Boolean))
+  const pendingCodes = new Set()
+  const payloads = []
+  const errors = []
+
+  ;(Array.isArray(rows) ? rows : []).forEach((row, index) => {
+    const rowNumber = index + 2
+    const projectCode = pickImportValue(row, ['Project Code', 'Code']).trim()
+    const projectName = pickImportValue(row, ['Project Name', 'Name']).trim()
+    const status = pickImportValue(row, ['Status']).trim()
+    const description = pickImportValue(row, ['Description', 'Remarks']).trim()
+    const startDateInput = pickImportValue(row, ['Start Date']).trim()
+    const endDateInput = pickImportValue(row, ['End Date']).trim()
+    const startDate = normalizeDateInput(startDateInput)
+    const endDate = normalizeDateInput(endDateInput)
+    const normalizedProjectCode = projectCode.toUpperCase()
+
+    if (startDateInput && !isIsoDateInput(startDate)) {
+      errors.push(`Row ${rowNumber}: invalid Start Date "${startDateInput}". Use YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or Excel serial date.`)
+      return
+    }
+
+    if (endDateInput && !isIsoDateInput(endDate)) {
+      errors.push(`Row ${rowNumber}: invalid End Date "${endDateInput}". Use YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or Excel serial date.`)
+      return
+    }
+
+    const requiredChecks = [
+      ['Project Code', projectCode],
+      ['Project Name', projectName]
+    ]
+    const missing = requiredChecks.filter(([, value]) => !value).map(([label]) => label)
+    if (missing.length) {
+      errors.push(`Row ${rowNumber}: missing ${missing.join(', ')}.`)
+      return
+    }
+
+    if (existingCodes.has(normalizedProjectCode) || pendingCodes.has(normalizedProjectCode)) {
+      errors.push(`Row ${rowNumber}: project code ${projectCode} already exists.`)
+      return
+    }
+
+    if (startDate && endDate && endDate < startDate) {
+      errors.push(`Row ${rowNumber}: End Date cannot be earlier than Start Date.`)
+      return
+    }
+
+    pendingCodes.add(normalizedProjectCode)
+    payloads.push({
+      projectCode,
+      projectName,
+      status,
+      startDate: startDate || '',
+      endDate: endDate || '',
+      description
+    })
+  })
+
+  return { payloads, errors }
 }
+
+function buildTaskImportPayloads(rows = [], {
+  employees = [],
+  projects = [],
+  assignments = []
+} = {}) {
+  const todayIsoDate = getTodayIsoDate()
+  const payloads = []
+  const errors = []
+
+  const employeeByCode = new Map((Array.isArray(employees) ? employees : [])
+    .map((employee) => [String(employee.employeeCode || '').trim().toUpperCase(), employee])
+    .filter(([key]) => key))
+
+  const projectUidByCode = new Map((Array.isArray(projects) ? projects : [])
+    .map((project) => [String(project.projectCode || '').trim().toUpperCase(), String(project.uid || '')])
+    .filter(([key, value]) => key && value))
+
+  const assignmentsByEmployee = new Map()
+  ;(Array.isArray(assignments) ? assignments : []).forEach((assignment) => {
+    const employeeUid = String(assignment.employeeUid || '').trim()
+    if (!employeeUid) return
+    const bucket = assignmentsByEmployee.get(employeeUid) || []
+    bucket.push(assignment)
+    assignmentsByEmployee.set(employeeUid, bucket)
+  })
+
+  ;(Array.isArray(rows) ? rows : []).forEach((row, index) => {
+    const rowNumber = index + 2
+    const employeeCodeInput = pickImportValue(row, ['Employee Code']).trim().toUpperCase()
+    const projectCodeInput = pickImportValue(row, ['Project Code']).trim().toUpperCase()
+    const taskDateInput = pickImportValue(row, ['Task Date', 'Date']).trim()
+    const taskDate = normalizeDateInput(taskDateInput || todayIsoDate)
+    const remarks = pickImportValue(row, ['Remarks', 'Comment']).trim()
+
+    const overtime = parseYesNoBoolean(pickImportValue(row, ['Overtime']))
+    const hourWorkRaw = pickImportValue(row, ['Hours Worked', 'Hours Work', 'Hour Work', 'Hours']).trim()
+    const parsedHourWork = hourWorkRaw ? parseStrictWholeNumber(hourWorkRaw) : TASK_DEFAULT_STANDARD_HOURS
+
+    if (!employeeCodeInput) {
+      errors.push(`Row ${rowNumber}: Employee Code is required.`)
+      return
+    }
+
+    const employee = employeeByCode.get(employeeCodeInput)
+    if (!employee) {
+      errors.push(`Row ${rowNumber}: employee code ${employeeCodeInput} was not found.`)
+      return
+    }
+
+    if (taskDateInput && !isIsoDateInput(taskDate)) {
+      errors.push(`Row ${rowNumber}: invalid Task Date "${taskDateInput}". Use YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or Excel serial date.`)
+      return
+    }
+
+    if (!taskDate || !isIsoDateInput(taskDate)) {
+      errors.push(`Row ${rowNumber}: Task Date is invalid.`)
+      return
+    }
+
+    if (taskDate > todayIsoDate) {
+      errors.push(`Row ${rowNumber}: Task Date cannot be in the future.`)
+      return
+    }
+
+    if (!Number.isInteger(parsedHourWork) || parsedHourWork < 0) {
+      errors.push(`Row ${rowNumber}: Hours Worked must be a non-negative whole number.`)
+      return
+    }
+
+    if (!overtime && parsedHourWork > TASK_DEFAULT_STANDARD_HOURS) {
+      errors.push(`Row ${rowNumber}: Hours Worked above ${TASK_DEFAULT_STANDARD_HOURS} requires Overtime = Yes.`)
+      return
+    }
+
+    const employeeAssignments = assignmentsByEmployee.get(String(employee.uid || '')) || []
+    if (!employeeAssignments.length) {
+      errors.push(`Row ${rowNumber}: employee ${employeeCodeInput} is not mapped to any project assignment.`)
+      return
+    }
+
+    let projectUid = ''
+    if (projectCodeInput) {
+      projectUid = projectUidByCode.get(projectCodeInput) || ''
+      if (!projectUid) {
+        errors.push(`Row ${rowNumber}: project code ${projectCodeInput} was not found.`)
+        return
+      }
+    } else {
+      const mappedProjectUids = Array.from(new Set(employeeAssignments.map((assignment) => String(assignment.projectUid || '')).filter(Boolean)))
+      if (mappedProjectUids.length === 1) {
+        projectUid = mappedProjectUids[0]
+      } else {
+        errors.push(`Row ${rowNumber}: Project Code is required when the employee is mapped to multiple projects.`)
+        return
+      }
+    }
+
+    const projectCompatibleAssignments = employeeAssignments.filter((assignment) => String(assignment.projectUid || '') === String(projectUid || ''))
+    if (!projectCompatibleAssignments.length) {
+      errors.push(`Row ${rowNumber}: employee ${employeeCodeInput} is not mapped to project ${projectCodeInput || compactUid(projectUid)}.`)
+      return
+    }
+
+    const projectAssignmentUid = resolveTaskAssignmentUid(projectCompatibleAssignments, {
+      employeeUid: employee.uid,
+      projectUid,
+      taskDate
+    })
+    if (!projectAssignmentUid) {
+      errors.push(`Row ${rowNumber}: project assignment could not be resolved for employee ${employeeCodeInput}.`)
+      return
+    }
+
+    const numericValues = {}
+    for (const field of TASK_STATUS_NUMBER_FIELDS) {
+      const rawValue = pickImportValue(row, [field.label, field.label.replace(/\s+/g, '')]).trim()
+      const parsedValue = rawValue ? parseStrictWholeNumber(rawValue) : 0
+      if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+        errors.push(`Row ${rowNumber}: ${field.label} must be a non-negative whole number.`)
+        return
+      }
+      numericValues[field.key] = parsedValue
+    }
+
+    payloads.push({
+      employeeUid: String(employee.uid || ''),
+      projectUid: String(projectUid || ''),
+      projectAssignmentUid: String(projectAssignmentUid || ''),
+      taskDate,
+      hourWork: parsedHourWork,
+      taskCompleted: numericValues.taskCompleted || 0,
+      taskInprogress: numericValues.taskInprogress || 0,
+      taskRework: numericValues.taskRework || 0,
+      taskApproved: numericValues.taskApproved || 0,
+      taskRejected: numericValues.taskRejected || 0,
+      taskReviewed: numericValues.taskReviewed || 0,
+      remarks
+    })
+  })
+
+  return { payloads, errors }
+}
+
 function MetricCard({ title, value, helper, tone = 'blue' }) {
   return (
     <div className="card border-0 shadow-sm employee-metric-card h-100">
@@ -306,6 +720,7 @@ function StateCard({ title, message, actionLabel = '', onAction = null }) {
 
 function ProjectFormModal({ open, mode, draft, errors, touched, onChange, onBlur, onClose, onSubmit }) {
   const statusOptions = [{ value: '', label: 'Not set', description: 'No status selected' }, ...PROJECT_STATUS_OPTIONS.map((value) => ({ value, label: value }))]
+  const showEndDate = Boolean(draft.isInactive)
 
   return (
     <ModalFrame
@@ -331,18 +746,38 @@ function ProjectFormModal({ open, mode, draft, errors, touched, onChange, onBlur
           <input type="text" name="projectName" className={`form-control${touched.projectName && errors.projectName ? ' is-invalid' : ''}`} value={draft.projectName} onChange={onChange} onBlur={onBlur} />
           {touched.projectName && errors.projectName ? <div className="invalid-feedback d-block">{errors.projectName}</div> : null}
         </div>
-        <div className="col-12 col-md-4">
+        <div className="col-12 col-md-6">
           <label className="form-label">Status</label>
           <AppSelect name="status" value={draft.status} onChange={onChange} onBlur={onBlur} options={statusOptions} placeholder="Select status" />
         </div>
-        <div className="col-12 col-md-4">
+        <div className="col-12 col-md-6">
           <label className="form-label">Start Date</label>
           <input type="date" name="startDate" className="form-control" value={draft.startDate} onChange={onChange} onBlur={onBlur} />
         </div>
-        <div className="col-12 col-md-4">
-          <label className="form-label">End Date</label>
-          <input type="date" name="endDate" className={`form-control${touched.endDate && errors.endDate ? ' is-invalid' : ''}`} value={draft.endDate} onChange={onChange} onBlur={onBlur} />
-          {touched.endDate && errors.endDate ? <div className="invalid-feedback d-block">{errors.endDate}</div> : null}
+        <div className="col-12">
+          <div className="row g-3 align-items-start justify-content-start">
+            <div className={`col-12 ${showEndDate ? 'col-md-4' : 'col-md-3'}`}>
+              <div className="form-check project-inactive-toggle mb-0">
+                <input
+                  id="projectInactiveToggle"
+                  type="checkbox"
+                  className="form-check-input"
+                  name="isInactive"
+                  checked={Boolean(draft.isInactive)}
+                  onChange={onChange}
+                  onBlur={onBlur}
+                />
+                <label className="form-check-label" htmlFor="projectInactiveToggle">Inactive</label>
+              </div>
+            </div>
+            {showEndDate ? (
+              <div className="col-12 col-md-4">
+                <label className="form-label">End Date</label>
+                <input type="date" name="endDate" className={`form-control${touched.endDate && errors.endDate ? ' is-invalid' : ''}`} value={draft.endDate} onChange={onChange} onBlur={onBlur} />
+                {touched.endDate && errors.endDate ? <div className="invalid-feedback d-block">{errors.endDate}</div> : null}
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="col-12">
           <label className="form-label">Description</label>
@@ -415,7 +850,24 @@ function AssignmentFormModal({ open, mode, draft, errors, touched, projectOption
   )
 }
 
-function TaskFormModal({ open, mode, draft, errors, touched, projectOptions, employeeOptions, assignmentOptions, onChange, onBlur, onClose, onSubmit }) {
+function TaskFormModal({
+  open,
+  mode,
+  draft,
+  errors,
+  touched,
+  taskProjectOptions,
+  employeeOptions,
+  selectedBillingStatus,
+  todayIsoDate,
+  onChange,
+  onBlur,
+  onClose,
+  onSubmit
+}) {
+  const selectedProjectCount = taskProjectOptions.length
+  const taskDateColumnClass = 'col-12 col-md-6'
+
   return (
     <ModalFrame
       open={open}
@@ -431,27 +883,84 @@ function TaskFormModal({ open, mode, draft, errors, touched, projectOptions, emp
     >
       <div className="row g-3">
         <div className="col-12 col-md-6">
-          <label className="form-label">Project</label>
-          <AppSelect name="projectUid" value={draft.projectUid} onChange={onChange} onBlur={onBlur} options={projectOptions} placeholder="Select project" invalid={Boolean(touched.projectUid && errors.projectUid)} />
-          {touched.projectUid && errors.projectUid ? <div className="invalid-feedback d-block">{errors.projectUid}</div> : null}
-        </div>
-        <div className="col-12 col-md-6">
           <label className="form-label">Employee</label>
           <AppSelect name="employeeUid" value={draft.employeeUid} onChange={onChange} onBlur={onBlur} options={employeeOptions} placeholder="Select employee" invalid={Boolean(touched.employeeUid && errors.employeeUid)} />
           {touched.employeeUid && errors.employeeUid ? <div className="invalid-feedback d-block">{errors.employeeUid}</div> : null}
         </div>
         <div className="col-12 col-md-6">
-          <label className="form-label">Project Assignment (Optional)</label>
-          <AppSelect name="projectAssignmentUid" value={draft.projectAssignmentUid} onChange={onChange} onBlur={onBlur} options={assignmentOptions} placeholder="Select assignment" />
+          <label className="form-label">Project</label>
+          <AppSelect
+            name="projectUid"
+            value={draft.projectUid}
+            onChange={onChange}
+            onBlur={onBlur}
+            options={taskProjectOptions}
+            placeholder={draft.employeeUid ? 'Select mapped project' : 'Select employee first'}
+            disabled={!draft.employeeUid}
+            invalid={Boolean(touched.projectUid && errors.projectUid)}
+          />
+          {touched.projectUid && errors.projectUid ? <div className="invalid-feedback d-block">{errors.projectUid}</div> : null}
+          {draft.employeeUid ? (
+            <div className="form-text">
+              {selectedProjectCount === 0 ? 'No mapped project found for this employee.' : `Mapped projects: ${selectedProjectCount}`}
+            </div>
+          ) : null}
         </div>
-        <div className="col-12 col-md-6">
+        <div className={taskDateColumnClass}>
           <label className="form-label">Task Date</label>
-          <input type="date" name="taskDate" className="form-control" value={draft.taskDate} onChange={onChange} onBlur={onBlur} />
+          <input type="date" name="taskDate" max={todayIsoDate} className={`form-control${touched.taskDate && errors.taskDate ? ' is-invalid' : ''}`} value={draft.taskDate} onChange={onChange} onBlur={onBlur} />
+          {touched.taskDate && errors.taskDate ? <div className="invalid-feedback d-block">{errors.taskDate}</div> : null}
         </div>
 
-        {TASK_NUMBER_FIELDS.map((field) => (
+        <div className="col-12 col-md-6">
+          <div className="task-hours-control">
+            <div className="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+              <label className="form-label mb-0">Hours worked</label>
+              <div className="form-check task-hours-overtime-toggle">
+                <input
+                  type="checkbox"
+                  className="form-check-input"
+                  id="task-hours-overtime"
+                  name="overtime"
+                  checked={Boolean(draft.overtime)}
+                  onChange={onChange}
+                  onBlur={onBlur}
+                />
+                <label className="form-check-label" htmlFor="task-hours-overtime">Overtime</label>
+              </div>
+            </div>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              name="hourWork"
+              className={`form-control${touched.hourWork && errors.hourWork ? ' is-invalid' : ''}`}
+              value={draft.hourWork}
+              onChange={onChange}
+              onBlur={onBlur}
+            />
+            {touched.hourWork && errors.hourWork ? <div className="invalid-feedback d-block">{errors.hourWork}</div> : null}
+            <div className={`task-hours-note text-muted small ${!draft.overtime ? 'is-highlighted' : ''}`.trim()}>
+              Default workday is {TASK_DEFAULT_STANDARD_HOURS} hours. Enable Overtime to log entries above {TASK_DEFAULT_STANDARD_HOURS} hours.
+            </div>
+          </div>
+        </div>
+
+        {draft.projectUid ? (
+          <div className="col-12">
+            <label className="form-label">Billing Status</label>
+            <div className="task-billing-status-shell">
+              <TableBadge value={selectedBillingStatus || 'Non Billable'} tone={toBillingStatusTone(selectedBillingStatus)} />
+              <span className="task-billing-status-note text-muted small">Read only (derived from assignment status)</span>
+            </div>
+          </div>
+        ) : null}
+
+        {TASK_STATUS_NUMBER_FIELDS.map((field) => (
           <div className="col-12 col-md-4" key={field.key}>
-            <label className="form-label">{field.label}</label>
+            <label className="form-label">
+              <span className={`task-status-label task-status-label-${field.tone}`}>{field.label}</span>
+            </label>
             <input type="number" min="0" step="1" name={field.key} className={`form-control${touched[field.key] && errors[field.key] ? ' is-invalid' : ''}`} value={draft[field.key]} onChange={onChange} onBlur={onBlur} />
             {touched[field.key] && errors[field.key] ? <div className="invalid-feedback d-block">{errors[field.key]}</div> : null}
           </div>
@@ -471,6 +980,9 @@ export default function ProjectManagement({ view = 'project' }) {
   const { showStatus, showConfirm, runWithLoader } = useModal()
   const { user } = useAuth()
   const isTaskView = view === 'task'
+  const todayIsoDate = getTodayIsoDate()
+  const projectExportMenuId = 'projectManagementExportMenu'
+  const taskExportMenuId = 'taskManagementExportMenu'
 
   const canViewProjects = hasModuleVisibility(user, PERMISSION_MODULES.project)
   const canCreateProjects = hasModulePermission(user, PERMISSION_MODULES.project, PERMISSION_ACTIONS.create)
@@ -512,6 +1024,10 @@ export default function ProjectManagement({ view = 'project' }) {
 
   const [projectSearch, setProjectSearch] = useState('')
   const [projectStatusFilter, setProjectStatusFilter] = useState('All')
+  const [projectTimelineFilter, setProjectTimelineFilter] = useState('All')
+  const [projectAssignmentCoverageFilter, setProjectAssignmentCoverageFilter] = useState('All')
+  const [projectTaskCoverageFilter, setProjectTaskCoverageFilter] = useState('All')
+  const [projectStartDateRange, setProjectStartDateRange] = useState({ start: '', end: '' })
 
   const [assignmentSearch, setAssignmentSearch] = useState('')
   const [assignmentStatusFilter, setAssignmentStatusFilter] = useState('All')
@@ -522,8 +1038,12 @@ export default function ProjectManagement({ view = 'project' }) {
   const [taskProjectFilter, setTaskProjectFilter] = useState('All')
   const [taskEmployeeFilter, setTaskEmployeeFilter] = useState('All')
   const [taskAssignmentFilter, setTaskAssignmentFilter] = useState('All')
-  const [taskFromDateFilter, setTaskFromDateFilter] = useState('')
-  const [taskToDateFilter, setTaskToDateFilter] = useState('')
+  const [taskDateRangeFilter, setTaskDateRangeFilter] = useState({ start: '', end: '' })
+  const [taskBillingFilter, setTaskBillingFilter] = useState('All')
+  const [taskAssignmentStatusFilter, setTaskAssignmentStatusFilter] = useState('All')
+  const [taskHoursFilter, setTaskHoursFilter] = useState('All')
+  const [taskProjectStatusFilter, setTaskProjectStatusFilter] = useState('All')
+  const [taskReviewFilter, setTaskReviewFilter] = useState('All')
 
   const [isProjectFormOpen, setIsProjectFormOpen] = useState(false)
   const [projectFormMode, setProjectFormMode] = useState('create')
@@ -542,6 +1062,11 @@ export default function ProjectManagement({ view = 'project' }) {
   const [selectedTask, setSelectedTask] = useState(null)
   const [taskDraft, setTaskDraft] = useState(() => createTaskDraft())
   const [taskTouched, setTaskTouched] = useState({})
+
+  const [isProjectImportOpen, setIsProjectImportOpen] = useState(false)
+  const [projectImportFile, setProjectImportFile] = useState(null)
+  const [isTaskImportOpen, setIsTaskImportOpen] = useState(false)
+  const [taskImportFile, setTaskImportFile] = useState(null)
 
   const availableTabs = useMemo(() => filterAccessibleTabs(scopedTabs, (tabKey) => {
     if (tabKey === 'projects') return canViewProjects
@@ -583,11 +1108,87 @@ export default function ProjectManagement({ view = 'project' }) {
     return [{ value: 'All', label: 'All statuses', description: 'No filter applied' }, ...discoveredStatuses.map((value) => ({ value, label: value, description: `${value} assignments` }))]
   }, [assignments])
 
+  const taskAssignmentStatusFilterOptions = useMemo(() => {
+    const discoveredStatuses = Array.from(new Set(['Not mapped', ...ASSIGNMENT_STATUS_OPTIONS, ...assignments.map((assignment) => String(assignment.status || '').trim()).filter(Boolean)]))
+    return [{ value: 'All', label: 'All assignment statuses', description: 'No filter applied' }, ...discoveredStatuses.map((value) => ({ value, label: value, description: `${value} task assignments` }))]
+  }, [assignments])
+
+  const taskProjectStatusFilterOptions = useMemo(() => {
+    const discoveredStatuses = Array.from(new Set(['Not set', ...PROJECT_STATUS_OPTIONS, ...projects.map((project) => String(project.status || '').trim()).filter(Boolean)]))
+    return [{ value: 'All', label: 'All project statuses', description: 'No filter applied' }, ...discoveredStatuses.map((value) => ({ value, label: value, description: `${value} linked projects` }))]
+  }, [projects])
+
+  const taskBillingFilterOptions = useMemo(() => ([
+    { value: 'All', label: 'All billing statuses', description: 'No filter applied' },
+    { value: 'Billable', label: 'Billable', description: 'Assignment status is billable' },
+    { value: 'Non Billable', label: 'Non Billable', description: 'Assignment status is non billable' }
+  ]), [])
+
   const projectFilterOptions = useMemo(() => buildProjectOptions(projects, true), [projects])
   const projectFormOptions = useMemo(() => buildProjectOptions(projects, false), [projects])
   const employeeFilterOptions = useMemo(() => buildEmployeeOptions(employees, true), [employees])
   const employeeFormOptions = useMemo(() => buildEmployeeOptions(employees, false), [employees])
   const assignmentFilterOptions = useMemo(() => buildAssignmentOptions(assignments, projectByUid, employeeByUid, true), [assignments, employeeByUid, projectByUid])
+  const assignmentsByEmployeeUid = useMemo(() => {
+    const lookup = new Map()
+
+    assignments.forEach((assignment) => {
+      const employeeUid = String(assignment.employeeUid || '').trim()
+      if (!employeeUid) return
+
+      const bucket = lookup.get(employeeUid) || []
+      bucket.push(assignment)
+      lookup.set(employeeUid, bucket)
+    })
+
+    return lookup
+  }, [assignments])
+
+  const assignmentsByProjectUid = useMemo(() => {
+    const lookup = new Map()
+
+    assignments.forEach((assignment) => {
+      const projectUid = String(assignment.projectUid || '').trim()
+      if (!projectUid) return
+
+      const bucket = lookup.get(projectUid) || []
+      bucket.push(assignment)
+      lookup.set(projectUid, bucket)
+    })
+
+    return lookup
+  }, [assignments])
+
+  const tasksByProjectUid = useMemo(() => {
+    const lookup = new Map()
+
+    tasks.forEach((task) => {
+      const projectUid = String(task.projectUid || '').trim()
+      if (!projectUid) return
+
+      const bucket = lookup.get(projectUid) || []
+      bucket.push(task)
+      lookup.set(projectUid, bucket)
+    })
+
+    return lookup
+  }, [tasks])
+
+  const assignmentStatusesByEmployeeUid = useMemo(() => {
+    const lookup = new Map()
+
+    assignments.forEach((assignment) => {
+      const employeeUid = String(assignment.employeeUid || '').trim()
+      const normalizedStatus = normalizeAssignmentStatus(assignment.status)
+      if (!employeeUid || !normalizedStatus) return
+
+      const bucket = lookup.get(employeeUid) || new Set()
+      bucket.add(normalizedStatus)
+      lookup.set(employeeUid, bucket)
+    })
+
+    return new Map(Array.from(lookup.entries()).map(([employeeUid, statusSet]) => [employeeUid, Array.from(statusSet)]))
+  }, [assignments])
 
   const deferredProjectSearch = useDeferredValue(projectSearch)
   const deferredAssignmentSearch = useDeferredValue(assignmentSearch)
@@ -597,10 +1198,78 @@ export default function ProjectManagement({ view = 'project' }) {
   const assignmentErrors = useMemo(() => buildAssignmentErrors(assignmentDraft), [assignmentDraft])
   const taskErrors = useMemo(() => buildTaskErrors(taskDraft), [taskDraft])
 
+  const projectRows = useMemo(() => projects.map((project) => {
+    const projectUid = String(project.uid || '').trim()
+    const linkedAssignments = assignmentsByProjectUid.get(projectUid) || []
+    const linkedTasks = tasksByProjectUid.get(projectUid) || []
+    const timelineBucket = resolveProjectTimelineBucket(project, todayIsoDate)
+    const assignmentCount = linkedAssignments.length
+    const employeeCount = new Set(linkedAssignments.map((assignment) => String(assignment.employeeUid || '').trim()).filter(Boolean)).size
+    const activeAssignmentCount = linkedAssignments.filter((assignment) => BILLABLE_ASSIGNMENT_STATUSES.has(normalizeAssignmentStatus(assignment.status))).length
+    const taskEntryCount = linkedTasks.length
+    const taskTotalHours = linkedTasks.reduce((total, task) => total + Number(task.hourWork || 0), 0)
+    const taskTotalVolume = linkedTasks.reduce((total, task) => (
+      total
+      + Number(task.taskCompleted || 0)
+      + Number(task.taskInprogress || 0)
+      + Number(task.taskRework || 0)
+      + Number(task.taskApproved || 0)
+      + Number(task.taskRejected || 0)
+      + Number(task.taskReviewed || 0)
+    ), 0)
+    const billableTaskEntries = linkedTasks.reduce((total, task) => {
+      const assignment = assignmentByUid.get(String(task.projectAssignmentUid || ''))
+      return BILLABLE_ASSIGNMENT_STATUSES.has(normalizeAssignmentStatus(assignment?.status)) ? total + 1 : total
+    }, 0)
+    const lastTaskDate = linkedTasks
+      .map((task) => String(task.taskDate || '').trim())
+      .filter(Boolean)
+      .sort()
+      .at(-1) || ''
+
+    return {
+      ...project,
+      timelineBucket,
+      assignmentCount,
+      employeeCount,
+      activeAssignmentCount,
+      assignmentCoverageBucket: assignmentCount === 0 ? 'Unassigned' : (activeAssignmentCount > 0 ? 'Active Assignments' : 'Assigned'),
+      taskEntryCount,
+      taskTotalHours,
+      taskTotalVolume,
+      taskCoverageBucket: taskEntryCount === 0 ? 'No Tasks' : (taskTotalHours > 0 ? 'Hours Logged' : 'With Tasks'),
+      billableTaskEntries,
+      lastTaskDate
+    }
+  }), [assignmentByUid, assignmentsByProjectUid, projects, tasksByProjectUid, todayIsoDate])
+
   const filteredProjects = useMemo(() => (
-    filterCollectionByQuery(projects, deferredProjectSearch, ['projectCode', 'projectName', 'description', 'status'])
-      .filter((project) => projectStatusFilter === 'All' || String(project.status || '') === String(projectStatusFilter))
-  ), [deferredProjectSearch, projectStatusFilter, projects])
+    filterCollectionByQuery(projectRows, deferredProjectSearch, ['projectCode', 'projectName', 'description', 'status', 'timelineBucket', 'assignmentCoverageBucket', 'taskCoverageBucket'])
+      .filter((project) => {
+        const matchStatus = projectStatusFilter === 'All' || String(project.status || '') === String(projectStatusFilter)
+        const matchTimeline = projectTimelineFilter === 'All' || String(project.timelineBucket || '') === String(projectTimelineFilter)
+        const matchAssignmentCoverage = projectAssignmentCoverageFilter === 'All'
+          || (projectAssignmentCoverageFilter === 'Assigned' && Number(project.assignmentCount || 0) > 0)
+          || (projectAssignmentCoverageFilter === 'Unassigned' && Number(project.assignmentCount || 0) === 0)
+          || (projectAssignmentCoverageFilter === 'Active Assignments' && Number(project.activeAssignmentCount || 0) > 0)
+          || (projectAssignmentCoverageFilter === 'Multi Employee' && Number(project.employeeCount || 0) > 1)
+        const matchTaskCoverage = projectTaskCoverageFilter === 'All'
+          || (projectTaskCoverageFilter === 'With Tasks' && Number(project.taskEntryCount || 0) > 0)
+          || (projectTaskCoverageFilter === 'No Tasks' && Number(project.taskEntryCount || 0) === 0)
+          || (projectTaskCoverageFilter === 'Hours Logged' && Number(project.taskTotalHours || 0) > 0)
+          || (projectTaskCoverageFilter === 'No Hours' && Number(project.taskTotalHours || 0) === 0)
+        const matchStartRange = isDateInRange(project.startDate, projectStartDateRange)
+        return matchStatus && matchTimeline && matchAssignmentCoverage && matchTaskCoverage && matchStartRange
+      })
+  ), [
+    deferredProjectSearch,
+    projectRows,
+    projectStatusFilter,
+    projectTimelineFilter,
+    projectAssignmentCoverageFilter,
+    projectTaskCoverageFilter,
+    projectStartDateRange
+  ])
 
   const assignmentRows = useMemo(() => assignments.map((assignment) => {
     const project = projectByUid.get(String(assignment.projectUid || ''))
@@ -630,36 +1299,95 @@ export default function ProjectManagement({ view = 'project' }) {
     const assignment = assignmentByUid.get(String(task.projectAssignmentUid || ''))
     const assignmentProject = assignment ? projectByUid.get(String(assignment.projectUid || '')) : null
     const assignmentEmployee = assignment ? employeeByUid.get(String(assignment.employeeUid || '')) : null
+    const normalizedAssignmentStatus = String(assignment?.status || '').trim()
+    const billingStatus = normalizedAssignmentStatus
+      ? resolveBillingStatus([normalizedAssignmentStatus])
+      : resolveBillingStatus(assignmentStatusesByEmployeeUid.get(String(task.employeeUid || '')) || [])
 
     return {
       ...task,
       projectName: project?.projectName || `Project ${compactUid(task.projectUid)}`,
       projectCode: project?.projectCode || compactUid(task.projectUid),
+      projectStatus: String(project?.status || '').trim() || 'Not set',
       employeeName: employee?.fullName || `Employee ${compactUid(task.employeeUid)}`,
       employeeCode: employee?.employeeCode || compactUid(task.employeeUid),
       assignmentLabel: assignment
         ? `${assignmentProject?.projectCode || compactUid(assignment.projectUid)} • ${assignmentEmployee?.employeeCode || assignmentEmployee?.fullName || compactUid(assignment.employeeUid)}`
         : (task.projectAssignmentUid ? compactUid(task.projectAssignmentUid) : 'No assignment'),
+      assignmentStatus: normalizedAssignmentStatus || 'Not mapped',
+      podName: String(assignment?.podName || '').trim(),
+      teamLead: String(assignment?.teamLead || '').trim(),
+      billingStatus,
+      reviewBucket: resolveTaskReviewBucket(task),
+      overtimeLogged: Number(task.hourWork || 0) > TASK_DEFAULT_STANDARD_HOURS,
       taskVolume: Number(task.taskCompleted || 0)
         + Number(task.taskInprogress || 0)
         + Number(task.taskRework || 0)
         + Number(task.taskApproved || 0)
         + Number(task.taskRejected || 0)
-        + Number(task.taskReviewed || 0)
+        + Number(task.taskReviewed || 0),
+      taskCompletedValue: Number(task.taskCompleted || 0),
+      taskInprogressValue: Number(task.taskInprogress || 0),
+      taskReworkValue: Number(task.taskRework || 0),
+      taskApprovedValue: Number(task.taskApproved || 0),
+      taskRejectedValue: Number(task.taskRejected || 0),
+      taskReviewedValue: Number(task.taskReviewed || 0)
     }
-  }), [assignmentByUid, employeeByUid, projectByUid, tasks])
+  }), [assignmentByUid, assignmentStatusesByEmployeeUid, employeeByUid, projectByUid, tasks])
 
   const filteredTasks = useMemo(() => (
-    filterCollectionByQuery(taskRows, deferredTaskSearch, ['projectName', 'projectCode', 'employeeName', 'employeeCode', 'remarks', 'assignmentLabel'])
+    filterCollectionByQuery(taskRows, deferredTaskSearch, [
+      'projectName',
+      'projectCode',
+      'projectStatus',
+      'employeeName',
+      'employeeCode',
+      'remarks',
+      'assignmentLabel',
+      'assignmentStatus',
+      'billingStatus',
+      'podName',
+      'teamLead',
+      'reviewBucket'
+    ])
       .filter((task) => {
         const matchProject = taskProjectFilter === 'All' || String(task.projectUid || '') === String(taskProjectFilter)
         const matchEmployee = taskEmployeeFilter === 'All' || String(task.employeeUid || '') === String(taskEmployeeFilter)
         const matchAssignment = taskAssignmentFilter === 'All' || String(task.projectAssignmentUid || '') === String(taskAssignmentFilter)
-        const matchFromDate = !taskFromDateFilter || String(task.taskDate || '') >= String(taskFromDateFilter)
-        const matchToDate = !taskToDateFilter || String(task.taskDate || '') <= String(taskToDateFilter)
-        return matchProject && matchEmployee && matchAssignment && matchFromDate && matchToDate
+        const matchTaskDateRange = isDateInRange(task.taskDate, taskDateRangeFilter)
+        const matchBilling = taskBillingFilter === 'All' || String(task.billingStatus || '') === String(taskBillingFilter)
+        const matchAssignmentStatus = taskAssignmentStatusFilter === 'All' || String(task.assignmentStatus || '') === String(taskAssignmentStatusFilter)
+        const matchProjectStatus = taskProjectStatusFilter === 'All' || String(task.projectStatus || '') === String(taskProjectStatusFilter)
+        const matchReview = taskReviewFilter === 'All' || String(task.reviewBucket || '') === String(taskReviewFilter)
+        const hoursWorked = Number(task.hourWork || 0)
+        const matchHours = taskHoursFilter === 'All'
+          || (taskHoursFilter === 'Standard' && hoursWorked <= TASK_DEFAULT_STANDARD_HOURS)
+          || (taskHoursFilter === 'Overtime' && hoursWorked > TASK_DEFAULT_STANDARD_HOURS)
+          || (taskHoursFilter === 'Zero Hours' && hoursWorked === 0)
+          || (taskHoursFilter === 'Logged Hours' && hoursWorked > 0)
+        return matchProject
+          && matchEmployee
+          && matchAssignment
+          && matchTaskDateRange
+          && matchBilling
+          && matchAssignmentStatus
+          && matchProjectStatus
+          && matchReview
+          && matchHours
       })
-  ), [deferredTaskSearch, taskAssignmentFilter, taskEmployeeFilter, taskFromDateFilter, taskProjectFilter, taskRows, taskToDateFilter])
+  ), [
+    deferredTaskSearch,
+    taskAssignmentFilter,
+    taskAssignmentStatusFilter,
+    taskBillingFilter,
+    taskEmployeeFilter,
+    taskDateRangeFilter,
+    taskHoursFilter,
+    taskProjectFilter,
+    taskProjectStatusFilter,
+    taskReviewFilter,
+    taskRows
+  ])
 
   const { items: sortedProjects, sortConfig: projectSortConfig, requestSort: requestProjectSort } = useSortableData(filteredProjects, {
     initialKey: 'updated',
@@ -668,6 +1396,9 @@ export default function ProjectManagement({ view = 'project' }) {
       project: (project) => `${project.projectName || ''} ${project.projectCode || ''}`,
       status: (project) => project.status || '',
       timeline: (project) => `${project.startDate || ''}|${project.endDate || ''}`,
+      assignments: (project) => Number(project.assignmentCount || 0),
+      taskCoverage: (project) => Number(project.taskEntryCount || 0) * 100000 + Number(project.taskTotalHours || 0),
+      lastTaskDate: (project) => project.lastTaskDate || '',
       updated: (project) => project.updatedAt || project.createdAt || ''
     }
   })
@@ -692,7 +1423,12 @@ export default function ProjectManagement({ view = 'project' }) {
       project: (task) => `${task.projectName || ''} ${task.projectCode || ''}`,
       employee: (task) => `${task.employeeName || ''} ${task.employeeCode || ''}`,
       hours: (task) => Number(task.hourWork || 0),
-      volume: (task) => Number(task.taskVolume || 0),
+      taskCompleted: (task) => Number(task.taskCompleted || 0),
+      taskInprogress: (task) => Number(task.taskInprogress || 0),
+      taskRework: (task) => Number(task.taskRework || 0),
+      taskApproved: (task) => Number(task.taskApproved || 0),
+      taskRejected: (task) => Number(task.taskRejected || 0),
+      taskReviewed: (task) => Number(task.taskReviewed || 0),
       updated: (task) => task.updatedAt || task.createdAt || ''
     }
   })
@@ -715,13 +1451,72 @@ export default function ProjectManagement({ view = 'project' }) {
     approved: tasks.reduce((total, task) => total + Number(task.taskApproved || 0), 0)
   }), [tasks])
 
-  const scopedTaskAssignmentOptions = useMemo(() => {
-    const scopedAssignments = assignments.filter((assignment) => isAssignmentCompatible(assignment, taskDraft.projectUid, taskDraft.employeeUid))
-    return [
-      { value: '', label: 'No assignment', description: 'Optional link for this task' },
-      ...buildAssignmentOptions(scopedAssignments, projectByUid, employeeByUid, false)
-    ]
-  }, [assignments, employeeByUid, projectByUid, taskDraft.employeeUid, taskDraft.projectUid])
+  const taskMappedProjectOptions = useMemo(() => {
+    const normalizedEmployeeUid = String(taskDraft.employeeUid || '').trim()
+    if (!normalizedEmployeeUid) return []
+
+    const mappedAssignments = assignmentsByEmployeeUid.get(normalizedEmployeeUid) || []
+    const mappedProjectUids = Array.from(new Set(mappedAssignments.map((assignment) => String(assignment.projectUid || '')).filter(Boolean)))
+
+    return mappedProjectUids.map((projectUid) => {
+      const project = projectByUid.get(projectUid)
+      return {
+        value: projectUid,
+        label: project ? `${project.projectName} (${project.projectCode})` : `Project ${compactUid(projectUid)}`,
+        description: project?.status || 'Mapped project'
+      }
+    })
+  }, [assignmentsByEmployeeUid, projectByUid, taskDraft.employeeUid])
+
+  const selectedTaskAssignmentUid = useMemo(() => resolveTaskAssignmentUid(assignments, {
+    employeeUid: taskDraft.employeeUid,
+    projectUid: taskDraft.projectUid,
+    taskDate: taskDraft.taskDate,
+    preferredUid: taskDraft.projectAssignmentUid
+  }), [assignments, taskDraft.employeeUid, taskDraft.projectAssignmentUid, taskDraft.projectUid, taskDraft.taskDate])
+
+  const selectedTaskAssignment = useMemo(() => assignmentByUid.get(String(selectedTaskAssignmentUid || '')) || null, [assignmentByUid, selectedTaskAssignmentUid])
+  const selectedTaskBillingStatus = useMemo(() => {
+    const selectedStatus = selectedTaskAssignment?.status
+    if (selectedStatus) return resolveBillingStatus([selectedStatus])
+    return resolveBillingStatus(assignmentStatusesByEmployeeUid.get(String(taskDraft.employeeUid || '')) || [])
+  }, [assignmentStatusesByEmployeeUid, selectedTaskAssignment?.status, taskDraft.employeeUid])
+
+  useEffect(() => {
+    setTaskDraft((current) => {
+      const normalizedEmployeeUid = String(current.employeeUid || '').trim()
+      const availableProjectUids = taskMappedProjectOptions.map((option) => String(option.value || '')).filter(Boolean)
+
+      let nextProjectUid = String(current.projectUid || '').trim()
+      if (!normalizedEmployeeUid) {
+        nextProjectUid = ''
+      } else if (availableProjectUids.length === 1) {
+        nextProjectUid = availableProjectUids[0]
+      } else if (!availableProjectUids.includes(nextProjectUid)) {
+        nextProjectUid = ''
+      }
+
+      const nextAssignmentUid = resolveTaskAssignmentUid(assignments, {
+        employeeUid: normalizedEmployeeUid,
+        projectUid: nextProjectUid,
+        taskDate: current.taskDate,
+        preferredUid: current.projectAssignmentUid
+      })
+
+      if (
+        nextProjectUid === String(current.projectUid || '')
+        && nextAssignmentUid === String(current.projectAssignmentUid || '')
+      ) {
+        return current
+      }
+
+      return {
+        ...current,
+        projectUid: nextProjectUid,
+        projectAssignmentUid: nextAssignmentUid
+      }
+    })
+  }, [assignments, taskMappedProjectOptions])
   function resetProjectComposer() {
     setSelectedProject(null)
     setProjectFormMode('create')
@@ -810,9 +1605,42 @@ export default function ProjectManagement({ view = 'project' }) {
   }
 
   const handleProjectDraftChange = useCallback((event) => {
-    const { name, value } = event.target
-    setProjectDraft((current) => ({ ...current, [name]: value }))
-  }, [])
+    const { name, value, checked, type } = event.target
+    setProjectDraft((current) => {
+      if (name === 'isInactive') {
+        const isInactive = Boolean(checked)
+        return {
+          ...current,
+          isInactive,
+          endDate: isInactive ? (normalizeDateInput(current.endDate || todayIsoDate) || todayIsoDate) : ''
+        }
+      }
+
+      if (name === 'startDate') {
+        const normalizedStartDate = normalizeDateInput(value || '')
+        const nextStartDate = normalizedStartDate || ''
+        const next = { ...current, startDate: nextStartDate }
+
+        if (current.isInactive && current.endDate && nextStartDate && String(current.endDate) < nextStartDate) {
+          next.endDate = nextStartDate
+        }
+
+        return next
+      }
+
+      if (name === 'endDate') {
+        return {
+          ...current,
+          endDate: normalizeDateInput(value || '') || ''
+        }
+      }
+
+      return {
+        ...current,
+        [name]: type === 'checkbox' ? Boolean(checked) : value
+      }
+    })
+  }, [todayIsoDate])
 
   const handleProjectDraftBlur = useCallback((event) => {
     const { name } = event.target
@@ -830,18 +1658,61 @@ export default function ProjectManagement({ view = 'project' }) {
   }, [])
 
   const handleTaskDraftChange = useCallback((event) => {
-    const { name, value } = event.target
+    const { name } = event.target
+    const value = name === 'overtime' ? Boolean(event.target.checked) : event.target.value
+
     setTaskDraft((current) => {
       const next = { ...current, [name]: value }
-      if ((name === 'projectUid' || name === 'employeeUid') && next.projectAssignmentUid) {
-        const matchedAssignment = assignments.find((assignment) => String(assignment.uid || '') === String(next.projectAssignmentUid || ''))
-        if (!isAssignmentCompatible(matchedAssignment, next.projectUid, next.employeeUid)) {
-          next.projectAssignmentUid = ''
+
+      if (name === 'overtime' && !next.overtime && parseNonNegativeInteger(next.hourWork, 0) > TASK_DEFAULT_STANDARD_HOURS) {
+        next.hourWork = String(TASK_DEFAULT_STANDARD_HOURS)
+      }
+
+      if (name === 'hourWork') {
+        const parsedHourWork = parseStrictWholeNumber(next.hourWork)
+        if (Number.isInteger(parsedHourWork) && parsedHourWork <= TASK_DEFAULT_STANDARD_HOURS && next.overtime) {
+          next.overtime = false
         }
       }
+
+      if (name === 'taskDate') {
+        const normalizedTaskDate = normalizeDateInput(next.taskDate || todayIsoDate)
+        next.taskDate = normalizedTaskDate || todayIsoDate
+      }
+
+      if (name === 'employeeUid' && !next.employeeUid) {
+        next.projectUid = ''
+        next.projectAssignmentUid = ''
+        return next
+      }
+
+      if (name === 'employeeUid' && next.employeeUid) {
+        const mappedAssignments = assignmentsByEmployeeUid.get(String(next.employeeUid || '')) || []
+        const mappedProjectUids = Array.from(new Set(mappedAssignments.map((assignment) => String(assignment.projectUid || '')).filter(Boolean)))
+        if (mappedProjectUids.length === 1) {
+          next.projectUid = mappedProjectUids[0]
+        } else if (!mappedProjectUids.includes(String(next.projectUid || ''))) {
+          next.projectUid = ''
+        }
+      }
+
+      if (name === 'projectUid' && !next.projectUid) {
+        next.projectAssignmentUid = ''
+        return next
+      }
+
+      if (name === 'projectUid' || name === 'employeeUid' || name === 'taskDate') {
+        next.projectAssignmentUid = resolveTaskAssignmentUid(assignments, {
+          employeeUid: next.employeeUid,
+          projectUid: next.projectUid,
+          taskDate: next.taskDate,
+          preferredUid: next.projectAssignmentUid
+        })
+      }
+
       return next
     })
-  }, [assignments])
+  }, [assignments, assignmentsByEmployeeUid, todayIsoDate])
 
   const handleTaskDraftBlur = useCallback((event) => {
     const { name } = event.target
@@ -866,8 +1737,16 @@ export default function ProjectManagement({ view = 'project' }) {
 
     try {
       await runWithLoader(async () => {
-        if (projectFormMode === 'create') await projectService.createProject(projectDraft)
-        else await projectService.updateProject(selectedProject.uid, projectDraft)
+        const payload = {
+          ...projectDraft,
+          startDate: normalizeDateInput(projectDraft.startDate || todayIsoDate) || todayIsoDate,
+          endDate: projectDraft.isInactive
+            ? (normalizeDateInput(projectDraft.endDate || todayIsoDate) || todayIsoDate)
+            : ''
+        }
+
+        if (projectFormMode === 'create') await projectService.createProject(payload)
+        else await projectService.updateProject(selectedProject.uid, payload)
         await queryClient.invalidateQueries({ queryKey: PROJECTS_QUERY_KEY })
       }, {
         title: projectFormMode === 'create' ? 'Creating project' : 'Updating project',
@@ -936,11 +1815,22 @@ export default function ProjectManagement({ view = 'project' }) {
       return
     }
 
+    if (!selectedTaskAssignmentUid) {
+      showStatus({
+        type: 'error',
+        title: 'Project mapping not found',
+        message: 'The selected employee is not mapped to the selected project. Update project assignments and try again.'
+      })
+      return
+    }
+
     try {
       await runWithLoader(async () => {
         const payload = {
           ...taskDraft,
-          hourWork: parseNonNegativeInteger(taskDraft.hourWork, 0),
+          taskDate: normalizeDateInput(taskDraft.taskDate || todayIsoDate) || todayIsoDate,
+          projectAssignmentUid: selectedTaskAssignmentUid,
+          hourWork: parseNonNegativeInteger(taskDraft.hourWork, TASK_DEFAULT_STANDARD_HOURS),
           taskCompleted: parseNonNegativeInteger(taskDraft.taskCompleted, 0),
           taskInprogress: parseNonNegativeInteger(taskDraft.taskInprogress, 0),
           taskRework: parseNonNegativeInteger(taskDraft.taskRework, 0),
@@ -1056,9 +1946,126 @@ export default function ProjectManagement({ view = 'project' }) {
     }
   }
 
+  async function handleProjectImportSubmit() {
+    if (!canCreateProjects) {
+      showStatus({ type: 'error', title: 'Project access blocked', message: 'Your role does not have permission to import projects.' })
+      return
+    }
+
+    if (!projectImportFile) {
+      showStatus({ type: 'error', title: 'No file selected', message: 'Upload the populated CSV or Excel template before starting bulk import.' })
+      return
+    }
+
+    let rows = []
+    try {
+      const parsedFile = await parseProjectManagementImportFile(projectImportFile)
+      rows = parsedFile.rows
+    } catch (fileParseError) {
+      showStatus({ type: 'error', title: 'Unsupported import file', message: fileParseError?.message || 'The selected file could not be parsed.' })
+      return
+    }
+
+    const { payloads, errors } = buildProjectImportPayloads(rows, projects)
+    if (!payloads.length) {
+      showStatus({ type: 'error', title: 'Import file is not ready', message: errors[0] || 'The uploaded file did not contain valid project rows.' })
+      return
+    }
+
+    if (errors.length) {
+      showStatus({ type: 'error', title: 'Import validation failed', message: errors.slice(0, 3).join(' ') })
+      return
+    }
+
+    try {
+      await runWithLoader(async () => {
+        for (const payload of payloads) {
+          await projectService.createProject(payload)
+        }
+        await queryClient.invalidateQueries({ queryKey: PROJECTS_QUERY_KEY })
+      }, {
+        title: 'Importing projects',
+        message: `Creating ${payloads.length} project record${payloads.length === 1 ? '' : 's'} from template.`
+      })
+
+      showStatus({
+        type: 'success',
+        title: 'Bulk import completed',
+        message: `${payloads.length} project record${payloads.length === 1 ? '' : 's'} imported successfully.`
+      })
+      setProjectImportFile(null)
+      setIsProjectImportOpen(false)
+    } catch (importError) {
+      showStatus({ type: 'error', title: 'Bulk import failed', message: parseApiError(importError, 'The selected project file could not be imported.') })
+    }
+  }
+
+  async function handleTaskImportSubmit() {
+    if (!canCreateTasks) {
+      showStatus({ type: 'error', title: 'Task access blocked', message: 'Your role does not have permission to import task records.' })
+      return
+    }
+
+    if (!taskImportFile) {
+      showStatus({ type: 'error', title: 'No file selected', message: 'Upload the populated CSV or Excel template before starting bulk import.' })
+      return
+    }
+
+    let rows = []
+    try {
+      const parsedFile = await parseProjectManagementImportFile(taskImportFile)
+      rows = parsedFile.rows
+    } catch (fileParseError) {
+      showStatus({ type: 'error', title: 'Unsupported import file', message: fileParseError?.message || 'The selected file could not be parsed.' })
+      return
+    }
+
+    const { payloads, errors } = buildTaskImportPayloads(rows, {
+      employees,
+      projects,
+      assignments
+    })
+
+    if (!payloads.length) {
+      showStatus({ type: 'error', title: 'Import file is not ready', message: errors[0] || 'The uploaded file did not contain valid task rows.' })
+      return
+    }
+
+    if (errors.length) {
+      showStatus({ type: 'error', title: 'Import validation failed', message: errors.slice(0, 3).join(' ') })
+      return
+    }
+
+    try {
+      await runWithLoader(async () => {
+        for (const payload of payloads) {
+          await projectService.createProjectTask(payload)
+        }
+        await queryClient.invalidateQueries({ queryKey: PROJECT_TASKS_QUERY_KEY })
+      }, {
+        title: 'Importing task records',
+        message: `Creating ${payloads.length} task record${payloads.length === 1 ? '' : 's'} from template.`
+      })
+
+      showStatus({
+        type: 'success',
+        title: 'Bulk import completed',
+        message: `${payloads.length} task record${payloads.length === 1 ? '' : 's'} imported successfully.`
+      })
+      setTaskImportFile(null)
+      setIsTaskImportOpen(false)
+    } catch (importError) {
+      showStatus({ type: 'error', title: 'Bulk import failed', message: parseApiError(importError, 'The selected task file could not be imported.') })
+    }
+  }
+
   function resetProjectFilters() {
     setProjectSearch('')
     setProjectStatusFilter('All')
+    setProjectTimelineFilter('All')
+    setProjectAssignmentCoverageFilter('All')
+    setProjectTaskCoverageFilter('All')
+    setProjectStartDateRange({ start: '', end: '' })
   }
 
   function resetAssignmentFilters() {
@@ -1073,8 +2080,12 @@ export default function ProjectManagement({ view = 'project' }) {
     setTaskProjectFilter('All')
     setTaskEmployeeFilter('All')
     setTaskAssignmentFilter('All')
-    setTaskFromDateFilter('')
-    setTaskToDateFilter('')
+    setTaskDateRangeFilter({ start: '', end: '' })
+    setTaskBillingFilter('All')
+    setTaskAssignmentStatusFilter('All')
+    setTaskHoursFilter('All')
+    setTaskProjectStatusFilter('All')
+    setTaskReviewFilter('All')
   }
 
   const pageHeaderTitle = isTaskView ? 'Task Management' : 'Project Management'
@@ -1127,6 +2138,29 @@ export default function ProjectManagement({ view = 'project' }) {
                   <AppSearchField className="employee-toolbar-search" value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Search by project code, name, status, or description" />
                   <div className="employee-toolbar-actions">
                     {canCreateProjects ? (
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-icon-inline employee-toolbar-btn"
+                        onClick={() => {
+                          setProjectImportFile(null)
+                          setIsProjectImportOpen(true)
+                        }}
+                      >
+                        <ImportIcon />
+                        <span>Import</span>
+                      </button>
+                    ) : null}
+                    <div className="dropdown">
+                      <button className="btn btn-outline-secondary btn-icon-inline dropdown-toggle employee-toolbar-btn" data-bs-toggle="dropdown" aria-expanded="false" id={projectExportMenuId}>
+                        <ExportIcon />
+                        <span>Export</span>
+                      </button>
+                      <ul className="dropdown-menu dropdown-menu-end" aria-labelledby={projectExportMenuId}>
+                        <li><button type="button" className="dropdown-item" onClick={() => downloadProjectsAsCsv(sortedProjects)}>Export CSV</button></li>
+                        <li><button type="button" className="dropdown-item" onClick={() => downloadProjectsAsExcel(sortedProjects)}>Export Excel</button></li>
+                      </ul>
+                    </div>
+                    {canCreateProjects ? (
                       <button type="button" className="btn btn-primary btn-icon-inline employee-toolbar-btn" onClick={openCreateProject}>
                         <PlusIcon />
                         <span>Add Project</span>
@@ -1135,10 +2169,26 @@ export default function ProjectManagement({ view = 'project' }) {
                   </div>
                 </div>
 
-                <div className="employee-toolbar employee-toolbar-filters project-toolbar-filters">
+                <div className="employee-toolbar employee-toolbar-filters">
                   <div className="employee-filter-field">
                     <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Status</label>
                     <AppSelect value={projectStatusFilter} onChange={setProjectStatusFilter} options={projectStatusFilterOptions} placeholder="All statuses" />
+                  </div>
+                  <div className="employee-filter-field">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Timeline</label>
+                    <AppSelect value={projectTimelineFilter} onChange={setProjectTimelineFilter} options={PROJECT_TIMELINE_FILTER_OPTIONS} placeholder="All timelines" />
+                  </div>
+                  <div className="employee-filter-field">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Assignment Coverage</label>
+                    <AppSelect value={projectAssignmentCoverageFilter} onChange={setProjectAssignmentCoverageFilter} options={PROJECT_ASSIGNMENT_COVERAGE_FILTER_OPTIONS} placeholder="All assignment coverage" />
+                  </div>
+                  <div className="employee-filter-field">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Task Coverage</label>
+                    <AppSelect value={projectTaskCoverageFilter} onChange={setProjectTaskCoverageFilter} options={PROJECT_TASK_COVERAGE_FILTER_OPTIONS} placeholder="All task coverage" />
+                  </div>
+                  <div className="employee-filter-field employee-filter-field-range">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Start Date Range</label>
+                    <AppDateRangeField value={projectStartDateRange} onChange={setProjectStartDateRange} className="employee-range-field" placeholder="[Select range]" />
                   </div>
                   <div className="employee-filter-actions">
                     <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetProjectFilters}>
@@ -1156,6 +2206,9 @@ export default function ProjectManagement({ view = 'project' }) {
                           <th><SortableHeader label="Project (Code)" sortKey="project" sortConfig={projectSortConfig} onSort={requestProjectSort} className="employee-header-wrap" /></th>
                           <th><SortableHeader label="Status" sortKey="status" sortConfig={projectSortConfig} onSort={requestProjectSort} className="employee-header-wrap" /></th>
                           <th><SortableHeader label="Timeline" sortKey="timeline" sortConfig={projectSortConfig} onSort={requestProjectSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Assignments" sortKey="assignments" sortConfig={projectSortConfig} onSort={requestProjectSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Task Coverage" sortKey="taskCoverage" sortConfig={projectSortConfig} onSort={requestProjectSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Last Task Date" sortKey="lastTaskDate" sortConfig={projectSortConfig} onSort={requestProjectSort} className="employee-header-wrap" /></th>
                           <th><SortableHeader label="Last Updated" sortKey="updated" sortConfig={projectSortConfig} onSort={requestProjectSort} className="employee-header-wrap" /></th>
                           <th className="text-center">Actions</th>
                         </tr>
@@ -1165,7 +2218,21 @@ export default function ProjectManagement({ view = 'project' }) {
                           <tr key={project.uid}>
                             <td className="employee-cell-wrap"><TableCellStack title={project.projectName} subtitle={project.projectCode} /></td>
                             <td className="employee-cell-wrap"><TableCellStack title={<TableBadge value={project.status || 'Not set'} tone={toProjectStatusTone(project.status)} />} /></td>
-                            <td className="employee-cell-wrap"><TableCellStack title={`${formatDate(project.startDate)} - ${formatDate(project.endDate)}`} subtitle={project.startDate && project.endDate ? 'Scheduled window' : 'Schedule incomplete'} /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={`${formatDate(project.startDate)} - ${formatDate(project.endDate)}`} subtitle={project.timelineBucket || (project.startDate && project.endDate ? 'Scheduled window' : 'Schedule incomplete')} /></td>
+                            <td className="employee-cell-wrap">
+                              <TableCellStack
+                                title={<TableBadge value={`${project.assignmentCount || 0} assignments`} tone={Number(project.assignmentCount || 0) > 0 ? 'blue' : 'gray'} />}
+                                subtitle={`${project.activeAssignmentCount || 0} active • ${project.employeeCount || 0} employees`}
+                              />
+                            </td>
+                            <td className="employee-cell-wrap">
+                              <TableCellStack
+                                title={<TableBadge value={`${project.taskEntryCount || 0} entries`} tone={Number(project.taskEntryCount || 0) > 0 ? 'teal' : 'gray'} />}
+                                subtitle={`${project.taskTotalHours || 0} hours • ${project.taskTotalVolume || 0} volume`}
+                                meta={Number(project.billableTaskEntries || 0) > 0 ? `${project.billableTaskEntries} billable entries` : 'No billable entries'}
+                              />
+                            </td>
+                            <td className="employee-cell-wrap"><TableCellStack title={formatDate(project.lastTaskDate)} subtitle={project.lastTaskDate ? 'Latest task activity' : 'No task activity'} /></td>
                             <td className="employee-cell-wrap"><TableCellStack title={formatDateTime(project.updatedAt)} subtitle={formatDateTime(project.createdAt)} meta="Created / Updated" /></td>
                             <td className="employee-actions-cell">
                               <TableActionCluster>
@@ -1176,7 +2243,7 @@ export default function ProjectManagement({ view = 'project' }) {
                           </tr>
                         )) : (
                           <tr>
-                            <td colSpan="5">
+                            <td colSpan="8">
                               <div className="employee-empty-state text-center py-4">
                                 <div className="fw-semibold mb-1">No projects matched the current filters.</div>
                                 <div className="text-muted small">Reset filters or broaden your search query.</div>
@@ -1226,7 +2293,7 @@ export default function ProjectManagement({ view = 'project' }) {
                   </div>
                 </div>
 
-                <div className="employee-toolbar employee-toolbar-filters project-toolbar-filters">
+                <div className="employee-toolbar employee-toolbar-filters">
                   <div className="employee-filter-field">
                     <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Status</label>
                     <AppSelect value={assignmentStatusFilter} onChange={setAssignmentStatusFilter} options={assignmentStatusFilterOptions} placeholder="All statuses" />
@@ -1319,6 +2386,29 @@ export default function ProjectManagement({ view = 'project' }) {
                   <AppSearchField className="employee-toolbar-search" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} placeholder="Search by project, employee, assignment, or remarks" />
                   <div className="employee-toolbar-actions">
                     {canCreateTasks ? (
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-icon-inline employee-toolbar-btn"
+                        onClick={() => {
+                          setTaskImportFile(null)
+                          setIsTaskImportOpen(true)
+                        }}
+                      >
+                        <ImportIcon />
+                        <span>Import</span>
+                      </button>
+                    ) : null}
+                    <div className="dropdown">
+                      <button className="btn btn-outline-secondary btn-icon-inline dropdown-toggle employee-toolbar-btn" data-bs-toggle="dropdown" aria-expanded="false" id={taskExportMenuId}>
+                        <ExportIcon />
+                        <span>Export</span>
+                      </button>
+                      <ul className="dropdown-menu dropdown-menu-end" aria-labelledby={taskExportMenuId}>
+                        <li><button type="button" className="dropdown-item" onClick={() => downloadTasksAsCsv(sortedTasks)}>Export CSV</button></li>
+                        <li><button type="button" className="dropdown-item" onClick={() => downloadTasksAsExcel(sortedTasks)}>Export Excel</button></li>
+                      </ul>
+                    </div>
+                    {canCreateTasks ? (
                       <button type="button" className="btn btn-primary btn-icon-inline employee-toolbar-btn" onClick={openCreateTask}>
                         <PlusIcon />
                         <span>Add Task</span>
@@ -1327,26 +2417,42 @@ export default function ProjectManagement({ view = 'project' }) {
                   </div>
                 </div>
 
-                <div className="employee-toolbar employee-toolbar-filters project-toolbar-filters">
-                  <div className="employee-filter-field">
-                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Project</label>
-                    <AppSelect value={taskProjectFilter} onChange={setTaskProjectFilter} options={projectFilterOptions} placeholder="All projects" />
-                  </div>
+                <div className="employee-toolbar employee-toolbar-filters">
                   <div className="employee-filter-field">
                     <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Employee</label>
                     <AppSelect value={taskEmployeeFilter} onChange={setTaskEmployeeFilter} options={employeeFilterOptions} placeholder="All employees" />
+                  </div>
+                  <div className="employee-filter-field">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Project</label>
+                    <AppSelect value={taskProjectFilter} onChange={setTaskProjectFilter} options={projectFilterOptions} placeholder="All projects" />
                   </div>
                   <div className="employee-filter-field">
                     <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Assignment</label>
                     <AppSelect value={taskAssignmentFilter} onChange={setTaskAssignmentFilter} options={assignmentFilterOptions} placeholder="All assignments" />
                   </div>
                   <div className="employee-filter-field">
-                    <label className="form-label small text-muted">From Date</label>
-                    <input type="date" className="form-control" value={taskFromDateFilter} onChange={(event) => setTaskFromDateFilter(event.target.value)} />
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Billing Status</label>
+                    <AppSelect value={taskBillingFilter} onChange={setTaskBillingFilter} options={taskBillingFilterOptions} placeholder="All billing statuses" />
                   </div>
                   <div className="employee-filter-field">
-                    <label className="form-label small text-muted">To Date</label>
-                    <input type="date" className="form-control" value={taskToDateFilter} onChange={(event) => setTaskToDateFilter(event.target.value)} />
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Assignment Status</label>
+                    <AppSelect value={taskAssignmentStatusFilter} onChange={setTaskAssignmentStatusFilter} options={taskAssignmentStatusFilterOptions} placeholder="All assignment statuses" />
+                  </div>
+                  <div className="employee-filter-field">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Project Status</label>
+                    <AppSelect value={taskProjectStatusFilter} onChange={setTaskProjectStatusFilter} options={taskProjectStatusFilterOptions} placeholder="All project statuses" />
+                  </div>
+                  <div className="employee-filter-field">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Hours</label>
+                    <AppSelect value={taskHoursFilter} onChange={setTaskHoursFilter} options={TASK_HOURS_FILTER_OPTIONS} placeholder="All hours" />
+                  </div>
+                  <div className="employee-filter-field">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Review Bucket</label>
+                    <AppSelect value={taskReviewFilter} onChange={setTaskReviewFilter} options={TASK_REVIEW_FILTER_OPTIONS} placeholder="All review buckets" />
+                  </div>
+                  <div className="employee-filter-field employee-filter-field-range">
+                    <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Task Date Range</label>
+                    <AppDateRangeField value={taskDateRangeFilter} onChange={setTaskDateRangeFilter} className="employee-range-field" placeholder="[Select range]" />
                   </div>
                   <div className="employee-filter-actions">
                     <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetTaskFilters}>
@@ -1358,29 +2464,50 @@ export default function ProjectManagement({ view = 'project' }) {
 
                 <PaginatedTable rows={sortedTasks}>
                   {({ rows: paginatedRows }) => (
-                    <table className="table align-middle mb-0 employee-table employee-table-dense mapping-table">
+                    <table className="table align-middle mb-0 employee-table employee-table-dense mapping-table task-management-table">
+                      <colgroup>
+                        <col className="task-col-date" />
+                        <col className="task-col-project" />
+                        <col className="task-col-employee" />
+                        <col className="task-col-hours" />
+                        <col className="task-col-status" />
+                        <col className="task-col-status" />
+                        <col className="task-col-status" />
+                        <col className="task-col-status" />
+                        <col className="task-col-status" />
+                        <col className="task-col-status" />
+                        <col className="task-col-actions" />
+                      </colgroup>
                       <thead>
                         <tr>
                           <th><SortableHeader label="Task Date" sortKey="taskDate" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
                           <th><SortableHeader label="Project" sortKey="project" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
                           <th><SortableHeader label="Employee" sortKey="employee" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
                           <th><SortableHeader label="Hours" sortKey="hours" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
-                          <th><SortableHeader label="Task Volume" sortKey="volume" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
-                          <th><SortableHeader label="Last Updated" sortKey="updated" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Tasks Completed" sortKey="taskCompleted" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Tasks In Progress" sortKey="taskInprogress" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Tasks In Rework" sortKey="taskRework" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Tasks Approved" sortKey="taskApproved" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Tasks Rejected" sortKey="taskRejected" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
+                          <th><SortableHeader label="Tasks Reviewed" sortKey="taskReviewed" sortConfig={taskSortConfig} onSort={requestTaskSort} className="employee-header-wrap" /></th>
                           <th className="text-center">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {paginatedRows.length ? paginatedRows.map((task) => (
                           <tr key={task.uid}>
-                            <td className="employee-cell-wrap"><TableCellStack title={formatDate(task.taskDate)} subtitle={task.assignmentLabel} meta={task.remarks || null} /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={formatDate(task.taskDate)} subtitle={task.taskDate || '—'} /></td>
                             <td className="employee-cell-wrap"><TableCellStack title={task.projectName} subtitle={task.projectCode} /></td>
                             <td className="employee-cell-wrap"><TableCellStack title={task.employeeName} subtitle={task.employeeCode} /></td>
-                            <td className="employee-cell-wrap"><TableCellStack title={task.hourWork} subtitle="Hours worked" /></td>
-                            <td className="employee-cell-wrap"><TableCellStack title={task.taskVolume} subtitle={`Completed ${task.taskCompleted} • In Progress ${task.taskInprogress} • Rework ${task.taskRework}`} meta={<TableBadge value={`Approved ${task.taskApproved} • Rejected ${task.taskRejected}`} tone={toTaskReviewTone(task)} />} /></td>
-                            <td className="employee-cell-wrap"><TableCellStack title={formatDateTime(task.updatedAt)} subtitle={formatDateTime(task.createdAt)} meta="Created / Updated" /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={String(task.hourWork ?? 0)} subtitle={task.overtimeLogged ? <TableBadge value="Overtime" tone="orange" /> : 'Hours worked'} /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={<TableBadge value={String(task.taskCompletedValue ?? 0)} tone="green" />} subtitle="Completed" /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={<TableBadge value={String(task.taskInprogressValue ?? 0)} tone="blue" />} subtitle="In Progress" /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={<TableBadge value={String(task.taskReworkValue ?? 0)} tone="orange" />} subtitle="Rework" /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={<TableBadge value={String(task.taskApprovedValue ?? 0)} tone="teal" />} subtitle="Approved" /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={<TableBadge value={String(task.taskRejectedValue ?? 0)} tone="red" />} subtitle="Rejected" /></td>
+                            <td className="employee-cell-wrap"><TableCellStack title={<TableBadge value={String(task.taskReviewedValue ?? 0)} tone="purple" />} subtitle="Reviewed" /></td>
                             <td className="employee-actions-cell">
-                              <TableActionCluster>
+                              <TableActionCluster className="justify-content-center mx-auto">
                                 {canUpdateTasks ? <TableActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openEditTask(task)} /> : null}
                                 {canDeleteTasks ? <TableActionButton icon={<TrashIcon />} label="Delete" variant="delete" onClick={() => handleDeleteTask(task)} /> : null}
                               </TableActionCluster>
@@ -1388,7 +2515,7 @@ export default function ProjectManagement({ view = 'project' }) {
                           </tr>
                         )) : (
                           <tr>
-                            <td colSpan="7">
+                            <td colSpan="11">
                               <div className="employee-empty-state text-center py-4">
                                 <div className="fw-semibold mb-1">No task entries matched the current filters.</div>
                                 <div className="text-muted small">Reset filters or create a new task record to get started.</div>
@@ -1439,15 +2566,92 @@ export default function ProjectManagement({ view = 'project' }) {
         onSubmit={handleSaveAssignment}
       />
 
+      <ModalFrame
+        open={isProjectImportOpen}
+        title="Import Projects"
+        onClose={() => {
+          setIsProjectImportOpen(false)
+          setProjectImportFile(null)
+        }}
+        size="lg"
+        footer={(
+          <>
+            <button type="button" className="btn btn-light btn-icon-inline" onClick={downloadProjectImportTemplateCsv}><DownloadIcon /><span>CSV Template</span></button>
+            <button type="button" className="btn btn-light btn-icon-inline" onClick={downloadProjectImportTemplateExcel}><DownloadIcon /><span>Excel Template</span></button>
+            <button type="button" className="btn btn-primary" onClick={handleProjectImportSubmit}>Start Import</button>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => {
+              setIsProjectImportOpen(false)
+              setProjectImportFile(null)
+            }}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      >
+        <div className="d-flex flex-column gap-3">
+          <div className="employee-import-note">
+            <div className="fw-semibold mb-1">Bulk project template</div>
+            <div className="text-muted small">Download the CSV or Excel template, fill one project per row, and upload the completed file.</div>
+            <div className="text-muted small mt-2">Validation checks: required Project Code and Project Name, unique project code, supported date formats (`YYYY-MM-DD`, `DD/MM/YYYY`, `MM/DD/YYYY`, and Excel serial dates), and End Date must not be earlier than Start Date.</div>
+          </div>
+          <div className="employee-import-upload">
+            <label className="form-label">Upload populated template</label>
+            <input type="file" className="form-control" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setProjectImportFile(event.target.files?.[0] || null)} />
+            <div className="form-text">Accepted formats: CSV and Excel (.xlsx). The file is validated before records are created.</div>
+          </div>
+          {projectImportFile ? <div className="employee-import-file-chip"><span className="fw-semibold">Selected file:</span> {projectImportFile.name}</div> : null}
+        </div>
+      </ModalFrame>
+
+      <ModalFrame
+        open={isTaskImportOpen}
+        title="Import Task Records"
+        onClose={() => {
+          setIsTaskImportOpen(false)
+          setTaskImportFile(null)
+        }}
+        size="lg"
+        footer={(
+          <>
+            <button type="button" className="btn btn-light btn-icon-inline" onClick={downloadTaskImportTemplateCsv}><DownloadIcon /><span>CSV Template</span></button>
+            <button type="button" className="btn btn-light btn-icon-inline" onClick={downloadTaskImportTemplateExcel}><DownloadIcon /><span>Excel Template</span></button>
+            <button type="button" className="btn btn-primary" onClick={handleTaskImportSubmit}>Start Import</button>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => {
+              setIsTaskImportOpen(false)
+              setTaskImportFile(null)
+            }}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      >
+        <div className="d-flex flex-column gap-3">
+          <div className="employee-import-note">
+            <div className="fw-semibold mb-1">Bulk task template</div>
+            <div className="text-muted small">Task import is employee-first. The system maps each employee to valid project assignments and auto-sends `project_assignment_uid` in the background.</div>
+            <div className="text-muted small mt-2">Validation checks: Employee Code must exist, Task Date cannot be in the future, project must be mapped to the employee, and Hours Worked above {TASK_DEFAULT_STANDARD_HOURS} requires Overtime = Yes.</div>
+          </div>
+          <div className="employee-import-upload">
+            <label className="form-label">Upload populated template</label>
+            <input type="file" className="form-control" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setTaskImportFile(event.target.files?.[0] || null)} />
+            <div className="form-text">Accepted formats: CSV and Excel (.xlsx). The file is validated before records are created.</div>
+          </div>
+          {taskImportFile ? <div className="employee-import-file-chip"><span className="fw-semibold">Selected file:</span> {taskImportFile.name}</div> : null}
+        </div>
+      </ModalFrame>
+
       <TaskFormModal
         open={isTaskFormOpen}
         mode={taskFormMode}
         draft={taskDraft}
         errors={taskErrors}
         touched={taskTouched}
-        projectOptions={projectFormOptions}
+        taskProjectOptions={taskMappedProjectOptions}
         employeeOptions={employeeFormOptions}
-        assignmentOptions={scopedTaskAssignmentOptions}
+        selectedBillingStatus={selectedTaskBillingStatus}
+        todayIsoDate={todayIsoDate}
         onChange={handleTaskDraftChange}
         onBlur={handleTaskDraftBlur}
         onClose={() => {
