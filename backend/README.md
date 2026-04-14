@@ -40,7 +40,7 @@ fastapi dev src/
 Generate a new script that calculates the difference between your code and the database:
 
 ```bash
-alembic revision --autogenerate -m "swap the pod_name and team Lead into project to project assignment"
+alembic revision --autogenerate -m "add half days in attendance"
 
 ```
 

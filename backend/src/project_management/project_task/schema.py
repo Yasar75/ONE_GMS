@@ -43,15 +43,6 @@ class ProjectTaskBase(BaseModel):
         value = value.strip()
         return value or None
 
-    @field_validator("task_date")
-    @classmethod
-    def validate_task_date_not_future(cls, value: Optional[date]) -> Optional[date]:
-        if value is None:
-            return value
-        if value > date.today():
-            raise ValueError("task_date cannot be in the future")
-        return value
-
 
 class ProjectTaskCreate(ProjectTaskBase):
     pass
@@ -95,15 +86,6 @@ class ProjectTaskUpdate(BaseModel):
             return value
         value = value.strip()
         return value or None
-
-    @field_validator("task_date")
-    @classmethod
-    def validate_task_date_not_future(cls, value: Optional[date]) -> Optional[date]:
-        if value is None:
-            return value
-        if value > date.today():
-            raise ValueError("task_date cannot be in the future")
-        return value
 
 
 class ProjectTaskRead(ProjectTaskBase):

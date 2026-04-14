@@ -161,7 +161,7 @@ const ROLE_MODULE_VISUAL_CONFIG = [
   {
     title: 'Attendance Management',
     modules: [
-      { key: 'Attendance Overview', label: 'Employee Attendance Logs' },
+      { key: 'Attendance Overview', label: 'All Employees Attendance Logs' },
       { key: 'My Attendance Preview', label: 'Mark Attendance' },
       { key: 'Manage Regularization', label: 'Manage Regularization Requests' },
       { key: 'Shift Roster', label: 'Shift Roster' },

@@ -11,15 +11,35 @@ import {
   toIsoOrNull
 } from '../../utils/attendance.js'
 
-export const attendanceService = {
-  async getDirectoryAttendance({ employeeUid } = {}) {
-    const response = await http.get(endpoints.attendance.list, {
-      params: employeeUid ? { employee_uid: employeeUid } : undefined
-    })
+function normalizeAttendanceCollection(payload) {
+  const records = Array.isArray(payload)
+    ? payload
+    : (payload ? [payload] : [])
 
-    return Array.isArray(response.data)
-      ? response.data.map(normalizeAttendanceRecord).filter(Boolean)
-      : []
+  return records.map(normalizeAttendanceRecord).filter(Boolean)
+}
+
+export const attendanceService = {
+  async getAllAttendance() {
+    const response = await http.get(endpoints.attendance.list)
+    return normalizeAttendanceCollection(response.data)
+  },
+
+  async getAttendanceByEmployee(employeeUid) {
+    const normalizedEmployeeUid = String(employeeUid || '').trim()
+    if (!normalizedEmployeeUid) return []
+
+    const response = await http.get(endpoints.attendance.byEmployee(normalizedEmployeeUid))
+    return normalizeAttendanceCollection(response.data)
+  },
+
+  async getDirectoryAttendance({ employeeUid } = {}) {
+    const normalizedEmployeeUid = String(employeeUid || '').trim()
+    const response = normalizedEmployeeUid
+      ? await http.get(endpoints.attendance.byEmployee(normalizedEmployeeUid))
+      : await http.get(endpoints.attendance.list)
+
+    return normalizeAttendanceCollection(response.data)
   },
 
   async getAttendanceDetail(attendanceUid) {

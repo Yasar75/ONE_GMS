@@ -62,6 +62,7 @@ export const endpoints = {
   },
   attendance: {
     list: '/api/v1/attendance/',
+    byEmployee: (employeeUid) => `/api/v1/attendance/${employeeUid}`,
     detail: (attendanceUid) => `/api/v1/attendance/${attendanceUid}`,
     update: (attendanceUid) => `/api/v1/attendance/${attendanceUid}`
   },

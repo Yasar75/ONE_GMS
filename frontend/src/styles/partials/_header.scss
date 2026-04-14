@@ -8,54 +8,168 @@
 }
 
 .app-brand {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.95rem;
-  min-width: var(--sidebar-w-collapsed);
+  --brand-icon-size: 42px;
+  --brand-logo-height: 60px;
+  --brand-title-left-expanded: 3.35rem;
+  --brand-title-left-collapsed: calc(var(--sidebar-w-collapsed) - var(--app-shell-pad-inline));
+  --brand-collapsed-icon-gap: 1rem;
+  --brand-collapsed-icon-left: max(
+    0.12rem,
+    calc(var(--brand-title-left-collapsed) - var(--brand-icon-size) - var(--brand-collapsed-icon-gap))
+  );
+  min-width: var(--sidebar-w);
+  height: 62px;
+  overflow: visible;
 }
 
-.app-brand img {
-  height: 50px;
-  width: auto;
-  padding: 5px;
-  border-radius: 0;
+.app-brand--expanded {
+  min-width: var(--sidebar-w);
+}
+
+.app-brand--collapsed {
+  min-width: var(--sidebar-w);
+}
+
+.app-brand-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.brand-icon {
+  position: absolute;
+  top: 50%;
+  left: var(--brand-collapsed-icon-left);
+  height: var(--brand-icon-size);
+  width: var(--brand-icon-size);
+  padding: 2px;
   object-fit: contain;
+  transform-origin: center;
+  transition: opacity 220ms ease, left 360ms cubic-bezier(0.22, 1, 0.36, 1), transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, left, transform;
+}
+
+.brand-logo {
+  position: absolute;
+  top: 50%;
+  left: 0.02rem;
+  height: var(--brand-logo-height);
+  width: auto;
+  max-width: calc(var(--sidebar-w) - 0.5rem);
+  padding: 5px;
+  object-fit: contain;
+  transform-origin: left center;
+  transition:
+    opacity 220ms ease,
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    clip-path 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 260ms ease;
+  will-change: opacity, transform, clip-path;
 }
 
 .app-brand-title {
+  position: absolute;
+  top: 50%;
+  left: var(--brand-title-left-expanded);
   font-family: "Saira", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  font-size: clamp(1.1rem, 1.65vw, 2rem);
-  font-weight: 700;
-  letter-spacing: 0.5px;
+  font-size: clamp(1.36rem, 1.75vw, 2.08rem);
+  font-weight: 800;
+  letter-spacing: 0.045em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-left: 0.75rem;
-  max-width: min(52vw, 28rem);
+  margin: 0;
+  max-width: calc(var(--sidebar-w) - 3.6rem);
   line-height: 1;
+  transform-origin: left center;
+  transition: opacity 240ms ease, left 360ms cubic-bezier(0.22, 1, 0.36, 1), transform 360ms cubic-bezier(0.22, 1, 0.36, 1), filter 260ms ease;
+  will-change: opacity, left, transform, filter;
+}
+
+.app-brand--collapsed .brand-icon {
+  left: var(--brand-collapsed-icon-left);
+  opacity: 1;
+  transform: translate(0, -50%) scale(1);
+}
+
+.app-brand--collapsed .app-brand-title {
+  left: var(--brand-title-left-collapsed);
+  opacity: 1;
+  transform: translate(0, -50%) scale(1);
+  filter: blur(0);
+}
+
+.app-brand--collapsed .brand-logo {
+  opacity: 0;
+  transform: translate(-14px, -50%) scale(0.98);
+  clip-path: inset(0 100% 0 0);
+  filter: blur(2px);
+}
+
+.app-brand--expanded .brand-icon {
+  left: 0.15rem;
+  opacity: 0;
+  transform: translate(-10px, -50%) scale(0.96);
+}
+
+.app-brand--expanded .app-brand-title {
+  left: var(--brand-title-left-expanded);
+  opacity: 0;
+  transform: translate(22px, -50%) scale(0.99);
+  filter: blur(2px);
+}
+
+.app-brand--expanded .brand-logo {
+  opacity: 1;
+  transform: translate(0, -50%) scale(1);
+  clip-path: inset(0 0 0 0);
+  filter: blur(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-icon,
+  .brand-logo,
+  .app-brand-title {
+    transition: none;
+  }
 }
 
 @media (max-width: 576px) {
+  .app-brand,
+  .app-brand--expanded,
+  .app-brand--collapsed {
+    min-width: min(13rem, calc(100vw - 12rem));
+    height: 48px;
+  }
+
+  .brand-logo {
+    height: 41px;
+    max-width: 100%;
+  }
+
+  .brand-icon {
+    height: 32px;
+    width: 32px;
+    left: 0.1rem;
+  }
+
   .app-brand-title {
-    font-size: 0.98rem;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-    margin-bottom: 0;
-    margin-left: 0.1rem;
-    max-width: 9rem;
+    left: 2.25rem;
+    font-size: 1.1rem;
+    max-width: calc(100% - 2.35rem);
+    letter-spacing: 0.03em;
   }
 
-  .app-brand img {
-    height: 35px;
-    width: 50px;
-    object-fit: contain;
+  .app-brand--collapsed .brand-icon {
+    left: 0.1rem;
   }
-}
 
-.brand-favicon {
-  height: 34px;
-  width: 34px;
-  border-radius: 10px;
+  .app-brand--collapsed .app-brand-title {
+    left: 2.25rem;
+  }
 }
 
 .sidebar-lock {

@@ -249,7 +249,7 @@ export function AuthProvider({ children }) {
       prefetchTasks.push(
         client.prefetchQuery({
           queryKey: ['attendance', 'admin', 'directory'],
-          queryFn: () => attendanceService.getDirectoryAttendance(),
+          queryFn: () => attendanceService.getAllAttendance(),
           staleTime: 0,
           meta: { suppressGlobalLoader: true }
         }),

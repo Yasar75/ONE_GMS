@@ -220,10 +220,14 @@ class AttendancePunchLogService:
         worked_hours = self._duration_hours(first_punch_in, last_punch_out)
         attendance.total_worked_hours = self._q2(worked_hours)
 
-        if attendance.total_worked_hours >= attendance.total_assigned_shift_hours:
-            attendance.status = AttendanceStatus.Present
+        # once employee punches, this is not WO / Leave anymore
+        attendance.leave_request_uid = None if attendance.status != AttendanceStatus.Leave else attendance.leave_request_uid
+        attendance.leave_type_uid = None if attendance.status != AttendanceStatus.Leave else attendance.leave_type_uid
+
         if attendance.total_worked_hours >= Decimal("8.00"):
             attendance.status = AttendanceStatus.Present
+        elif attendance.total_worked_hours >= Decimal("4.00"):
+            attendance.status = AttendanceStatus.HalfDay
         else:
             attendance.status = AttendanceStatus.Absent
 

@@ -202,7 +202,7 @@ export default function MarkAttendance() {
       if (!currentEmployeeUid) return []
 
       try {
-        return await attendanceService.getDirectoryAttendance({ employeeUid: currentEmployeeUid })
+        return await attendanceService.getAttendanceByEmployee(currentEmployeeUid)
       } catch (error) {
         if ([401, 403, 404, 405].includes(Number(error?.response?.status || 0))) {
           return []

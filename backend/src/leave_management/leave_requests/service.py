@@ -20,8 +20,13 @@ from src.notification.employee_notifications import employee_notification_servic
 from src.config import Config
 
 class LeaveRequestService:
-    WEEKEND_DAYS = Config.WEEKEND_DAYS
-
+    @property
+    def WEEKEND_DAYS(self):
+        return Config.WEEKEND_DAYS
+    
+    def _is_weekend(self, current_date: date) -> bool:
+        return current_date.weekday() in self.WEEKEND_DAYS
+    
     @staticmethod
     def _q2(value: Decimal) -> Decimal:
         return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

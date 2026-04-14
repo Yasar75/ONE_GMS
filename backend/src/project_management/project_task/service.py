@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 from typing import Optional
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import Employee, Project, ProjectAssignment, ProjectTask
 from src.project_management.project_task.schema import ProjectTaskCreate,ProjectTaskUpdate
@@ -33,81 +33,30 @@ class ProjectTaskService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Project assignment not found")
         return assignment
 
-    def _is_assignment_active_for_date(self,assignment: ProjectAssignment,task_date: Optional[date]) -> bool:
-        if not task_date:
-            normalized_status = (assignment.status or "").strip().lower()
-            return normalized_status in {"assigned", "active"}
+    async def _validate_assignment_mapping(self,db: AsyncSession,*,project_uid: uuid.UUID,employee_uid: uuid.UUID,project_assignment_uid: Optional[uuid.UUID]) -> None:
+        if not project_assignment_uid:
+            return
 
-        if assignment.assigned_from and assignment.assigned_from > task_date:
-            return False
-        if assignment.assigned_to and assignment.assigned_to < task_date:
-            return False
-        return True
+        assignment = await self._get_project_assignment_or_404(db=db,project_assignment_uid=project_assignment_uid)
 
-    async def _resolve_project_assignment_uid(
-        self,
-        db: AsyncSession,
-        *,
-        project_uid: uuid.UUID,
-        employee_uid: uuid.UUID,
-        project_assignment_uid: Optional[uuid.UUID],
-        task_date: Optional[date],
-    ) -> uuid.UUID:
-        if project_assignment_uid:
-            assignment = await self._get_project_assignment_or_404(db=db,project_assignment_uid=project_assignment_uid)
+        if assignment.project_uid != project_uid:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="project_assignment_uid does not belong to the given project")
 
-            if assignment.project_uid != project_uid:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="project_assignment_uid does not belong to the given project")
-
-            if assignment.employee_uid != employee_uid:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="project_assignment_uid does not belong to the given employee")
-
-            return assignment.uid
-
-        stmt = select(ProjectAssignment).where(
-            ProjectAssignment.project_uid == project_uid,
-            ProjectAssignment.employee_uid == employee_uid,
-        )
-        result = await db.execute(stmt)
-        assignments = result.scalars().all()
-
-        if not assignments:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No project assignment mapping found for the selected employee and project",
-            )
-
-        active_assignments = [item for item in assignments if self._is_assignment_active_for_date(item, task_date)]
-        candidates = active_assignments if active_assignments else assignments
-
-        sorted_candidates = sorted(
-            candidates,
-            key=lambda item: (
-                (item.status or "").strip().lower() in {"assigned", "active"},
-                item.assigned_from or date.min,
-                item.updated_at or item.created_at,
-            ),
-            reverse=True,
-        )
-
-        return sorted_candidates[0].uid
+        if assignment.employee_uid != employee_uid:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="project_assignment_uid does not belong to the given employee")
 
     async def create_project_task(self,db: AsyncSession,payload: ProjectTaskCreate,created_by: uuid.UUID) -> ProjectTask:
         await self._get_project_or_404(db, payload.project_uid)
         await self._get_employee_or_404(db, payload.employee_uid)
-        resolved_project_assignment_uid = await self._resolve_project_assignment_uid(
-            db=db,
-            project_uid=payload.project_uid,
-            employee_uid=payload.employee_uid,
-            project_assignment_uid=payload.project_assignment_uid,
-            task_date=payload.task_date,
-        )
+
+        await self._validate_assignment_mapping(db=db,project_uid=payload.project_uid,employee_uid=payload.employee_uid,
+        project_assignment_uid=payload.project_assignment_uid)
 
         project_task = ProjectTask(
             created_by=created_by,
             project_uid=payload.project_uid,
             employee_uid=payload.employee_uid,
-            project_assignment_uid=resolved_project_assignment_uid,
+            project_assignment_uid=payload.project_assignment_uid,
             task_date=payload.task_date,
             hour_work=payload.hour_work,
             task_completed=payload.task_completed,
@@ -192,7 +141,6 @@ class ProjectTaskService:
 
         new_project_uid = update_data.get("project_uid", project_task.project_uid)
         new_employee_uid = update_data.get("employee_uid", project_task.employee_uid)
-        new_task_date = update_data.get("task_date", project_task.task_date)
         new_project_assignment_uid = update_data.get(
             "project_assignment_uid",
             project_task.project_assignment_uid,
@@ -200,14 +148,13 @@ class ProjectTaskService:
 
         await self._get_project_or_404(db, new_project_uid)
         await self._get_employee_or_404(db, new_employee_uid)
-        resolved_project_assignment_uid = await self._resolve_project_assignment_uid(
+
+        await self._validate_assignment_mapping(
             db=db,
             project_uid=new_project_uid,
             employee_uid=new_employee_uid,
             project_assignment_uid=new_project_assignment_uid,
-            task_date=new_task_date,
         )
-        update_data["project_assignment_uid"] = resolved_project_assignment_uid
 
         for field, value in update_data.items():
             setattr(project_task, field, value)

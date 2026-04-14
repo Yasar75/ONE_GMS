@@ -4,7 +4,7 @@ import json
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 from datetime import time
-from typing import ClassVar, Set,List
+from typing import ClassVar, Set, List
 
 DEFAULT_ROLE_MODULES = [
     "Roles",
@@ -32,14 +32,14 @@ DEFAULT_ROLE_MODULES = [
     "Leave Request",
     "Manage Leave",
     "Project",
+    "Project Assignment", 
+    "Project Task",
 ]
 
 class Settings(BaseSettings):
     DATABASE_URL: str
     JWT_SECRET: str
     JWT_ALGORITHM: str
-    # REDIS_HOST: str = "localhost"
-    # REDIS_PORT: int =6379
 
     MAIL_USERNAME: str
     MAIL_PASSWORD: str
@@ -53,42 +53,43 @@ class Settings(BaseSettings):
     VALIDATE_CERTS: bool = True
     DOMAIN: str
 
-
-     # Pool settings (config-driven with defaults)
     DB_POOL_SIZE: int = Field(default=2, ge=1)
     DB_MAX_OVERFLOW: int = Field(default=0, ge=0)
     DB_POOL_TIMEOUT: int = Field(default=30, ge=1)
     DB_POOL_RECYCLE: int = Field(default=1800, ge=0)
-    # SSL toggles + certs (config-driven)
     DB_FORCE_SSL: bool = True
     DB_DISABLE_SSL: bool = False
-    DB_SSL_CA_CERT: str | None = None          # PEM (multiline)
+    DB_SSL_CA_CERT: str | None = None
     DB_APP_NAME: str | None = None
-    
-    FRONTEND_URL:str
-    BACKEND_URL:str
-    ## Attendance vaiable
-    MAX_WORKING_HOURS_PER_DAY:int
-    GRACE_MINUTES:int
-    TIME_ZONE:str
 
-    ## Leave Request
-    WEEKEND_DAYS:ClassVar[Set[str]] = set()
-    
+    FRONTEND_URL: str
+    BACKEND_URL: str
+
+    ## Attendance
+    MAX_WORKING_HOURS_PER_DAY: int
+    GRACE_MINUTES: int
+    TIME_ZONE: str
+    WORKING_DAYS_PER_WEEK: int = Field(default=5, ge=5, le=6)
+
     ## Role base access control
     MODULES_LIST: List[str] = Field(default_factory=lambda: DEFAULT_ROLE_MODULES.copy())
-    
-    ##Employees Documents
-    CLOUDINARY_CLOUD_NAME:str
-    CLOUDINARY_API_KEY:str
-    CLOUDINARY_API_SECRET:str
-    ALLOWED_EXTENSIONS:str
-    ALLOWED_MIME_TYPES:str
-    MAX_FILE_SIZE:int
+
+    ## Employees Documents
+    CLOUDINARY_CLOUD_NAME: str
+    CLOUDINARY_API_KEY: str
+    CLOUDINARY_API_SECRET: str
+    ALLOWED_EXTENSIONS: str
+    ALLOWED_MIME_TYPES: str
+    MAX_FILE_SIZE: int
 
     ## SendGrid mail service.
     APIKEY: str
-    FROM:str
+    FROM: str
+
+    @property
+    def WEEKEND_DAYS(self) -> Set[int]:
+        # Python weekday(): Monday=0 ... Sunday=6
+        return {5, 6} if self.WORKING_DAYS_PER_WEEK == 5 else {6}
 
     @field_validator("MODULES_LIST", mode="before")
     @classmethod
@@ -123,7 +124,6 @@ class Settings(BaseSettings):
 
         return DEFAULT_ROLE_MODULES.copy()
 
-    
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

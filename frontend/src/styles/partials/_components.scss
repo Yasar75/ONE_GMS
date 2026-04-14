@@ -6380,33 +6380,34 @@
 
 /* Keep metadata action button expansion contained inside the action column */
 .metadata-table-wrap .employee-table {
-  min-width: 960px;
+  width: 100%;
+  min-width: 0;
   table-layout: fixed;
 }
 
 .metadata-table th:last-child,
 .metadata-table td:last-child {
-  width: 17.5rem;
-  min-width: 17.5rem;
-  max-width: 17.5rem;
+  width: 12rem;
+  min-width: 12rem;
+  max-width: 12rem;
 }
 
 .metadata-action-cluster {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  justify-content: flex-start;
+  justify-content: center;
   flex-wrap: nowrap;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .metadata-table .employee-actions-cell {
-  overflow: hidden;
-  text-align: left;
+  overflow: visible;
+  text-align: center;
 }
 
 .metadata-table .employee-action-btn {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
 }
 
 @media (max-width: 1919.98px) {
@@ -6424,9 +6425,9 @@
 @media (max-width: 991.98px) {
   .metadata-table th:last-child,
   .metadata-table td:last-child {
-    width: 16rem;
-    min-width: 16rem;
-    max-width: 16rem;
+    width: 10.5rem;
+    min-width: 10.5rem;
+    max-width: 10.5rem;
   }
 }
 
@@ -6437,9 +6438,9 @@
 
   .metadata-table th:last-child,
   .metadata-table td:last-child {
-    width: 14rem;
-    min-width: 14rem;
-    max-width: 14rem;
+    width: 8.5rem;
+    min-width: 8.5rem;
+    max-width: 8.5rem;
   }
 
   .metadata-table .employee-action-btn,

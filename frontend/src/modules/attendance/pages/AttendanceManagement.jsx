@@ -849,7 +849,7 @@ export default function AttendanceManagement() {
   const pinnedAttendanceRows = useMemo(() => prioritizeRowsByEmployee(sortedAttendanceRows, currentEmployeeUid), [currentEmployeeUid, sortedAttendanceRows])
   const pinnedPendingRegularizationRows = useMemo(() => prioritizeRowsByEmployee(sortedRegularizationRows, currentEmployeeUid), [currentEmployeeUid, sortedRegularizationRows])
   const pinnedRegularizationRequestRows = useMemo(() => prioritizeRowsByEmployee(sortedRegularizationRequestRows, currentEmployeeUid), [currentEmployeeUid, sortedRegularizationRequestRows])
-  const previewAttendance = pinnedAttendanceRows.slice(0, 5)
+  const overviewAttendanceRows = sortedAttendanceRows
   const previewRegularizations = pinnedPendingRegularizationRows.slice(0, 5)
 
   useEffect(() => {
@@ -1285,7 +1285,7 @@ export default function AttendanceManagement() {
   const overviewItems = [
     { label: 'Pending approvals', value: `${regularizationRows.length} request(s)`, helper: 'Requests requiring admin verification', icon: <SparklesIcon /> },
     { label: 'Shift coverage', value: `${shiftSummary.activeAssignments} active assignment(s)`, helper: `${shiftSummary.activeShifts} active shift templates`, icon: <BriefcaseIcon /> },
-    { label: 'Attendance records', value: `${attendanceRows.length} record(s)`, helper: `${previewAttendance.length} recent register row(s) ready for review`, icon: <CalendarIcon /> }
+    { label: 'Attendance records', value: `${attendanceRows.length} record(s)`, helper: `${overviewAttendanceRows.length} register row(s) available in overview`, icon: <CalendarIcon /> }
   ]
 
   const isLoading = attendanceQuery.isLoading || employeesQuery.isLoading || pendingRegularizationsQuery.isLoading || shiftRosterQuery.isLoading || employeeShiftAssignmentsQuery.isLoading || selectedLogsQuery.isLoading || todayLogsQuery.isLoading || myRegularizationsQuery.isLoading
@@ -1341,8 +1341,8 @@ export default function AttendanceManagement() {
           </div>
 
             {canViewAttendanceRegister ? (
-              <CardShell title="Attendance Register Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('attendance')}>Open full register</button>}>
-            <PaginatedTable rows={previewAttendance}>
+              <CardShell title="Attendance Register" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('attendance')}>Open manage tab</button>}>
+            <PaginatedTable rows={overviewAttendanceRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--attendance-preview align-middle mb-0">
                   <thead>

@@ -1,22 +1,26 @@
 import React, { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import logoUrl from '../../../asserts/headerLogo.svg'
+import logoLight from '../../../asserts/one_gms_logo_dark.svg'
+import logoDark from '../../../asserts/one_gms_logo_light.svg'
 import ThemeToggle from '../../../components/header/ThemeToggle.jsx'
 import { ChevronRightIcon } from '../../../components/common/AppIcons.jsx'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { authService } from '../../../api/services/auth.service.js'
 import { getErrorMessage } from '../../../utils/auth.js'
 import { buildPasswordValidation, getRequiredFieldMessage, hasValidationErrors, markFieldsTouched } from '../../../utils/validation.js'
+import { useTheme } from '../../../app/providers/ThemeProvider.jsx'
 
 export default function ResetPassword() {
   const navigate = useNavigate()
   const { token = '' } = useParams()
   const { showStatus } = useModal()
+  const { theme } = useTheme()
 
   const [form, setForm] = useState({ new_password: '', confirm_new_password: '' })
   const [touched, setTouched] = useState({})
   const [showPassword, setShowPassword] = useState({ new_password: false, confirm_new_password: false })
   const [loading, setLoading] = useState(false)
+  const logoUrl = theme === 'dark' ? logoDark : logoLight
 
   const passwordValidation = useMemo(
     () => buildPasswordValidation(form.new_password, form.confirm_new_password),
