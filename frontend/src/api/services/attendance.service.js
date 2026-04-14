@@ -29,8 +29,19 @@ export const attendanceService = {
     const normalizedEmployeeUid = String(employeeUid || '').trim()
     if (!normalizedEmployeeUid) return []
 
-    const response = await http.get(endpoints.attendance.byEmployee(normalizedEmployeeUid))
-    return normalizeAttendanceCollection(response.data)
+    try {
+      const response = await http.get(endpoints.attendance.byEmployee(normalizedEmployeeUid))
+      return normalizeAttendanceCollection(response.data)
+    } catch (error) {
+      const statusCode = Number(error?.response?.status || 0)
+      if (![404, 405, 422].includes(statusCode)) throw error
+
+      // Backward-compatible fallback for deployments still expecting query parameter filtering.
+      const fallbackResponse = await http.get(endpoints.attendance.list, {
+        params: { employee_uid: normalizedEmployeeUid }
+      })
+      return normalizeAttendanceCollection(fallbackResponse.data)
+    }
   },
 
   async getDirectoryAttendance({ employeeUid } = {}) {

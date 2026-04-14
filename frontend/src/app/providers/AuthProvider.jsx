@@ -61,9 +61,13 @@ export function AuthProvider({ children }) {
       const setupIncomplete = hasEmployeeLink && !profile?.profileCompletedAt
       const nickname = profile?.nickname ?? baseUser.nickname ?? ''
       const fallbackFirstName = profile?.employee?.firstName || baseUser.firstName || 'User'
+      const resolvedEmployeeUid = String(profile?.employee?.uid || baseUser?.employeeUid || '').trim()
+      const resolvedEmployeeCode = String(profile?.employee?.employeeCode || baseUser?.employeeCode || '').trim()
 
       return {
         ...baseUser,
+        employeeUid: resolvedEmployeeUid,
+        employeeCode: resolvedEmployeeCode,
         nickname,
         displayName: nickname || fallbackFirstName,
         avatarUrl: profile?.profileImageUrl || baseUser.avatarUrl || '',

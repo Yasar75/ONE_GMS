@@ -47,6 +47,11 @@ function deriveFirstLoginDeadline(profile, rawUser) {
 export function normalizeUserProfile(profile) {
   const rawUser = profile?.user ?? profile ?? {}
   const roleName = profile?.role_name ?? rawUser?.role_name ?? ''
+  const employeeUid = profile?.employee_uid
+    ?? profile?.employeeUid
+    ?? rawUser?.employee_uid
+    ?? rawUser?.employeeUid
+    ?? ''
   const firstName = rawUser.first_name ?? rawUser.firstName ?? rawUser.username ?? 'User'
   const lastName = rawUser.last_name ?? rawUser.lastName ?? ''
   const nickname = rawUser.nickname ?? rawUser.nick_name ?? rawUser.nickName ?? ''
@@ -68,6 +73,7 @@ export function normalizeUserProfile(profile) {
   return {
     id: rawUser.uid ?? rawUser.id ?? '',
     uid: rawUser.uid ?? rawUser.id ?? '',
+    employeeUid: String(employeeUid || '').trim(),
     email: rawUser.email ?? '',
     username: rawUser.username ?? '',
     firstName,

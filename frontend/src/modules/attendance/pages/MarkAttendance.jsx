@@ -180,10 +180,10 @@ export default function MarkAttendance() {
     refetchOnWindowFocus: 'always'
   })
   const currentEmployeeUid = useMemo(() => {
-    const fallbackEmployeeUid = selectedLogsRaw.find((entry) => entry?.employeeUid)?.employeeUid
+    const fallbackEmployeeUid = user?.employeeUid
+      || selectedLogsRaw.find((entry) => entry?.employeeUid)?.employeeUid
       || todayLogsRaw.find((entry) => entry?.employeeUid)?.employeeUid
       || regularizations.find((entry) => entry?.employeeUid)?.employeeUid
-      || user?.employeeUid
       || ''
 
     return String(currentEmployeeQuery.data?.uid || fallbackEmployeeUid || '').trim()
