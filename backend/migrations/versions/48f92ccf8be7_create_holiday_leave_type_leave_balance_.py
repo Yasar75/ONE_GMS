@@ -6,7 +6,6 @@ Create Date: 2026-03-08 17:19:37.278644
 """
 
 from typing import Sequence, Union
-from decimal import Decimal
 
 from alembic import op
 import sqlalchemy as sa
@@ -17,7 +16,6 @@ from migrations.helpers import (
     column_exists,
     index_exists,
     constraint_exists,
-    drop_constraint_if_exists,
     _create_pg_enum_if_not_exists,
     _drop_pg_enum_if_exists,
 )
@@ -44,6 +42,20 @@ OLD_LEAVE_STATUS_VALUES = ["Pending", "Approved", "Rejected", "Cancelled"]
 
 def upgrade() -> None:
     """Upgrade schema."""
+
+    # --------------------------------------------------
+    # 0. Remove old attendance -> leave_request dependency
+    # --------------------------------------------------
+    if table_exists("attendance"):
+        if constraint_exists("attendance_leave_request_uid_fkey", table_name="attendance"):
+            op.drop_constraint(
+                "attendance_leave_request_uid_fkey",
+                "attendance",
+                type_="foreignkey",
+            )
+
+        if column_exists("attendance", "leave_request_uid"):
+            op.drop_column("attendance", "leave_request_uid")
 
     # --------------------------------------------------
     # 1. Drop old leave_request table if it exists
@@ -220,8 +232,6 @@ def upgrade() -> None:
             unique=False,
         )
 
-    # Optional but recommended:
-    # one code should usually exist once only
     if not constraint_exists("uq_leave_types_code", table_name="leave_types"):
         op.create_unique_constraint(
             "uq_leave_types_code",
@@ -352,7 +362,6 @@ def upgrade() -> None:
             unique=False,
         )
 
-    # Recommended: only one balance row per employee + leave type + year
     if not constraint_exists(
         "uq_employee_leave_balances_employee_leave_type_year",
         table_name="employee_leave_balances",

@@ -18,12 +18,12 @@ class EmployeeFamilyDetailCreate(BaseModel):
     employee_uid: uuid.UUID
     relation: str = Field(..., min_length=1, max_length=100)
     full_name: str = Field(..., min_length=1, max_length=150)
-    date_of_birth: Optional[date] = None
-    phone: Optional[str] = Field(default=None, max_length=20)
-    occupation: Optional[str] = Field(default=None, max_length=120)
+    date_of_birth: Optional[date] = " "
+    phone: Optional[str] = " "
+    occupation: Optional[str] = " "
     is_dependent: bool = False
-    address: Optional[str] = None
-    remarks: Optional[str] = None
+    address: Optional[str] = " "
+    remarks: Optional[str] = " "
 
     @field_validator("relation", "full_name")
     @classmethod
@@ -40,14 +40,14 @@ class EmployeeFamilyDetailCreate(BaseModel):
 
 
 class EmployeeFamilyDetailUpdate(BaseModel):
-    relation: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    full_name: Optional[str] = Field(default=None, min_length=1, max_length=150)
-    date_of_birth: Optional[date] = None
-    phone: Optional[str] = Field(default=None, max_length=20)
-    occupation: Optional[str] = Field(default=None, max_length=120)
-    is_dependent: Optional[bool] = None
-    address: Optional[str] = None
-    remarks: Optional[str] = None
+    relation: Optional[str] = " "
+    full_name: Optional[str] = " "
+    date_of_birth: Optional[date] = " "
+    phone: Optional[str] = " "
+    occupation: Optional[str] = " "
+    is_dependent: Optional[bool] = " "
+    address: Optional[str] = " "
+    remarks: Optional[str] = " "
 
     @field_validator("relation", "full_name")
     @classmethod

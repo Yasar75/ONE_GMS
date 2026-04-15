@@ -6,7 +6,7 @@ export function useEmployeeDashboardQuery(enabled = true) {
     queryKey: ['dashboard', 'employee'],
     queryFn: dashboardService.getEmployeeDashboard,
     enabled,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
     gcTime: 15 * 60 * 1000
   })
 }

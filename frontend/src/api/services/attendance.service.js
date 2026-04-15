@@ -11,15 +11,46 @@ import {
   toIsoOrNull
 } from '../../utils/attendance.js'
 
-export const attendanceService = {
-  async getDirectoryAttendance({ employeeUid } = {}) {
-    const response = await http.get(endpoints.attendance.list, {
-      params: employeeUid ? { employee_uid: employeeUid } : undefined
-    })
+function normalizeAttendanceCollection(payload) {
+  const records = Array.isArray(payload)
+    ? payload
+    : (payload ? [payload] : [])
 
-    return Array.isArray(response.data)
-      ? response.data.map(normalizeAttendanceRecord).filter(Boolean)
-      : []
+  return records.map(normalizeAttendanceRecord).filter(Boolean)
+}
+
+export const attendanceService = {
+  async getAllAttendance() {
+    const response = await http.get(endpoints.attendance.list)
+    return normalizeAttendanceCollection(response.data)
+  },
+
+  async getAttendanceByEmployee(employeeUid) {
+    const normalizedEmployeeUid = String(employeeUid || '').trim()
+    if (!normalizedEmployeeUid) return []
+
+    try {
+      const response = await http.get(endpoints.attendance.byEmployee(normalizedEmployeeUid))
+      return normalizeAttendanceCollection(response.data)
+    } catch (error) {
+      const statusCode = Number(error?.response?.status || 0)
+      if (![404, 405, 422].includes(statusCode)) throw error
+
+      // Backward-compatible fallback for deployments still expecting query parameter filtering.
+      const fallbackResponse = await http.get(endpoints.attendance.list, {
+        params: { employee_uid: normalizedEmployeeUid }
+      })
+      return normalizeAttendanceCollection(fallbackResponse.data)
+    }
+  },
+
+  async getDirectoryAttendance({ employeeUid } = {}) {
+    const normalizedEmployeeUid = String(employeeUid || '').trim()
+    const response = normalizedEmployeeUid
+      ? await http.get(endpoints.attendance.byEmployee(normalizedEmployeeUid))
+      : await http.get(endpoints.attendance.list)
+
+    return normalizeAttendanceCollection(response.data)
   },
 
   async getAttendanceDetail(attendanceUid) {
@@ -151,6 +182,26 @@ export const attendanceService = {
     return Array.isArray(response.data)
       ? response.data.map(normalizeEmployeeShift).filter(Boolean)
       : []
+  },
+
+  async getEmployeeShiftAssignmentByEmployee(employeeUid) {
+    if (!employeeUid) return null
+
+    try {
+      const response = await http.get(endpoints.employeeShift.byEmployee(employeeUid))
+      return normalizeEmployeeShift(response.data)
+    } catch (error) {
+      if ([404, 405].includes(Number(error?.response?.status || 0))) {
+        try {
+          const fallbackResponse = await http.get(endpoints.employeeShift.byEmployeeFallback(employeeUid))
+          return normalizeEmployeeShift(fallbackResponse.data)
+        } catch (fallbackError) {
+          if ([404, 405].includes(Number(fallbackError?.response?.status || 0))) return null
+          throw fallbackError
+        }
+      }
+      throw error
+    }
   },
 
   async createEmployeeShiftAssignment(payload) {

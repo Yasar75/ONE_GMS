@@ -48,7 +48,7 @@ class EmployeeSkillRead(BaseModel):
     uid: uuid.UUID
     user_uid: uuid.UUID
     employee_uid: uuid.UUID
-    skill: str
+    skill: str 
     created_at: datetime
     updated_at: datetime
 

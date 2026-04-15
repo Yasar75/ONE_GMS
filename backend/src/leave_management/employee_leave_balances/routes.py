@@ -16,9 +16,10 @@ from .service import employee_leave_balance_service
 employee_leave_balance_router = APIRouter()
 access_token_bearer = AccessTokenBearer()
 role_checker = Depends(RoleChecker(["admin", "hr"]))
-module= "Assign Leave"
+admin_module= "Assign Leave" #delete leave
+employee_admin_module= "My Leave Balance"
 
-@employee_leave_balance_router.post("/generate",response_model=List[EmployeeLeaveBalanceRead],status_code=status.HTTP_201_CREATED,dependencies=[Depends(PermissionChecker(module, "c"))])
+@employee_leave_balance_router.post("/generate",response_model=List[EmployeeLeaveBalanceRead],status_code=status.HTTP_201_CREATED,dependencies=[Depends(PermissionChecker(admin_module, "c"))])
 async def generate_leave_balances(data: GenerateEmployeeLeaveBalanceRequest,session: AsyncSession = Depends(get_session),
 token_details: dict = Depends(access_token_bearer)):
     user_uid = token_details["user"]["user_uid"]
@@ -26,17 +27,17 @@ token_details: dict = Depends(access_token_bearer)):
 
 
 @employee_leave_balance_router.post("/manual-grant",response_model=EmployeeLeaveBalanceRead,status_code=status.HTTP_200_OK,
-dependencies=[Depends(PermissionChecker(module, "c"))])
+dependencies=[Depends(PermissionChecker(admin_module, "c"))])
 async def manual_grant_leave(data: ManualGrantLeaveBalanceRequest,session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
     user_uid = token_details["user"]["user_uid"]
     return await employee_leave_balance_service.manual_grant_leave(session, data, user_uid)
 
 
-@employee_leave_balance_router.get("/all",response_model=List[EmployeeLeaveBalanceRead],status_code=status.HTTP_200_OK,dependencies=[role_checker])
+@employee_leave_balance_router.get("/all",response_model=List[EmployeeLeaveBalanceRead],status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def get_all_employees_leave_balances(year: int | None = Query(None, ge=2000, le=2100),session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
     return await employee_leave_balance_service.get_all_employees_leave_balances(session, year)
 
-@employee_leave_balance_router.get("/{employee_uid}",response_model=List[EmployeeLeaveBalanceRead],status_code=status.HTTP_200_OK)
+@employee_leave_balance_router.get("/{employee_uid}",response_model=List[EmployeeLeaveBalanceRead],status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
 async def get_employee_balances(employee_uid: uuid.UUID,year: int = Query(..., ge=2000, le=2100),session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
     return await employee_leave_balance_service.get_employee_balances(session, employee_uid, year)
 

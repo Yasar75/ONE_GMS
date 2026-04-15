@@ -19,6 +19,22 @@ const refreshClient = axios.create({
 
 let refreshRequest = null
 
+function applyNoCacheHeaders(config) {
+  config.headers = config.headers ?? {}
+
+  if (!config.headers['Cache-Control']) {
+    config.headers['Cache-Control'] = 'no-cache, no-store, max-age=0'
+  }
+  if (!config.headers.Pragma) {
+    config.headers.Pragma = 'no-cache'
+  }
+  if (!config.headers.Expires) {
+    config.headers.Expires = '0'
+  }
+
+  return config
+}
+
 function getAccessToken() {
   return storage.get(AUTH_STORAGE_KEYS.accessToken, null)
 }
@@ -63,13 +79,15 @@ async function refreshAccessToken() {
 }
 
 http.interceptors.request.use((config) => {
+  applyNoCacheHeaders(config)
   const token = getAccessToken()
   if (token) {
-    config.headers = config.headers ?? {}
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
+
+refreshClient.interceptors.request.use((config) => applyNoCacheHeaders(config))
 
 http.interceptors.response.use(
   (response) => response,

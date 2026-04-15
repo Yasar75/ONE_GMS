@@ -15,6 +15,8 @@ import Dashboard from '../../modules/dashboard/pages/Dashboard.jsx'
 import EmployeesManagement from '../../modules/employee/pages/EmployeesManagement.jsx'
 import AttendanceManagement from '../../modules/attendance/pages/AttendanceManagement.jsx'
 import LeaveManagement from '../../modules/leave/pages/LeaveManagement.jsx'
+import ProjectManagement from '../../modules/project/pages/ProjectManagement.jsx'
+import TaskManagement from '../../modules/task/pages/TaskManagement.jsx'
 
 import MarkAttendance from '../../modules/attendance/pages/MarkAttendance.jsx'
 import ApplyLeave from '../../modules/leave/pages/ApplyLeave.jsx'
@@ -37,6 +39,8 @@ export function AppRoutes() {
           <Route path="/admin/employees-management" element={<EmployeesManagement />} />
           <Route path="/admin/attendance-management" element={<AttendanceManagement />} />
           <Route path="/admin/leave-management" element={<LeaveManagement />} />
+          <Route path="/admin/project-management" element={<ProjectManagement />} />
+          <Route path="/admin/task-management" element={<TaskManagement />} />
 
           <Route path="/employee/dashboard" element={<Dashboard />} />
           <Route path="/employee/attendance" element={<MarkAttendance />} />

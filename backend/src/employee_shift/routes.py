@@ -12,26 +12,28 @@ access_token_bearer = AccessTokenBearer()
 #role_checker = Depends(RoleChecker(["admin", "HR"]))
 employee_shift_router = APIRouter()
 employee_shift_service = EmployeeShiftService()
-module="Assign Shift"
+admin_module="Assign Shift"
+employee_admin_module="My Shift"
+
 ## Get all employee's shift Details.
-@employee_shift_router.get("/", response_model=List[EmployeeShiftRead], status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(module, "r"))])
+@employee_shift_router.get("/", response_model=List[EmployeeShiftRead], status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def get_all_employees_shift(session: AsyncSession = Depends(get_session)):
     return await employee_shift_service.get_all_employee_shift(session)
 
 
 ## Get employee shift detail by shift UID.
-@employee_shift_router.get("/{employee_shift_uid}", response_model=EmployeeShiftRead, status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(module, "r"))])
+@employee_shift_router.get("/{employee_shift_uid}", response_model=EmployeeShiftRead, status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def get_employee_shift_by_uid(employee_shift_uid: uuid.UUID, session: AsyncSession = Depends(get_session)):
     return await employee_shift_service.get_employee_shift_by_uid(session, employee_shift_uid)
 
 ## Get employee shift details by employee_uid.
-@employee_shift_router.get("/employee-uid/{employee_uid}", response_model=EmployeeShiftRead, status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(module, "r"))])
+@employee_shift_router.get("/employee-uid/{employee_uid}", response_model=EmployeeShiftRead, status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(employee_admin_module, "r"))])
 async def get_employee_shift_by_employee_uid(employee_uid: uuid.UUID, session: AsyncSession = Depends(get_session)):
     return await employee_shift_service.get_employee_shift_by_employee_uid(session, employee_uid)
 
 
 ## Create Employee's shift
-@employee_shift_router.post("", status_code=status.HTTP_201_CREATED, response_model=EmployeeShiftRead, dependencies=[Depends(PermissionChecker(module, "c"))])
+@employee_shift_router.post("", status_code=status.HTTP_201_CREATED, response_model=EmployeeShiftRead, dependencies=[Depends(PermissionChecker(admin_module, "c"))])
 async def create_a_employees_shift(
     employee_shift_data: EmployeeShiftCreate,
     session: AsyncSession = Depends(get_session),
@@ -42,7 +44,7 @@ async def create_a_employees_shift(
 
 
 ## Update Employee's shift.
-@employee_shift_router.patch("/{employee_shift_uid}", response_model=EmployeeShiftRead, dependencies=[Depends(PermissionChecker(module, "u"))])
+@employee_shift_router.patch("/{employee_shift_uid}", response_model=EmployeeShiftRead, dependencies=[Depends(PermissionChecker(admin_module, "u"))])
 async def update_employee_shift(
     employee_shift_uid: uuid.UUID,
     employee_shift_data: EmployeeShiftUpdate,
@@ -53,7 +55,7 @@ async def update_employee_shift(
 
 
 ## Delete employee's shift.
-@employee_shift_router.delete("/{employee_shift_uid}", status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(module, "d"))])
+@employee_shift_router.delete("/{employee_shift_uid}", status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(admin_module, "d"))])
 async def delete_employee_shift(
     employee_shift_uid: str,
     session: AsyncSession = Depends(get_session),

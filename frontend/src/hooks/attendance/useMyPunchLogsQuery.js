@@ -13,8 +13,8 @@ export function useMyPunchLogsQuery(attendanceDate, enabled = true) {
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
     refetchOnReconnect: true,
     meta: {
       suppressGlobalLoader: true

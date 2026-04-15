@@ -43,6 +43,12 @@ export const endpoints = {
     byEmployee: (employeeUid) => `/api/v1/employee_documents/employee/${employeeUid}`,
     detail: (familyUid) => `/api/v1/employee_documents/${familyUid}`
   },
+  employeeWorkExperience: {
+    list: '/api/v1/employee_work_experience/',
+    create: '/api/v1/employee_work_experience/',
+    byEmployee: (employeeUid) => `/api/v1/employee_work_experience/employee/${employeeUid}`,
+    detail: (experienceUid) => `/api/v1/employee_work_experience/${experienceUid}`
+  },
   employeeMetadata: {
     list: '/api/v1/employee-metadata/',
     create: '/api/v1/employee-metadata/',
@@ -56,6 +62,7 @@ export const endpoints = {
   },
   attendance: {
     list: '/api/v1/attendance/',
+    byEmployee: (employeeUid) => `/api/v1/attendance/${employeeUid}`,
     detail: (attendanceUid) => `/api/v1/attendance/${attendanceUid}`,
     update: (attendanceUid) => `/api/v1/attendance/${attendanceUid}`
   },
@@ -81,7 +88,8 @@ export const endpoints = {
     list: '/api/v1/employee_shift_roster/',
     create: '/api/v1/employee_shift_roster',
     detail: (assignmentUid) => `/api/v1/employee_shift_roster/${assignmentUid}`,
-    byEmployee: (employeeUid) => `/api/v1/employee_shift_roster/employee-uid/${employeeUid}`
+    byEmployee: (employeeUid) => `/api/v1/employee_shift_roster/employee-uid/${employeeUid}`,
+    byEmployeeFallback: (employeeUid) => `/api/v1/employee_shift_roster/${employeeUid}`
   },
   leave: {
     holidays: {
@@ -105,8 +113,29 @@ export const endpoints = {
       apply: '/api/v1/leave-requests/apply',
       mine: '/api/v1/leave-requests/my-requests',
       pending: '/api/v1/leave-requests/leave-request-pending',
+      pendingCancellations: '/api/v1/leave-requests/approved-leave-cancellation-pending',
       approve: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/approve`,
-      reject: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/reject`
+      reject: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/reject`,
+      editPending: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/edit-leave-pending-state`,
+      deletePending: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/delete-leave-pending-state`,
+      requestCancellation: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/request-approved-leave-cancellation`,
+      approveCancellation: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/approve-leave-cancellation`,
+      rejectCancellation: (leaveRequestUid) => `/api/v1/leave-requests/${leaveRequestUid}/reject-leave-cancellation`
     }
+  },
+  project: {
+    list: '/api/v1/Project',
+    create: '/api/v1/Project',
+    detail: (projectUid) => `/api/v1/Project/${projectUid}`
+  },
+  projectAssignment: {
+    list: '/api/v1/Project-Assignment',
+    create: '/api/v1/Project-Assignment',
+    detail: (assignmentUid) => `/api/v1/Project-Assignment/${assignmentUid}`
+  },
+  projectTask: {
+    list: '/api/v1/Project-Task',
+    create: '/api/v1/Project-Task',
+    detail: (taskUid) => `/api/v1/Project-Task/${taskUid}`
   }
 }

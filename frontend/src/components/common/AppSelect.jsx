@@ -33,13 +33,29 @@ export default function AppSelect({
   align = 'start',
   multiple = false,
   hideSelectedDescription = false,
-  closeOnSelect
+  closeOnSelect,
+  searchable = true,
+  searchPlaceholder = 'Search options'
 }) {
   const rootRef = useRef(null)
   const buttonRef = useRef(null)
+  const searchInputRef = useRef(null)
   const [isOpen, setIsOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const normalizedOptions = useMemo(() => normalizeOptions(options), [options])
+  const filteredOptions = useMemo(() => {
+    const query = String(searchTerm || '').trim().toLowerCase()
+    if (!query) return normalizedOptions
+
+    return normalizedOptions.filter((option) => (
+      [option.label, option.description, option.value]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    ))
+  }, [normalizedOptions, searchTerm])
   const selectedValues = useMemo(() => {
     if (!multiple) return [String(value ?? '')]
     return Array.isArray(value) ? value.map((item) => String(item)) : []
@@ -67,6 +83,11 @@ export default function AppSelect({
 
   useEffect(() => {
     if (!isOpen) return undefined
+
+    setSearchTerm('')
+    if (searchable) {
+      window.setTimeout(() => searchInputRef.current?.focus(), 0)
+    }
 
     function handlePointerDown(event) {
       if (!rootRef.current?.contains(event.target)) {
@@ -170,7 +191,25 @@ export default function AppSelect({
 
       {isOpen ? (
         <div className={`app-select-menu app-select-menu-${align} ${menuClassName}`.trim()} role="listbox" aria-multiselectable={multiple}>
-          {normalizedOptions.length ? normalizedOptions.map((option) => {
+          {searchable && normalizedOptions.length ? (
+            <div className="app-select-search-shell">
+              <input
+                ref={searchInputRef}
+                type="search"
+                className="form-control app-select-search-input"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder={searchPlaceholder}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    setIsOpen(false)
+                    buttonRef.current?.focus()
+                  }
+                }}
+              />
+            </div>
+          ) : null}
+          {filteredOptions.length ? filteredOptions.map((option) => {
             const isSelected = multiple
               ? selectedValues.includes(String(option.value))
               : String(option.value) === String(value ?? '')

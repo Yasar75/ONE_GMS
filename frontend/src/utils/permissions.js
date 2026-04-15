@@ -1,28 +1,28 @@
+import { ROLES } from './role.js'
+
 const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
 const CRUD_ACTIONS = ['c', 'r', 'u', 'd']
 
 const ROLE_MODULE_ALIAS_MAP = {
-  'Holiday Calandar': 'Holiday Calender',
-  'Assign Shifts': 'Assign Shift',
-  'Attendance Punch Logs': 'Attendance Punch Log',
-  'Leave Requests': 'Leave Request',
-  'Assign Leaves': 'Assign Leave',
-  'Leave Type Entries': 'Leave Type',
-  'Leave Balance': 'Assign Leave',
-  'Employee Leave Balance': 'Assign Leave',
-  'Employees Leave Balance': 'Assign Leave',
+  // Canonical keys come from backend `.env` MODULES_LIST.
+  // Values below map the custom role-matrix labels back to those canonical module names.
+  'Manage Roles': 'Roles',
   'Metadata Entries': 'Employee Metadata',
-  'Employees Entries': 'Employee',
-  'Employee Request': 'Employee Requests',
-  'Employees Request': 'Employee Requests',
-  'Profile': 'Profile Picture',
-  'Profile Image': 'Profile Picture',
-  'Profile Photo': 'Profile Picture',
-  'Employees Skills': 'Employee Skills',
-  'Employees Documents': 'Employee Documents',
-  'Family Details': 'Employee Family Details',
-  'Employee Family Detail': 'Employee Family Details',
-  'Employees Family Details': 'Employee Family Details'
+  'Employee Entries': 'Employees Management',
+  'Employee Status': 'User Status',
+  'All Employees Attendance Logs': 'Attendance Overview',
+  'Mark Attendance': 'My Attendance Preview',
+  'Manage Regularization Requests': 'Manage Regularization',
+  'Create Leaves': 'Leave type',
+  'Leave Allocations': 'Assign Leave',
+  'My Leave Balances': 'My Leave Balance',
+  'Apply Leave Requests': 'Leave Request',
+  'Manage Leave Requests': 'Manage Leave',
+  'Project Management': 'Project',
+  'Project Mapping': 'Project Assignment',
+  'Project Assignments': 'Project Assignment',
+  'Task Management': 'Project Task',
+  'Project Tasks': 'Project Task'
 }
 
 export const PERMISSION_ACTIONS = {
@@ -33,38 +33,81 @@ export const PERMISSION_ACTIONS = {
 }
 
 export const PERMISSION_MODULES = {
-  roles: ['Roles'],
+  roles: ['Roles', 'Manage Roles'],
   employeeMetadata: ['Employee Metadata', 'Metadata Entries'],
-  employeeDirectory: ['Employee', 'Employees Entries'],
-  employeeRequests: ['Employee Requests', 'Employee Request', 'Employees Request'],
-  employeeSkills: ['Employee Skills', 'Employees Skills'],
-  employeeDocuments: ['Employee Documents', 'Employees Documents'],
-  employeeFamilyDetails: ['Employee Family Details', 'Employee Family Detail', 'Employees Family Details', 'Family Details'],
-  profilePicture: ['Profile Picture', 'Profile', 'Profile Image', 'Profile Photo'],
-  attendance: ['Attendance'],
-  attendanceLogs: ['Attendance Punch Log', 'Attendance Punch Logs'],
-  attendanceRegularization: ['Attendance Regularization'],
-  attendanceRegularizationLogs: ['Attendance Regularization Logs'],
+  employeeStatus: ['User Status', 'Employee Status'],
+  employeeManagement: ['Employees Management', 'Employee Entries'],
+  employeeDirectory: ['Employees Management', 'Employee Entries'],
+  employeeDocuments: ['Employee Documents'],
+  myDocuments: ['My Documents'],
+  employeeSkills: ['Employee Skills'],
+  mySkills: ['My Skills'],
+  employeeFamilyDetails: ["Employee's Family Details"],
+  myFamilyDetails: ['My Family Details'],
+  employeeWorkExperience: ['Employee Work Experience'],
+  myWorkExperience: ['My Work Experience'],
+  attendanceOverview: ['Attendance Overview', 'All Employees Attendance Logs'],
+  attendance: ['Attendance Overview', 'All Employees Attendance Logs'],
+  attendanceLogs: ['Attendance Overview', 'All Employees Attendance Logs'],
+  myAttendancePreview: ['My Attendance Preview', 'Mark Attendance'],
+  manageRegularization: ['Manage Regularization', 'Manage Regularization Requests'],
+  attendanceRegularization: ['Manage Regularization', 'Manage Regularization Requests'],
+  selfRegularizationLogs: ['Manage Regularization', 'Manage Regularization Requests'],
+  attendanceRegularizationLogs: ['Manage Regularization', 'Manage Regularization Requests'],
   shiftRoster: ['Shift Roster'],
-  assignShift: ['Assign Shift', 'Assign Shifts'],
-  holidayCalendar: ['Holiday Calender', 'Holiday Calandar'],
-  leaveType: ['Leave Type', 'Leave Type Entries'],
-  assignLeave: ['Assign Leave', 'Assign Leaves', 'Leave Balance', 'Employee Leave Balance', 'Employees Leave Balance'],
-  leaveRequest: ['Leave Request', 'Leave Requests']
+  assignShift: ['Assign Shift'],
+  myShift: ['My Shift'],
+  holidayCalendar: ['Holiday Calendar'],
+  leaveType: ['Leave type', 'Create Leaves'],
+  assignLeave: ['Assign Leave', 'Leave Allocations'],
+  myLeaveBalance: ['My Leave Balance', 'My Leave Balances'],
+  leaveRequest: ['Leave Request', 'Apply Leave Requests'],
+  manageLeave: ['Manage Leave', 'Manage Leave Requests'],
+  project: ['Project', 'Project Management'],
+  projectAssignment: ['Project Assignment', 'Project Mapping', 'Project Assignments'],
+  projectTask: ['Project Task', 'Task Management', 'Project Tasks']
 }
+
+export const ROLE_MATRIX_MODULES = dedupePermissionModules([
+  'Roles',
+  'Employee Metadata',
+  'User Status',
+  'Employees Management',
+  'My Skills',
+  'Employee Skills',
+  'My Documents',
+  'Employee Documents',
+  'My Family Details',
+  "Employee's Family Details",
+  'My Work Experience',
+  'Employee Work Experience',
+  'Attendance Overview',
+  'My Attendance Preview',
+  'Manage Regularization',
+  'Shift Roster',
+  'Assign Shift',
+  'My Shift',
+  'Holiday Calendar',
+  'Leave type',
+  'Assign Leave',
+  'My Leave Balance',
+  'Leave Request',
+  'Manage Leave',
+  'Project',
+  'Project Assignment',
+  'Project Task'
+])
 
 export const EMPLOYEE_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
   ...PERMISSION_MODULES.roles,
   ...PERMISSION_MODULES.employeeMetadata,
-  ...PERMISSION_MODULES.employeeDirectory,
-  ...PERMISSION_MODULES.employeeRequests
+  ...PERMISSION_MODULES.employeeManagement,
+  ...PERMISSION_MODULES.employeeStatus
 ])
 
 export const ATTENDANCE_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
-  ...PERMISSION_MODULES.attendance,
-  ...PERMISSION_MODULES.attendanceLogs,
-  ...PERMISSION_MODULES.attendanceRegularization,
-  ...PERMISSION_MODULES.attendanceRegularizationLogs,
+  ...PERMISSION_MODULES.attendanceOverview,
+  ...PERMISSION_MODULES.manageRegularization,
   ...PERMISSION_MODULES.shiftRoster,
   ...PERMISSION_MODULES.assignShift
 ])
@@ -73,29 +116,43 @@ export const LEAVE_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
   ...PERMISSION_MODULES.holidayCalendar,
   ...PERMISSION_MODULES.leaveType,
   ...PERMISSION_MODULES.assignLeave,
-  ...PERMISSION_MODULES.leaveRequest
+  ...PERMISSION_MODULES.manageLeave
+])
+
+export const PROJECT_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
+  ...PERMISSION_MODULES.project,
+  ...PERMISSION_MODULES.projectAssignment
+])
+
+export const TASK_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
+  ...PERMISSION_MODULES.projectTask
 ])
 
 export const SELF_SERVICE_ATTENDANCE_ROUTE_MODULES = dedupePermissionModules([
-  ...PERMISSION_MODULES.attendance,
-  ...PERMISSION_MODULES.attendanceLogs,
-  ...PERMISSION_MODULES.attendanceRegularization
+  ...PERMISSION_MODULES.myShift,
+  ...PERMISSION_MODULES.myAttendancePreview,
+  ...PERMISSION_MODULES.manageRegularization
 ])
 
 export const SELF_SERVICE_LEAVE_ROUTE_MODULES = dedupePermissionModules([
   ...PERMISSION_MODULES.holidayCalendar,
-  ...PERMISSION_MODULES.leaveRequest
+  ...PERMISSION_MODULES.leaveRequest,
+  ...PERMISSION_MODULES.myLeaveBalance
 ])
 
 const APP_ROUTE_ACCESS = {
   '/admin/dashboard': dedupePermissionModules([
     ...EMPLOYEE_MANAGEMENT_ROUTE_MODULES,
     ...ATTENDANCE_MANAGEMENT_ROUTE_MODULES,
-    ...LEAVE_MANAGEMENT_ROUTE_MODULES
+    ...LEAVE_MANAGEMENT_ROUTE_MODULES,
+    ...PROJECT_MANAGEMENT_ROUTE_MODULES,
+    ...TASK_MANAGEMENT_ROUTE_MODULES
   ]),
   '/admin/employees-management': EMPLOYEE_MANAGEMENT_ROUTE_MODULES,
   '/admin/attendance-management': ATTENDANCE_MANAGEMENT_ROUTE_MODULES,
   '/admin/leave-management': LEAVE_MANAGEMENT_ROUTE_MODULES,
+  '/admin/project-management': PROJECT_MANAGEMENT_ROUTE_MODULES,
+  '/admin/task-management': TASK_MANAGEMENT_ROUTE_MODULES,
   '/employee/dashboard': dedupePermissionModules([
     ...SELF_SERVICE_ATTENDANCE_ROUTE_MODULES,
     ...SELF_SERVICE_LEAVE_ROUTE_MODULES
@@ -109,6 +166,8 @@ const HOME_ROUTE_ORDER = [
   '/admin/employees-management',
   '/admin/attendance-management',
   '/admin/leave-management',
+  '/admin/project-management',
+  '/admin/task-management',
   '/employee/dashboard',
   '/employee/attendance',
   '/employee/apply-leave'
@@ -229,9 +288,23 @@ export function normalizeAppPath(pathname = '') {
 
 export function canAccessAppPath(user, pathname = '') {
   const normalizedPath = normalizeAppPath(pathname)
+  const isAdminUser = user?.role === ROLES.ADMIN || isAdminBypassUser(user)
 
   if (!normalizedPath || normalizedPath === '/' || normalizedPath === '/dashboard' || normalizedPath === '/profile') {
     return true
+  }
+
+  if (normalizedPath === '/admin/dashboard') return isAdminUser
+  if (normalizedPath === '/employee/dashboard') return !isAdminUser
+  if (normalizedPath === '/employee/attendance') return !isAdminUser
+  if (normalizedPath === '/employee/apply-leave') return !isAdminUser
+
+  if (normalizedPath.startsWith('/admin/') && !isAdminUser) {
+    return false
+  }
+
+  if (normalizedPath.startsWith('/employee/') && isAdminUser) {
+    return false
   }
 
   const requiredModules = APP_ROUTE_ACCESS[normalizedPath]
@@ -249,8 +322,8 @@ export function resolveHomePath(user) {
 }
 
 export function resolveDashboardVariant(user) {
-  if (canAccessAppPath(user, '/admin/dashboard')) return 'management'
-  if (canAccessAppPath(user, '/employee/dashboard')) return 'employee'
+  if (isAdminBypassUser(user) || user?.role === ROLES.ADMIN) return 'management'
+  if (user) return 'employee'
   return null
 }
 

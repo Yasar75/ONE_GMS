@@ -2,21 +2,27 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import LoginForm from '../components/LoginForm.jsx'
 import PasswordResetRequestModal from '../components/PasswordResetRequestModal.jsx'
-import logoUrl from '../../../asserts/headerLogo.svg'
+import logoLight from '../../../asserts/one_gms_logo_dark.svg'
+import logoDark from '../../../asserts/one_gms_logo_light.svg'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
+import { useToast } from '../../../app/providers/ToastProvider.jsx'
 import { getErrorMessage, isProfileSetupRequired } from '../../../utils/auth.js'
 import ThemeToggle from '../../../components/header/ThemeToggle.jsx'
 import { authService } from '../../../api/services/auth.service.js'
+import { useTheme } from '../../../app/providers/ThemeProvider.jsx'
 
 export default function Login() {
   const navigate = useNavigate()
+  const { theme } = useTheme()
   const { login, isAuthenticated, isAuthReady } = useAuth()
   const { showStatus, runWithLoader } = useModal()
+  const { showToast } = useToast()
   const [loading, setLoading] = useState(false)
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false)
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
   const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false)
+  const logoUrl = theme === 'dark' ? logoDark : logoLight
 
   useEffect(() => {
     if (isAuthReady && isAuthenticated) {
@@ -37,17 +43,12 @@ export default function Login() {
         }
       )
 
-      showStatus({
-        type: 'success',
+      showToast({
+        tone: 'success',
         title: 'Login successful',
-        message: `${result.user.firstName || 'User'}, your workspace is ready.`,
-        autoCloseMs: 950,
-        hideCloseButton: true,
-        dismissible: false,
-        onClose: () => {
-          navigate(isProfileSetupRequired(result.user) ? '/profile' : '/dashboard', { replace: true })
-        }
+        message: 'Fetching your latest workspace data and routing you to the right module.'
       })
+      navigate(isProfileSetupRequired(result.user) ? '/profile' : '/dashboard', { replace: true })
     } catch (err) {
       showStatus({
         type: 'error',

@@ -64,7 +64,7 @@ const HOLIDAY_SCOPE_OPTIONS = [
   { value: 'international', label: 'International holiday' },
   { value: 'regional', label: 'Regional holiday' },
   { value: 'company', label: 'Company holiday' },
-  { value: 'custom', label: 'Custom event' }
+  { value: 'custom', label: 'Custom Event' }
 ]
 const CALENDAR_VIEW_OPTIONS = [
   { value: 'month', label: 'Month view' },
@@ -76,16 +76,18 @@ const MANAGEMENT_CALENDAR_EVENT_OPTIONS = [
   { value: 'company', label: 'Company holiday' },
   { value: 'restricted', label: 'Restricted holiday' },
   { value: 'birthday', label: 'Birthday' },
-  { value: 'work_anniversary', label: 'Work anniversary' },
+  { value: 'work_anniversary', label: 'Anniversary' },
   { value: 'meeting', label: 'Meeting' },
   { value: 'task', label: 'Task' },
-  { value: 'custom', label: 'Custom event' }
+  { value: 'custom', label: 'Custom Event' }
 ]
 
-const EMPLOYEE_CALENDAR_EVENT_OPTIONS = [
+const MY_CALENDAR_EVENT_OPTIONS = [
+  { value: 'birthday', label: 'Birthday' },
+  { value: 'work_anniversary', label: 'Anniversary' },
   { value: 'meeting', label: 'Meeting' },
   { value: 'task', label: 'Task' },
-  { value: 'custom', label: 'Custom event' }
+  { value: 'custom', label: 'Custom Event' }
 ]
 
 const PRESET_CALENDAR_COLORS = [
@@ -162,6 +164,18 @@ function getBalanceEntitlementDays(balance = {}) {
     balance.carryForwardIn,
     balance.manualGranted
   ].reduce((total, value) => total + Number(value || 0), 0)
+}
+
+function prioritizeRowsByEmployee(rows = [], employeeUid = '') {
+  const normalizedEmployeeUid = String(employeeUid || '').trim()
+  if (!normalizedEmployeeUid) return Array.isArray(rows) ? rows : []
+
+  return [...(Array.isArray(rows) ? rows : [])].sort((left, right) => {
+    const leftOwnsRecord = String(left?.employeeUid || '') === normalizedEmployeeUid
+    const rightOwnsRecord = String(right?.employeeUid || '') === normalizedEmployeeUid
+    if (leftOwnsRecord === rightOwnsRecord) return 0
+    return leftOwnsRecord ? -1 : 1
+  })
 }
 
 function getCalendarEntryColor(entry) {
@@ -301,6 +315,23 @@ function LeaveStatusBadge({ status }) {
   return <span className={getLeaveStatusClass(status)}>{status}</span>
 }
 
+function getCancellationStatusTone(status = '') {
+  const normalizedStatus = String(status || 'NoneRequested').trim().toLowerCase()
+  if (normalizedStatus === 'pending') return 'orange'
+  if (normalizedStatus === 'approved') return 'success'
+  if (normalizedStatus === 'rejected') return 'danger'
+  return 'neutral'
+}
+
+function getCancellationStatusLabel(status = '') {
+  const normalizedStatus = String(status || 'NoneRequested').trim()
+  if (!normalizedStatus || normalizedStatus === 'NoneRequested') return 'No request'
+  if (normalizedStatus === 'Pending') return 'Pending review'
+  if (normalizedStatus === 'Approved') return 'Approved'
+  if (normalizedStatus === 'Rejected') return 'Rejected'
+  return normalizedStatus
+}
+
 function HolidayScopeBadge({ scope, color = '' }) {
   const meta = getHolidayScopeMeta(scope)
   const style = normalizeHexColor(color) ? getCalendarAccentStyle({ scope, color }, 'badge') : undefined
@@ -399,6 +430,26 @@ function emptyLeaveTypeDraft() {
   }
 }
 
+function emptyLeaveRequestDraft() {
+  return {
+    leaveTypeUid: '',
+    startDate: '',
+    endDate: '',
+    reason: ''
+  }
+}
+
+function buildLeaveRequestDraft(record = null) {
+  if (!record) return emptyLeaveRequestDraft()
+
+  return {
+    leaveTypeUid: record.leaveTypeUid || '',
+    startDate: record.startDate || '',
+    endDate: record.endDate || '',
+    reason: record.reason || ''
+  }
+}
+
 function normalizeLeaveCodeInput(value = '') {
   return String(value || '').toUpperCase().replace(/\s+/g, '').trim()
 }
@@ -454,7 +505,9 @@ function buildLeaveRequestErrors(draft) {
 function HolidayModal({ mode, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit, isPending, isManagementWorkspace = false }) {
   const isEdit = mode === 'edit'
   const entryLabel = draft.audience === 'personal' ? 'My calendar entry' : 'Organization calendar entry'
-  const baseEventTypeOptions = isManagementWorkspace ? MANAGEMENT_CALENDAR_EVENT_OPTIONS : EMPLOYEE_CALENDAR_EVENT_OPTIONS
+  const baseEventTypeOptions = isManagementWorkspace && draft.audience !== 'personal'
+    ? MANAGEMENT_CALENDAR_EVENT_OPTIONS
+    : MY_CALENDAR_EVENT_OPTIONS
   const eventTypeOptions = useMemo(() => {
     if (!['international', 'regional'].includes(String(draft.scope || ''))) return baseEventTypeOptions
     const lockedOption = {
@@ -637,18 +690,30 @@ function LeaveTypeModal({ mode, draft, errors = {}, touched = {}, onChange, onBl
 }
 
 function LeaveDecisionModal({ mode, record, note, onNoteChange, onClose, onSubmit, isPending, employeeLabel, leaveTypeLabel }) {
-  const isApprove = mode === 'approve'
+  const isCancellationMode = ['approve-cancellation', 'reject-cancellation'].includes(mode)
+  const isApprove = mode === 'approve' || mode === 'approve-cancellation'
+
+  const title = isCancellationMode
+    ? (isApprove ? 'Approve leave cancellation' : 'Reject leave cancellation')
+    : (isApprove ? 'Approve leave request' : 'Reject leave request')
+  const actionLabel = isCancellationMode
+    ? (isApprove ? 'Approve cancellation' : 'Reject cancellation')
+    : (isApprove ? 'Approve request' : 'Reject request')
+  const notePlaceholder = isCancellationMode
+    ? (isApprove ? 'Capture the approval note for the cancellation request.' : 'Capture why the cancellation request is being rejected.')
+    : (isApprove ? 'Capture the approval note for audit visibility.' : 'Capture the rejection rationale.')
+
   return (
     <ModalFrame
       open={Boolean(mode && record)}
-      title={isApprove ? 'Approve leave request' : 'Reject leave request'}
+      title={title}
       onClose={onClose}
       size="md"
       footer={(
         <>
           <button type="button" className="btn btn-light px-4" onClick={onClose} disabled={isPending}>Cancel</button>
           <button type="button" className={`btn px-4 ${isApprove ? 'btn-primary' : 'btn-outline-danger'}`} onClick={onSubmit} disabled={isPending}>
-            {isPending ? 'Submitting…' : (isApprove ? 'Approve request' : 'Reject request')}
+            {isPending ? 'Submitting…' : actionLabel}
           </button>
         </>
       )}
@@ -660,10 +725,98 @@ function LeaveDecisionModal({ mode, record, note, onNoteChange, onClose, onSubmi
             <div className="small text-muted">{leaveTypeLabel} • {formatLeaveDate(record.startDate)} to {formatLeaveDate(record.endDate)}</div>
             <div className="small text-muted mt-1">Applied Days: {formatLeaveDays(record.appliedDays)}</div>
             <div className="small mt-2">{record.reason || 'No reason provided.'}</div>
+            {isCancellationMode ? (
+              <div className="small mt-2">
+                Cancellation reason: {record.cancellationReason || 'No cancellation reason provided.'}
+              </div>
+            ) : null}
           </div>
           <div>
             <label className="form-label">Reviewer Note</label>
-            <textarea className="form-control" rows="4" value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder={isApprove ? 'Capture the approval note for audit visibility.' : 'Capture the rejection rationale.'} />
+            <textarea className="form-control" rows="4" value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder={notePlaceholder} />
+          </div>
+        </div>
+      ) : null}
+    </ModalFrame>
+  )
+}
+
+function LeaveRequestModal({ mode, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit, isPending, leaveTypeOptions = [] }) {
+  return (
+    <ModalFrame
+      open={Boolean(mode)}
+      title="Modify pending leave request"
+      onClose={onClose}
+      size="md"
+      footer={(
+        <>
+          <button type="button" className="btn btn-light px-4" onClick={onClose} disabled={isPending}>Cancel</button>
+          <button type="button" className="btn btn-primary px-4" onClick={onSubmit} disabled={isPending || !draft.leaveTypeUid || !draft.startDate || !draft.endDate}>
+            {isPending ? 'Saving…' : 'Save changes'}
+          </button>
+        </>
+      )}
+    >
+      <div className="row g-3">
+        <div className="col-12">
+          <label className="form-label">Leave Type</label>
+          <AppSelect
+            name="leaveTypeUid"
+            value={draft.leaveTypeUid}
+            onChange={onChange}
+            onBlur={onBlur}
+            options={leaveTypeOptions}
+            placeholder="Select leave type"
+            invalid={Boolean(touched.leaveTypeUid && errors.leaveTypeUid)}
+          />
+          {touched.leaveTypeUid && errors.leaveTypeUid ? <div className="invalid-feedback d-block">{errors.leaveTypeUid}</div> : null}
+        </div>
+        <div className="col-12 col-md-6">
+          <label className="form-label">Start Date</label>
+          <input className={`form-control${touched.startDate && errors.startDate ? ' is-invalid' : ''}`} type="date" name="startDate" value={draft.startDate} onChange={onChange} onBlur={onBlur} />
+          {touched.startDate && errors.startDate ? <div className="invalid-feedback d-block">{errors.startDate}</div> : null}
+        </div>
+        <div className="col-12 col-md-6">
+          <label className="form-label">End Date</label>
+          <input className={`form-control${touched.endDate && errors.endDate ? ' is-invalid' : ''}`} type="date" name="endDate" value={draft.endDate} onChange={onChange} onBlur={onBlur} min={draft.startDate || undefined} />
+          {touched.endDate && errors.endDate ? <div className="invalid-feedback d-block">{errors.endDate}</div> : null}
+        </div>
+        <div className="col-12">
+          <label className="form-label">Reason</label>
+          <textarea className={`form-control${touched.reason && errors.reason ? ' is-invalid' : ''}`} rows="4" name="reason" value={draft.reason} onChange={onChange} onBlur={onBlur} placeholder="Update the reason if the leave context changed." />
+          {touched.reason && errors.reason ? <div className="invalid-feedback d-block">{errors.reason}</div> : null}
+        </div>
+      </div>
+    </ModalFrame>
+  )
+}
+
+function LeaveCancellationRequestModal({ record, reason, onReasonChange, onClose, onSubmit, isPending, leaveTypeLabel }) {
+  return (
+    <ModalFrame
+      open={Boolean(record)}
+      title="Request leave cancellation"
+      onClose={onClose}
+      size="md"
+      footer={(
+        <>
+          <button type="button" className="btn btn-light px-4" onClick={onClose} disabled={isPending}>Cancel</button>
+          <button type="button" className="btn btn-outline-danger px-4" onClick={onSubmit} disabled={isPending}>
+            {isPending ? 'Submitting…' : 'Request cancellation'}
+          </button>
+        </>
+      )}
+    >
+      {record ? (
+        <div className="d-flex flex-column gap-3">
+          <div className="attendance-note-card">
+            <div className="fw-semibold">{leaveTypeLabel}</div>
+            <div className="small text-muted">{formatLeaveDate(record.startDate)} to {formatLeaveDate(record.endDate)}</div>
+            <div className="small text-muted mt-1">Applied Days: {formatLeaveDays(record.appliedDays)}</div>
+          </div>
+          <div>
+            <label className="form-label">Cancellation Reason</label>
+            <textarea className="form-control" rows="4" value={reason} onChange={(event) => onReasonChange(event.target.value)} placeholder="Capture why this approved leave is no longer needed." />
           </div>
         </div>
       ) : null}
@@ -674,28 +827,33 @@ function LeaveDecisionModal({ mode, record, note, onNoteChange, onClose, onSubmi
 export default function LeaveShared({ workspaceType = 'request', tabs = [], initialTab = 'apply' }) {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { openStatus, withLoader } = useUi()
+  const { openConfirm, openStatus, withLoader } = useUi()
   const { user } = useAuth()
   const { showToast } = useToast()
   const calendarImportRef = useRef(null)
   const isManagementWorkspace = workspaceType === 'management'
-  const canViewHolidayTab = hasModuleVisibility(user, PERMISSION_MODULES.holidayCalendar)
-  const canViewManagementTab = isManagementWorkspace && hasModuleVisibility(user, [...PERMISSION_MODULES.leaveType, ...PERMISSION_MODULES.assignLeave])
-  const canViewApplyTab = hasModuleVisibility(user, PERMISSION_MODULES.leaveRequest)
   const canCreateHolidayEntries = hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, PERMISSION_ACTIONS.create)
   const canUpdateHolidayEntries = hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, PERMISSION_ACTIONS.update)
   const canDeleteHolidayEntries = hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, PERMISSION_ACTIONS.delete)
+  const canReadHolidayCalendar = hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, PERMISSION_ACTIONS.read)
+  const canViewHolidayTab = canReadHolidayCalendar || canCreateHolidayEntries || canUpdateHolidayEntries || canDeleteHolidayEntries
+  const canViewManagementTab = isManagementWorkspace && hasModuleVisibility(user, [...PERMISSION_MODULES.leaveType, ...PERMISSION_MODULES.assignLeave])
+  const canViewMyLeaveBalance = hasModulePermission(user, PERMISSION_MODULES.myLeaveBalance, PERMISSION_ACTIONS.read)
+  const canViewManageLeaveQueue = isManagementWorkspace && hasModulePermission(user, PERMISSION_MODULES.manageLeave, PERMISSION_ACTIONS.read)
   const canCreateLeaveType = hasModulePermission(user, PERMISSION_MODULES.leaveType, PERMISSION_ACTIONS.create)
   const canUpdateLeaveType = hasModulePermission(user, PERMISSION_MODULES.leaveType, PERMISSION_ACTIONS.update)
   const canManageAllocations = hasAnyModulePermission(user, PERMISSION_MODULES.assignLeave, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
-  const canCreateLeaveRequest = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.create)
-  const canReviewLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.update)
+  const canCreateLeaveRequest = !isManagementWorkspace
+  const canReviewLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.manageLeave, PERMISSION_ACTIONS.create)
+  const canAccessManageLeaveQueue = canViewManageLeaveQueue || canReviewLeaveRequests
+  const canViewLeaveRequests = !isManagementWorkspace || canAccessManageLeaveQueue
+  const canViewApplyTab = isManagementWorkspace ? canAccessManageLeaveQueue : true
   const resolvedTabs = Array.isArray(tabs) && tabs.length
     ? tabs
     : (isManagementWorkspace
       ? [
-        { key: 'holiday', label: 'Manage Holidays', helper: 'Org-wide holidays and closures' },
-        { key: 'management', label: 'Leaves Allocation', helper: 'Leave types and allocations' },
+        { key: 'holiday', label: 'Holiday Calendar', helper: 'Org-wide holidays and closures' },
+        { key: 'management', label: 'Leave Allocations', helper: 'Leave types and allocations' },
         { key: 'apply', label: 'Manage Leaves', helper: 'Balances, requests, and approvals' }
       ]
       : [
@@ -723,6 +881,9 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const [leaveTypeModal, setLeaveTypeModal] = useState({ mode: '', draft: emptyLeaveTypeDraft(), recordUid: '' })
   const [leaveTypeTouched, setLeaveTypeTouched] = useState({})
   const [decisionState, setDecisionState] = useState({ mode: '', record: null, note: '' })
+  const [leaveRequestModal, setLeaveRequestModal] = useState({ mode: '', record: null, draft: emptyLeaveRequestDraft() })
+  const [leaveRequestTouched, setLeaveRequestTouched] = useState({})
+  const [cancellationRequestState, setCancellationRequestState] = useState({ record: null, reason: '' })
   const [manualGrant, setManualGrant] = useState({ leaveTypeUid: '', days: '' })
   const [manualGrantTouched, setManualGrantTouched] = useState({})
   const [leaveForm, setLeaveForm] = useState({ leaveTypeUid: '', startDate: '', endDate: '', reason: '' })
@@ -737,6 +898,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const employeeBalancesQueryKey = ['leave', 'balances', 'employee', selectedEmployeeUid, selectedYear]
   const myRequestsQueryKey = ['leave', 'requests', 'mine']
   const pendingRequestsQueryKey = ['leave', 'requests', 'pending']
+  const pendingCancellationRequestsQueryKey = ['leave', 'requests', 'pending-cancellations']
   const leavePreviewQueryKey = ['leave', 'preview', leaveForm.startDate, leaveForm.endDate]
 
   const holidaysQuery = useQuery({
@@ -744,10 +906,10 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(holidaysQueryKey, () => leaveService.getHolidayCalendar(Number(selectedYear))),
     initialData: () => readCachedQuery(holidaysQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(holidaysQueryKey),
-    enabled: canViewHolidayTab,
+    enabled: canReadHolidayCalendar,
     staleTime: 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const leaveTypesQuery = useQuery({
@@ -755,10 +917,10 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(leaveTypesQueryKey, leaveService.getLeaveTypes),
     initialData: () => readCachedQuery(leaveTypesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(leaveTypesQueryKey),
-    enabled: canViewManagementTab || canViewApplyTab,
+    enabled: canViewManagementTab || canCreateLeaveRequest || canViewLeaveRequests || canViewMyLeaveBalance || canAccessManageLeaveQueue,
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const employeesQuery = useQuery({
@@ -766,10 +928,10 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(employeesQueryKey, employeeService.getLookupDirectory),
     initialData: () => readCachedQuery(employeesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(employeesQueryKey),
-    enabled: isManagementWorkspace && (canViewManagementTab || canViewApplyTab),
+    enabled: isManagementWorkspace && (canViewManagementTab || canAccessManageLeaveQueue),
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const myPunchLogsLookupQuery = useQuery({
@@ -781,7 +943,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const myRegularizationsLookupQuery = useQuery({
@@ -793,7 +955,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const employees = employeesQuery.data || []
@@ -821,7 +983,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const currentEmployeeUid = useMemo(() => {
@@ -847,11 +1009,11 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(myBalancesQueryKey, () => leaveService.getMyLeaveBalances(currentEmployeeUid, Number(selectedYear))),
     initialData: () => readCachedQuery(myBalancesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(myBalancesQueryKey),
-    enabled: canViewApplyTab && Boolean(currentEmployeeUid),
+    enabled: canViewMyLeaveBalance && Boolean(currentEmployeeUid),
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const employeeBalancesQuery = useQuery({
@@ -859,11 +1021,11 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(employeeBalancesQueryKey, () => leaveService.getEmployeeLeaveBalances(selectedEmployeeUid, Number(selectedYear))),
     initialData: () => readCachedQuery(employeeBalancesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(employeeBalancesQueryKey),
-    enabled: Boolean(isManagementWorkspace && selectedEmployeeUid),
+    enabled: Boolean(isManagementWorkspace && canViewMyLeaveBalance && selectedEmployeeUid),
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const pendingRequestsQuery = useQuery({
@@ -871,11 +1033,23 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(pendingRequestsQueryKey, leaveService.getPendingLeaveRequests),
     initialData: () => readCachedQuery(pendingRequestsQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(pendingRequestsQueryKey),
-    enabled: isManagementWorkspace && canViewApplyTab,
+    enabled: canViewManageLeaveQueue,
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
+  })
+
+  const pendingCancellationRequestsQuery = useQuery({
+    queryKey: pendingCancellationRequestsQueryKey,
+    queryFn: () => withPersistentCache(pendingCancellationRequestsQueryKey, leaveService.getPendingLeaveCancellationRequests),
+    initialData: () => readCachedQuery(pendingCancellationRequestsQueryKey),
+    initialDataUpdatedAt: () => readCachedQueryUpdatedAt(pendingCancellationRequestsQueryKey),
+    enabled: canReviewLeaveRequests,
+    retry: 1,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    refetchOnWindowFocus: 'always'
   })
 
   const previewEnabled = Boolean(leaveForm.startDate && leaveForm.endDate && leaveForm.startDate <= leaveForm.endDate)
@@ -888,7 +1062,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 0,
     staleTime: 30 * 1000,
     gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   useEffect(() => {
@@ -916,6 +1090,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const myBalances = myBalancesQuery.data || []
   const myRequests = myRequestsQuery.data || []
   const pendingRequests = pendingRequestsQuery.data || []
+  const pendingCancellationRequests = pendingCancellationRequestsQuery.data || []
   const employeeBalances = employeeBalancesQuery.data || []
   const calendarOwnerKey = String(user?.employeeUid || currentEmployeeUid || user?.uid || user?.email || '')
   const calendarOwnerLabel = user?.fullName || user?.name || user?.email || 'Current user'
@@ -935,23 +1110,42 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
         return {
           value: leaveType.uid,
           label: `${leaveType.name} (${leaveType.code})`,
-          description: balance
+          description: !canViewMyLeaveBalance
+            ? 'Balance visibility depends on your role access.'
+            : (balance
             ? `Available ${formatLeaveDays(balance.availableBalance)} of ${formatLeaveDays(entitlementDays)} days`
-            : 'Not allocated for the selected policy year yet'
+            : 'Not allocated for the selected policy year yet')
         }
       })
 
     return mappedOptions.sort((left, right) => String(left.label || '').localeCompare(String(right.label || '')))
-  }, [leaveTypes, requestBalanceByLeaveType])
+  }, [canViewMyLeaveBalance, leaveTypes, requestBalanceByLeaveType])
+  const leaveRequestModalLeaveTypeOptions = useMemo(() => {
+    const optionMap = new Map(requestLeaveTypeOptions.map((option) => [String(option.value), option]))
+    const selectedModalLeaveTypeUid = String(leaveRequestModal.draft.leaveTypeUid || '')
+
+    if (selectedModalLeaveTypeUid && !optionMap.has(selectedModalLeaveTypeUid)) {
+      const leaveType = leaveTypeMap.get(selectedModalLeaveTypeUid)
+      optionMap.set(selectedModalLeaveTypeUid, {
+        value: selectedModalLeaveTypeUid,
+        label: leaveType ? `${leaveType.name} (${leaveType.code})` : selectedModalLeaveTypeUid,
+        description: 'Currently linked to this leave request.'
+      })
+    }
+
+    return Array.from(optionMap.values())
+  }, [leaveRequestModal.draft.leaveTypeUid, leaveTypeMap, requestLeaveTypeOptions])
   const selectedRequestBalance = useMemo(() => requestBalanceByLeaveType.get(String(leaveForm.leaveTypeUid)) || null, [leaveForm.leaveTypeUid, requestBalanceByLeaveType])
   const selectedRequestLeaveType = useMemo(() => leaveTypeMap.get(leaveForm.leaveTypeUid) || null, [leaveForm.leaveTypeUid, leaveTypeMap])
-  const selectedRequestHasLedger = Boolean(selectedRequestBalance)
+  const canValidateRequestBalance = canViewMyLeaveBalance
+  const selectedRequestHasLedger = canValidateRequestBalance ? Boolean(selectedRequestBalance) : true
   const requestedAppliedDays = Number(leavePreviewQuery.data?.appliedDays || 0)
-  const missingRequestBalanceMessage = leaveForm.leaveTypeUid && !selectedRequestHasLedger
+  const missingRequestBalanceMessage = canValidateRequestBalance && leaveForm.leaveTypeUid && !selectedRequestHasLedger
     ? `${selectedRequestLeaveType ? `${selectedRequestLeaveType.name} (${selectedRequestLeaveType.code})` : 'Selected leave type'} is not allocated for policy year ${selectedYear} yet. Please contact the leave management team or generate/grant the leave balance first.`
     : ''
   const insufficientLeaveBalance = Boolean(
-    selectedRequestHasLedger
+    canValidateRequestBalance
+    && selectedRequestHasLedger
     && previewEnabled
     && leavePreviewQuery.data
     && requestedAppliedDays > Number(selectedRequestBalance.availableBalance || 0)
@@ -963,6 +1157,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const leaveTypeErrors = useMemo(() => buildLeaveTypeErrors(leaveTypeModal.draft), [leaveTypeModal.draft])
   const manualGrantErrors = useMemo(() => buildManualGrantErrors(selectedEmployeeUid, manualGrant), [manualGrant, selectedEmployeeUid])
   const leaveFormErrors = useMemo(() => buildLeaveRequestErrors(leaveForm), [leaveForm])
+  const leaveRequestErrors = useMemo(() => buildLeaveRequestErrors(leaveRequestModal.draft), [leaveRequestModal.draft])
   const holidayMonthOptions = useMemo(() => getMonthOptions(selectedYear), [selectedYear])
   const availableTabs = useMemo(() => filterAccessibleTabs(resolvedTabs, (tabKey) => {
     if (tabKey === 'holiday') return canViewHolidayTab
@@ -1138,14 +1333,89 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       status: (request) => request.status || ''
     }
   })
+  const { items: sortedPendingCancellationRequests } = useSortableData(pendingCancellationRequests, {
+    initialKey: 'employee',
+    initialDirection: 'asc',
+    accessors: {
+      employee: (request) => {
+        const employee = employeeMap.get(request.employeeUid)
+        return employee ? `${employee.fullName} ${employee.employeeCode}`.trim() : String(request.employeeUid || '')
+      },
+      leaveType: (request) => {
+        const leaveType = leaveTypeMap.get(request.leaveTypeUid)
+        return leaveType ? `${leaveType.name} ${leaveType.code}`.trim() : String(request.leaveTypeUid || '')
+      },
+      dateRange: (request) => `${request.startDate || ''} ${request.endDate || ''}`.trim(),
+      appliedDays: (request) => Number(request.appliedDays || 0),
+      cancellationReason: (request) => request.cancellationReason || '',
+      cancellationStatus: (request) => request.cancellationStatus || ''
+    }
+  })
+  const leaveRequestRows = useMemo(() => {
+    const rowsByUid = new Map()
+
+    sortedMyRequests.forEach((request) => {
+      rowsByUid.set(String(request.uid), request)
+    })
+
+    sortedPendingRequests.forEach((request) => {
+      const rowKey = String(request.uid)
+      if (rowsByUid.has(rowKey)) {
+        rowsByUid.set(rowKey, {
+          ...rowsByUid.get(rowKey),
+          ...request
+        })
+        return
+      }
+
+      rowsByUid.set(rowKey, request)
+    })
+
+    sortedPendingCancellationRequests.forEach((request) => {
+      const rowKey = String(request.uid)
+      if (rowsByUid.has(rowKey)) {
+        rowsByUid.set(rowKey, {
+          ...rowsByUid.get(rowKey),
+          ...request
+        })
+        return
+      }
+
+      rowsByUid.set(rowKey, request)
+    })
+
+    return Array.from(rowsByUid.values())
+  }, [sortedMyRequests, sortedPendingCancellationRequests, sortedPendingRequests])
+  const { items: sortedLeaveRequestRows, sortConfig: leaveRequestSortConfig, requestSort: requestLeaveRequestSort } = useSortableData(leaveRequestRows, {
+    initialKey: 'dateRange',
+    initialDirection: 'desc',
+    accessors: {
+      employee: (request) => {
+        const employee = employeeMap.get(request.employeeUid)
+        return employee ? `${employee.fullName} ${employee.employeeCode}`.trim() : String(request.employeeUid || '')
+      },
+      leaveType: (request) => {
+        const leaveType = leaveTypeMap.get(request.leaveTypeUid)
+        return leaveType ? `${leaveType.name} ${leaveType.code}`.trim() : String(request.leaveTypeUid || '')
+      },
+      dateRange: (request) => `${request.startDate || ''} ${request.endDate || ''}`.trim(),
+      appliedDays: (request) => Number(request.appliedDays || 0),
+      status: (request) => `${request.status || ''} ${request.cancellationStatus || ''}`.trim(),
+      cancellationStatus: (request) => request.cancellationStatus || '',
+      reason: (request) => request.reason || '',
+      cancellationReason: (request) => request.cancellationReason || '',
+      reviewerNote: (request) => request.cancellationReviewerNote || request.reviewerNote || ''
+    }
+  })
+  const pinnedLeaveRequestRows = useMemo(() => prioritizeRowsByEmployee(sortedLeaveRequestRows, currentEmployeeUid), [currentEmployeeUid, sortedLeaveRequestRows])
   const hasExportableCalendarEntries = sortedVisibleRegisterHolidays.length > 0
   const focusedDayHolidays = useMemo(() => holidaysByDate[selectedCalendarDate] || [], [holidaysByDate, selectedCalendarDate])
 
   const holidaySummary = useMemo(() => getHolidaySummary(calendarEntries), [calendarEntries])
   const myBalanceSummary = useMemo(() => getLeaveBalanceSummary(myBalances), [myBalances])
   const myRequestSummary = useMemo(() => getLeaveRequestSummary(myRequests), [myRequests])
-  const pendingRequestSummary = useMemo(() => getLeaveRequestSummary(pendingRequests), [pendingRequests])
-  const pendingEmployeeCount = useMemo(() => new Set(pendingRequests.map((item) => String(item.employeeUid || '')).filter(Boolean)).size, [pendingRequests])
+  const pendingQueueCount = useMemo(() => pendingRequests.length + pendingCancellationRequests.length, [pendingCancellationRequests.length, pendingRequests.length])
+  const pendingEmployeeCount = useMemo(() => new Set([...pendingRequests, ...pendingCancellationRequests].map((item) => String(item.employeeUid || '')).filter(Boolean)).size, [pendingCancellationRequests, pendingRequests])
   const employeeBalanceSummary = useMemo(() => getLeaveBalanceSummary(employeeBalances), [employeeBalances])
 
   const holidayMutation = useMutation({ mutationFn: async ({ mode, recordUid, payload }) => (mode === 'edit' ? leaveService.updateHoliday(recordUid, payload) : leaveService.createHoliday(payload)) })
@@ -1154,8 +1424,13 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const generateBalancesMutation = useMutation({ mutationFn: leaveService.generateLeaveBalances })
   const manualGrantMutation = useMutation({ mutationFn: leaveService.manualGrantLeaveBalance })
   const applyLeaveMutation = useMutation({ mutationFn: leaveService.applyLeave })
+  const editLeaveMutation = useMutation({ mutationFn: ({ leaveRequestUid, payload }) => leaveService.editPendingLeaveRequest(leaveRequestUid, payload) })
+  const deleteLeaveMutation = useMutation({ mutationFn: leaveService.deletePendingLeaveRequest })
+  const requestLeaveCancellationMutation = useMutation({ mutationFn: ({ leaveRequestUid, reason }) => leaveService.requestLeaveCancellation(leaveRequestUid, reason) })
   const approveMutation = useMutation({ mutationFn: ({ leaveRequestUid, note }) => leaveService.approveLeaveRequest(leaveRequestUid, note) })
   const rejectMutation = useMutation({ mutationFn: ({ leaveRequestUid, note }) => leaveService.rejectLeaveRequest(leaveRequestUid, note) })
+  const approveCancellationMutation = useMutation({ mutationFn: ({ leaveRequestUid, note }) => leaveService.approveLeaveCancellation(leaveRequestUid, note) })
+  const rejectCancellationMutation = useMutation({ mutationFn: ({ leaveRequestUid, note }) => leaveService.rejectLeaveCancellation(leaveRequestUid, note) })
 
   function handleFieldChange(setter) {
     return (event) => {
@@ -1193,6 +1468,12 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     setLeaveFormTouched((current) => ({ ...current, [fieldName]: true }))
   }
 
+  const handleLeaveRequestFieldBlur = (event) => {
+    const fieldName = event?.target?.name
+    if (!fieldName) return
+    setLeaveRequestTouched((current) => ({ ...current, [fieldName]: true }))
+  }
+
   const onHolidayDraftChange = (event) => {
     const { name, value } = event.target
     setHolidayModal((current) => {
@@ -1204,8 +1485,14 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
         nextDraft.startTime = ''
         nextDraft.endTime = ''
       }
-      if (name === 'audience' && value === 'personal' && !current.draft.color) {
-        nextDraft.color = '#0f766e'
+      if (name === 'audience' && value === 'personal') {
+        const allowedPersonalScopes = new Set(MY_CALENDAR_EVENT_OPTIONS.map((option) => option.value))
+        if (!allowedPersonalScopes.has(String(nextDraft.scope || ''))) {
+          nextDraft.scope = 'custom'
+        }
+        if (!current.draft.color) {
+          nextDraft.color = '#0f766e'
+        }
       }
       return { ...current, draft: nextDraft }
     })
@@ -1277,6 +1564,12 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     setManualGrant((current) => ({ ...current, [name]: value }))
   }
   const onLeaveFormChange = handleFieldChange(setLeaveForm)
+  const onLeaveRequestModalChange = handleFieldChange((updater) => {
+    setLeaveRequestModal((current) => ({
+      ...current,
+      draft: typeof updater === 'function' ? updater(current.draft) : updater
+    }))
+  })
 
   const handleAllocationEmployeeChange = (value) => {
     const nextValue = String(value || '')
@@ -1434,12 +1727,13 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
     const generated = await runMutation(async () => {
       await generateBalancesMutation.mutateAsync({ year: Number(selectedYear), employeeUid: employeeUid || null })
-      await invalidateLeaveData([employeeBalancesQueryKey, myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey])
+      await invalidateLeaveData([employeeBalancesQueryKey, myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey, pendingCancellationRequestsQueryKey])
       await refetchLeaveViews([
         employeeUid ? ['leave', 'balances', 'employee', employeeUid, selectedYear] : null,
         employeeUid && String(employeeUid) === String(currentEmployeeUid) ? myBalancesQueryKey : null,
         myRequestsQueryKey,
-        pendingRequestsQueryKey
+        pendingRequestsQueryKey,
+        pendingCancellationRequestsQueryKey
       ])
       openStatus({ tone: 'success', title: 'Balances generated', message: employeeUid ? 'Leave balances were generated for the selected employee.' : 'Leave balances were generated for the active workforce.' })
     }, 'Generating balances', 'Creating leave balance ledgers and syncing the latest totals.', {
@@ -1473,12 +1767,13 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
         days: Number(manualGrant.days)
       })
 
-      await invalidateLeaveData([employeeBalancesQueryKey, myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey])
+      await invalidateLeaveData([employeeBalancesQueryKey, myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey, pendingCancellationRequestsQueryKey])
       await refetchLeaveViews([
         ['leave', 'balances', 'employee', selectedEmployeeUid, selectedYear],
         String(selectedEmployeeUid) === String(currentEmployeeUid) ? myBalancesQueryKey : null,
         myRequestsQueryKey,
-        pendingRequestsQueryKey
+        pendingRequestsQueryKey,
+        pendingCancellationRequestsQueryKey
       ])
       setManualGrant((current) => ({ ...current, leaveTypeUid: '', days: '' }))
       setManualGrantTouched({})
@@ -1513,12 +1808,151 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
     await runMutation(async () => {
       await applyLeaveMutation.mutateAsync(leaveForm)
-      await invalidateLeaveData([myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey])
-      await refetchLeaveViews([myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey])
+      await invalidateLeaveData([myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey, pendingCancellationRequestsQueryKey])
+      await refetchLeaveViews([myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey, pendingCancellationRequestsQueryKey])
       setLeaveForm({ leaveTypeUid: '', startDate: '', endDate: '', reason: '' })
       setLeaveFormTouched({})
       openStatus({ tone: 'success', title: 'Leave request submitted', message: 'The leave request has been submitted into the approval workflow.' })
     }, 'Submitting leave request', 'Validating your request, reserving balance, and routing it for approval.')
+  }
+
+  function closeLeaveRequestModal() {
+    setLeaveRequestTouched({})
+    setLeaveRequestModal({ mode: '', record: null, draft: emptyLeaveRequestDraft() })
+  }
+
+  function closeCancellationRequestModal() {
+    setCancellationRequestState({ record: null, reason: '' })
+  }
+
+  function getLeaveWorkflowRefetchKeys(record = null) {
+    const employeeUid = String(record?.employeeUid || '')
+
+    return [
+      employeeUid && String(selectedEmployeeUid || '') === employeeUid ? employeeBalancesQueryKey : null,
+      employeeUid && String(currentEmployeeUid || '') === employeeUid ? myBalancesQueryKey : null,
+      myRequestsQueryKey,
+      pendingRequestsQueryKey,
+      pendingCancellationRequestsQueryKey
+    ]
+  }
+
+  function isOwnLeaveRequest(record) {
+    return Boolean(
+      record
+      && currentEmployeeUid
+      && String(record.employeeUid || '') === String(currentEmployeeUid)
+    )
+  }
+
+  function canEditOwnLeaveRequest(record) {
+    const normalizedStatus = String(record?.status || '').trim().toLowerCase()
+    const normalizedCancellationStatus = String(record?.cancellationStatus || 'NoneRequested').trim().toLowerCase()
+    return isOwnLeaveRequest(record) && normalizedStatus === 'pending' && normalizedCancellationStatus !== 'pending'
+  }
+
+  function canRequestOwnLeaveCancellation(record) {
+    const normalizedStatus = String(record?.status || '').trim().toLowerCase()
+    const normalizedCancellationStatus = String(record?.cancellationStatus || 'NoneRequested').trim().toLowerCase()
+    return isOwnLeaveRequest(record) && normalizedStatus === 'approved' && !['pending', 'approved'].includes(normalizedCancellationStatus)
+  }
+
+  function getLeaveTypeLabel(record) {
+    if (!record) return ''
+    const leaveType = leaveTypeMap.get(record.leaveTypeUid)
+    return leaveType ? `${leaveType.name} (${leaveType.code})` : record.leaveTypeUid
+  }
+
+  function openLeaveRequestEditor(record) {
+    if (!canEditOwnLeaveRequest(record)) {
+      openStatus({ tone: 'warning', title: 'Leave request locked', message: 'Only your pending leave requests can be edited from this workspace.' })
+      return
+    }
+
+    setLeaveRequestTouched({})
+    setLeaveRequestModal({
+      mode: 'edit',
+      record,
+      draft: buildLeaveRequestDraft(record)
+    })
+  }
+
+  async function submitLeaveRequestEdit() {
+    if (!leaveRequestModal.record) return
+
+    const validationFields = ['leaveTypeUid', 'startDate', 'endDate', 'reason']
+    setLeaveRequestTouched((current) => ({ ...current, ...markFieldsTouched(validationFields) }))
+
+    if (hasValidationErrors(leaveRequestErrors, validationFields)) {
+      const firstError = validationFields.map((fieldName) => leaveRequestErrors[fieldName]).find(Boolean)
+      openStatus({ tone: 'warning', title: 'Leave request has validation errors', message: firstError || 'Resolve the highlighted fields before saving the request changes.' })
+      return
+    }
+
+    await runMutation(async () => {
+      await editLeaveMutation.mutateAsync({
+        leaveRequestUid: leaveRequestModal.record.uid,
+        payload: leaveRequestModal.draft
+      })
+      const refreshKeys = getLeaveWorkflowRefetchKeys(leaveRequestModal.record)
+      await invalidateLeaveData(refreshKeys)
+      await refetchLeaveViews(refreshKeys)
+      closeLeaveRequestModal()
+      openStatus({ tone: 'success', title: 'Leave request updated', message: 'Your pending leave request has been updated successfully.' })
+    }, 'Updating leave request', 'Revalidating the edited request and syncing the pending leave balance.')
+  }
+
+  async function handleDeleteLeaveRequest(record) {
+    if (!canEditOwnLeaveRequest(record)) {
+      openStatus({ tone: 'warning', title: 'Leave request locked', message: 'Only your pending leave requests can be deleted from this workspace.' })
+      return
+    }
+
+    const accepted = await openConfirm({
+      tone: 'warning',
+      title: 'Delete pending leave request?',
+      message: 'This will remove the request from the approval queue and release the reserved balance.',
+      confirmText: 'Delete request',
+      cancelText: 'Keep request',
+      confirmVariant: 'btn-outline-danger'
+    })
+    if (!accepted) return
+
+    await runMutation(async () => {
+      await deleteLeaveMutation.mutateAsync(record.uid)
+      const refreshKeys = getLeaveWorkflowRefetchKeys(record)
+      await invalidateLeaveData(refreshKeys)
+      await refetchLeaveViews(refreshKeys)
+      openStatus({ tone: 'success', title: 'Leave request deleted', message: 'The pending leave request was removed successfully.' })
+    }, 'Deleting leave request', 'Removing the pending leave request and restoring the reserved balance.')
+  }
+
+  function openLeaveCancellationRequest(record) {
+    if (!canRequestOwnLeaveCancellation(record)) {
+      openStatus({ tone: 'warning', title: 'Cancellation unavailable', message: 'Only your approved leave requests can be sent for cancellation.' })
+      return
+    }
+
+    setCancellationRequestState({
+      record,
+      reason: record?.cancellationReason || ''
+    })
+  }
+
+  async function submitLeaveCancellationRequest() {
+    if (!cancellationRequestState.record) return
+
+    await runMutation(async () => {
+      await requestLeaveCancellationMutation.mutateAsync({
+        leaveRequestUid: cancellationRequestState.record.uid,
+        reason: cancellationRequestState.reason
+      })
+      const refreshKeys = getLeaveWorkflowRefetchKeys(cancellationRequestState.record)
+      await invalidateLeaveData(refreshKeys)
+      await refetchLeaveViews(refreshKeys)
+      closeCancellationRequestModal()
+      openStatus({ tone: 'success', title: 'Cancellation requested', message: 'The leave cancellation request has been sent for review.' })
+    }, 'Submitting cancellation request', 'Routing the leave cancellation request for management review.')
   }
 
   async function submitDecision() {
@@ -1527,24 +1961,41 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       return
     }
 
+    const isCancellationMode = ['approve-cancellation', 'reject-cancellation'].includes(decisionState.mode)
     const payload = { leaveRequestUid: decisionState.record?.uid, note: decisionState.note }
-    const mutation = decisionState.mode === 'approve' ? approveMutation : rejectMutation
-    const title = decisionState.mode === 'approve' ? 'Approving leave request' : 'Rejecting leave request'
+    const mutation = decisionState.mode === 'approve'
+      ? approveMutation
+      : decisionState.mode === 'reject'
+        ? rejectMutation
+        : decisionState.mode === 'approve-cancellation'
+          ? approveCancellationMutation
+          : rejectCancellationMutation
+    const title = decisionState.mode === 'approve'
+      ? 'Approving leave request'
+      : decisionState.mode === 'reject'
+        ? 'Rejecting leave request'
+        : decisionState.mode === 'approve-cancellation'
+          ? 'Approving leave cancellation'
+          : 'Rejecting leave cancellation'
     const message = decisionState.mode === 'approve'
       ? 'Updating the leave request status and attendance ledgers.'
-      : 'Updating the leave request status and releasing the pending balance.'
+      : decisionState.mode === 'reject'
+        ? 'Updating the leave request status and releasing the pending balance.'
+        : decisionState.mode === 'approve-cancellation'
+          ? 'Closing the leave request and reversing any applied attendance impact.'
+          : 'Keeping the approved leave active and saving the cancellation review note.'
 
     await runMutation(async () => {
       await mutation.mutateAsync(payload)
-      await invalidateLeaveData([employeeBalancesQueryKey, myBalancesQueryKey, myRequestsQueryKey, pendingRequestsQueryKey])
-      await refetchLeaveViews([
-        decisionState.record?.employeeUid ? ['leave', 'balances', 'employee', decisionState.record.employeeUid, selectedYear] : null,
-        String(decisionState.record?.employeeUid || '') === String(currentEmployeeUid) ? myBalancesQueryKey : null,
-        myRequestsQueryKey,
-        pendingRequestsQueryKey
-      ])
+      const refreshKeys = getLeaveWorkflowRefetchKeys(decisionState.record)
+      await invalidateLeaveData(refreshKeys)
+      await refetchLeaveViews(refreshKeys)
       setDecisionState({ mode: '', record: null, note: '' })
-      openStatus({ tone: 'success', title: 'Decision saved', message: 'The leave workflow has been updated successfully.' })
+      openStatus({
+        tone: 'success',
+        title: isCancellationMode ? 'Cancellation decision saved' : 'Decision saved',
+        message: isCancellationMode ? 'The leave cancellation workflow has been updated successfully.' : 'The leave workflow has been updated successfully.'
+      })
     }, title, message)
   }
 
@@ -1619,7 +2070,59 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       openStatus({ tone: 'danger', title: 'Leave access blocked', message: 'Your role does not have permission to review leave requests.' })
       return
     }
-    setDecisionState({ mode, record, note: record?.reviewerNote || '' })
+    setDecisionState({
+      mode,
+      record,
+      note: ['approve-cancellation', 'reject-cancellation'].includes(mode)
+        ? (record?.cancellationReviewerNote || '')
+        : (record?.reviewerNote || '')
+    })
+  }
+
+  function renderLeaveRequestActions(request) {
+    const normalizedStatus = String(request?.status || '').trim().toLowerCase()
+    const normalizedCancellationStatus = String(request?.cancellationStatus || 'NoneRequested').trim().toLowerCase()
+    const ownRequest = isOwnLeaveRequest(request)
+    const canEditRequest = canEditOwnLeaveRequest(request)
+    const canRequestCancellation = canRequestOwnLeaveCancellation(request)
+
+    if (ownRequest) {
+      if (canEditRequest || canRequestCancellation) {
+        return (
+          <TableActionCluster>
+            {canEditRequest ? <TableActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openLeaveRequestEditor(request)} /> : null}
+            {canEditRequest ? <TableActionButton icon={<TrashIcon />} label="Delete" variant="delete" onClick={() => handleDeleteLeaveRequest(request)} /> : null}
+            {canRequestCancellation ? <TableActionButton icon={<XCircleIcon />} label="Request Cancellation" variant="delete" onClick={() => openLeaveCancellationRequest(request)} /> : null}
+          </TableActionCluster>
+        )
+      }
+
+      if (normalizedCancellationStatus === 'pending') {
+        return <TableBadge value="Cancellation pending" tone="orange" />
+      }
+
+      return <TableBadge value="Read only" tone="neutral" />
+    }
+
+    if (canReviewLeaveRequests && normalizedCancellationStatus === 'pending') {
+      return (
+        <TableActionCluster>
+          <TableActionButton icon={<CheckCircleIcon />} label="Approve Cancellation" variant="view" onClick={() => openDecision('approve-cancellation', request)} />
+          <TableActionButton icon={<XCircleIcon />} label="Reject Cancellation" variant="delete" onClick={() => openDecision('reject-cancellation', request)} />
+        </TableActionCluster>
+      )
+    }
+
+    if (canReviewLeaveRequests && normalizedStatus === 'pending') {
+      return (
+        <TableActionCluster>
+          <TableActionButton icon={<CheckCircleIcon />} label="Approve" variant="view" onClick={() => openDecision('approve', request)} />
+          <TableActionButton icon={<XCircleIcon />} label="Reject" variant="delete" onClick={() => openDecision('reject', request)} />
+        </TableActionCluster>
+      )
+    }
+
+    return <TableBadge value="Read only" tone="neutral" />
   }
 
   function moveCalendar(direction) {
@@ -1639,6 +2142,15 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const selectedEmployee = selectedEmployeeUid ? employeeMap.get(selectedEmployeeUid) : null
   const selectedEmployeeLabel = selectedEmployee ? `${selectedEmployee.fullName} (${selectedEmployee.employeeCode})` : 'Select employee'
   const selectedAllocationLeaveType = manualGrant.leaveTypeUid ? leaveTypeMap.get(manualGrant.leaveTypeUid) : null
+  const leaveRequestsLoadError = !isManagementWorkspace
+    ? (myRequestsQuery.isError ? myRequestsQuery.error : null)
+    : (
+        (pendingRequestsQuery.isError && !pendingRequests.length && !pendingCancellationRequests.length)
+          ? pendingRequestsQuery.error
+          : (pendingCancellationRequestsQuery.isError && !pendingRequests.length && !pendingCancellationRequests.length)
+              ? pendingCancellationRequestsQuery.error
+              : null
+      )
 
   return (
     <div className="leave-module-page">
@@ -1655,7 +2167,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
           </div>
 
           <CardShell
-            title="Organization Calendar"
+            title="Holiday Calendar"
             right={(
               <div className="leave-toolbar leave-toolbar-calendar-upgraded">
                 <AppSelect value={selectedYear} onChange={(value) => setSelectedYear(String(value))} options={yearOptions} placeholder="Year" hideSelectedDescription />
@@ -1979,43 +2491,45 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             </div>
           </CardShell>
 
-          <CardShell className="leave-section-card leave-section-card--ledger" title={`Balance Ledger${selectedEmployee ? ` • ${selectedEmployee.fullName}` : ''}`}>
-            <PaginatedTable rows={sortedEmployeeBalances}>
-              {({ rows: paginatedRows }) => (
-                <table className="table employee-table workspace-table align-middle mb-0">
-                  <thead>
-                    <tr>
-                      <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Opening" sortKey="opening" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Annual" sortKey="annual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Carry Forward" sortKey="carryForward" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Manual" sortKey="manual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Used" sortKey="used" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Pending" sortKey="pending" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                      <th><SortableHeader label="Available" sortKey="available" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedEmployeeUid ? (paginatedRows.length ? paginatedRows.map((balance) => {
-                      const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
-                      return (
-                        <tr key={balance.uid}>
-                          <td>{leaveType ? `${leaveType.name} (${leaveType.code})` : balance.leaveTypeUid}</td>
-                          <td>{formatLeaveDays(balance.openingBalance)}</td>
-                          <td>{formatLeaveDays(balance.annualAllocation)}</td>
-                          <td>{formatLeaveDays(balance.carryForwardIn)}</td>
-                          <td>{formatLeaveDays(balance.manualGranted)}</td>
-                          <td>{formatLeaveDays(balance.usedDays)}</td>
-                          <td>{formatLeaveDays(balance.pendingDays)}</td>
-                          <td className="fw-semibold">{formatLeaveDays(balance.availableBalance)}</td>
-                        </tr>
-                      )
-                    }) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No balance ledger exists for this employee and year yet. Assign a leave type to start building the ledger.</div></td></tr>) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">Choose an employee first to inspect the assigned leave balances.</div></td></tr>}
-                  </tbody>
-                </table>
-              )}
-            </PaginatedTable>
-          </CardShell>
+            {isManagementWorkspace && canViewMyLeaveBalance ? (
+            <CardShell className="leave-section-card leave-section-card--ledger" title={`Balance Ledger${selectedEmployee ? ` • ${selectedEmployee.fullName}` : ''}`}>
+              <PaginatedTable rows={sortedEmployeeBalances}>
+                {({ rows: paginatedRows }) => (
+                  <table className="table employee-table workspace-table align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Opening" sortKey="opening" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Annual" sortKey="annual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Carry Forward" sortKey="carryForward" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Manual" sortKey="manual" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Used" sortKey="used" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Pending" sortKey="pending" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                        <th><SortableHeader label="Available" sortKey="available" sortConfig={employeeBalanceSortConfig} onSort={requestEmployeeBalanceSort} /></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedEmployeeUid ? (paginatedRows.length ? paginatedRows.map((balance) => {
+                        const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
+                        return (
+                          <tr key={balance.uid}>
+                            <td>{leaveType ? `${leaveType.name} (${leaveType.code})` : balance.leaveTypeUid}</td>
+                            <td>{formatLeaveDays(balance.openingBalance)}</td>
+                            <td>{formatLeaveDays(balance.annualAllocation)}</td>
+                            <td>{formatLeaveDays(balance.carryForwardIn)}</td>
+                            <td>{formatLeaveDays(balance.manualGranted)}</td>
+                            <td>{formatLeaveDays(balance.usedDays)}</td>
+                            <td>{formatLeaveDays(balance.pendingDays)}</td>
+                            <td className="fw-semibold">{formatLeaveDays(balance.availableBalance)}</td>
+                          </tr>
+                        )
+                      }) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No balance ledger exists for this employee and year yet. Assign a leave type to start building the ledger.</div></td></tr>) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">Choose an employee first to inspect the assigned leave balances.</div></td></tr>}
+                    </tbody>
+                  </table>
+                )}
+              </PaginatedTable>
+            </CardShell>
+          ) : null}
         </>
       ) : null}
 
@@ -2024,8 +2538,8 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
           <div className="row g-3 mb-3">
             {isManagementWorkspace ? (
               <>
-                <div className="col-12 col-md-6 col-xl-3"><AttendanceMetricCard label="Pending Requests" value={pendingRequestSummary.pending} helper="Requests currently waiting for leave-management review" tone="blue" /></div>
-                <div className="col-12 col-md-6 col-xl-3"><AttendanceMetricCard label="Employees in Queue" value={pendingEmployeeCount} helper="Unique employees with pending leave requests" tone="emerald" /></div>
+                <div className="col-12 col-md-6 col-xl-3"><AttendanceMetricCard label="Pending Requests" value={pendingQueueCount} helper="Leave requests and cancellation requests waiting for review" tone="blue" /></div>
+                <div className="col-12 col-md-6 col-xl-3"><AttendanceMetricCard label="Employees in Queue" value={pendingEmployeeCount} helper="Unique employees with leave or cancellation items in review" tone="emerald" /></div>
                 <div className="col-12 col-md-6 col-xl-3"><AttendanceMetricCard label="My Available Balance" value={formatLeaveDays(myBalanceSummary.available)} helper={`Year ${selectedYear} balance for your own employee profile`} tone="amber" /></div>
                 <div className="col-12 col-md-6 col-xl-3"><AttendanceMetricCard label="My Requests Raised" value={myRequestSummary.total} helper={`${myRequestSummary.pending} pending • ${myRequestSummary.approved} approved`} tone="violet" /></div>
               </>
@@ -2039,175 +2553,155 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             )}
           </div>
 
-          <CardShell title="Leave Request Planner">
-            <div className="row g-3">
-              <div className="col-12 col-md-3">
-                <label className="form-label">Policy Year</label>
-                <AppSelect value={selectedYear} onChange={(value) => setSelectedYear(String(value))} options={yearOptions} />
-              </div>
-              <div className="col-12 col-md-3">
-                <label className="form-label">Leave Type</label>
-                <AppSelect name="leaveTypeUid" value={leaveForm.leaveTypeUid} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} options={requestLeaveTypeOptions} placeholder="Select leave type" invalid={Boolean(leaveFormTouched.leaveTypeUid && leaveFormErrors.leaveTypeUid)} />
-                {leaveFormTouched.leaveTypeUid && leaveFormErrors.leaveTypeUid ? <div className="invalid-feedback d-block">{leaveFormErrors.leaveTypeUid}</div> : null}
-              </div>
-              <div className="col-12 col-md-3">
-                <label className="form-label">Start Date</label>
-                <input className={`form-control${leaveFormTouched.startDate && leaveFormErrors.startDate ? ' is-invalid' : ''}`} type="date" name="startDate" value={leaveForm.startDate} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} />
-                {leaveFormTouched.startDate && leaveFormErrors.startDate ? <div className="invalid-feedback d-block">{leaveFormErrors.startDate}</div> : null}
-              </div>
-              <div className="col-12 col-md-3">
-                <label className="form-label">End Date</label>
-                <input className={`form-control${leaveFormTouched.endDate && leaveFormErrors.endDate ? ' is-invalid' : ''}`} type="date" name="endDate" value={leaveForm.endDate} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} min={leaveForm.startDate || undefined} />
-                {leaveFormTouched.endDate && leaveFormErrors.endDate ? <div className="invalid-feedback d-block">{leaveFormErrors.endDate}</div> : null}
-              </div>
-              <div className="col-12">
-                <label className="form-label">Reason</label>
-                <textarea className={`form-control${leaveFormTouched.reason && leaveFormErrors.reason ? ' is-invalid' : ''}`} rows="4" name="reason" value={leaveForm.reason} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} placeholder="Capture the business context for the leave request." />
-                {leaveFormTouched.reason && leaveFormErrors.reason ? <div className="invalid-feedback d-block">{leaveFormErrors.reason}</div> : null}
-              </div>
-              <div className="col-12 col-lg-8">
-                <div className="leave-preview-card h-100">
-                  <div className="leave-preview-card__title">Leave Day Preview</div>
-                  {previewEnabled && leavePreviewQuery.data ? (
-                    <div className="leave-preview-grid">
-                      <div><span>Applied Days</span><strong>{formatLeaveDays(leavePreviewQuery.data.appliedDays)}</strong></div>
-                      <div><span>Calendar Days</span><strong>{leavePreviewQuery.data.totalCalendarDays}</strong></div>
-                      <div><span>Weekends Excluded</span><strong>{leavePreviewQuery.data.excludedWeekends.length}</strong></div>
-                      <div><span>Holidays Excluded</span><strong>{leavePreviewQuery.data.excludedHolidays.length}</strong></div>
-                    </div>
-                  ) : (
-                    <div className="small text-muted">Choose a valid start and end date to preview applied leave days.</div>
-                  )}
-                  {leavePreviewQuery.isError ? <div className="text-danger small mt-2">{getErrorMessage(leavePreviewQuery.error)}</div> : null}
-                  {missingRequestBalanceMessage ? <div className="alert alert-warning mt-3 mb-0">{missingRequestBalanceMessage}</div> : null}
-                  {insufficientLeaveBalanceMessage ? <div className="alert alert-warning mt-3 mb-0">{insufficientLeaveBalanceMessage}</div> : null}
+          {(!isManagementWorkspace && (canViewLeaveRequests || canCreateLeaveRequest)) ? (
+            <CardShell title="Leave Request Planner">
+              <div className="row g-3">
+                <div className="col-12 col-md-3">
+                  <label className="form-label">Policy Year</label>
+                  <AppSelect value={selectedYear} onChange={(value) => setSelectedYear(String(value))} options={yearOptions} />
                 </div>
-              </div>
-              <div className="col-12 col-lg-4 d-flex align-items-end">
-                <div className="leave-preview-card w-100 h-100 d-flex flex-column justify-content-between">
-                  <div>
-                    <div className="leave-preview-card__title">Submission Guidance</div>
-                    <div className="small text-muted">The request uses the backend leave preview API, which excludes weekends and active holidays before submission.</div>
-                    {selectedRequestBalance ? <div className="small text-muted mt-2">Available balance for the selected leave type: <strong>{formatLeaveDays(selectedRequestBalance.availableBalance)}</strong> day(s).</div> : null}
-                    {missingRequestBalanceMessage ? <div className="text-warning small mt-2">{missingRequestBalanceMessage}</div> : null}
-                    {insufficientLeaveBalanceMessage ? <div className="text-warning small mt-2">{insufficientLeaveBalanceMessage}</div> : null}
+                <div className="col-12 col-md-3">
+                  <label className="form-label">Leave Type</label>
+                  <AppSelect name="leaveTypeUid" value={leaveForm.leaveTypeUid} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} options={requestLeaveTypeOptions} placeholder="Select leave type" invalid={Boolean(leaveFormTouched.leaveTypeUid && leaveFormErrors.leaveTypeUid)} />
+                  {leaveFormTouched.leaveTypeUid && leaveFormErrors.leaveTypeUid ? <div className="invalid-feedback d-block">{leaveFormErrors.leaveTypeUid}</div> : null}
+                </div>
+                <div className="col-12 col-md-3">
+                  <label className="form-label">Start Date</label>
+                  <input className={`form-control${leaveFormTouched.startDate && leaveFormErrors.startDate ? ' is-invalid' : ''}`} type="date" name="startDate" value={leaveForm.startDate} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} />
+                  {leaveFormTouched.startDate && leaveFormErrors.startDate ? <div className="invalid-feedback d-block">{leaveFormErrors.startDate}</div> : null}
+                </div>
+                <div className="col-12 col-md-3">
+                  <label className="form-label">End Date</label>
+                  <input className={`form-control${leaveFormTouched.endDate && leaveFormErrors.endDate ? ' is-invalid' : ''}`} type="date" name="endDate" value={leaveForm.endDate} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} min={leaveForm.startDate || undefined} />
+                  {leaveFormTouched.endDate && leaveFormErrors.endDate ? <div className="invalid-feedback d-block">{leaveFormErrors.endDate}</div> : null}
+                </div>
+                <div className="col-12">
+                  <label className="form-label">Reason</label>
+                  <textarea className={`form-control${leaveFormTouched.reason && leaveFormErrors.reason ? ' is-invalid' : ''}`} rows="4" name="reason" value={leaveForm.reason} onChange={onLeaveFormChange} onBlur={handleLeaveFormFieldBlur} placeholder="Capture the business context for the leave request." />
+                  {leaveFormTouched.reason && leaveFormErrors.reason ? <div className="invalid-feedback d-block">{leaveFormErrors.reason}</div> : null}
+                </div>
+                <div className="col-12 col-lg-8">
+                  <div className="leave-preview-card h-100">
+                    <div className="leave-preview-card__title">Leave Day Preview</div>
+                    {previewEnabled && leavePreviewQuery.data ? (
+                      <div className="leave-preview-grid">
+                        <div><span>Applied Days</span><strong>{formatLeaveDays(leavePreviewQuery.data.appliedDays)}</strong></div>
+                        <div><span>Calendar Days</span><strong>{leavePreviewQuery.data.totalCalendarDays}</strong></div>
+                        <div><span>Weekends Excluded</span><strong>{leavePreviewQuery.data.excludedWeekends.length}</strong></div>
+                        <div><span>Holidays Excluded</span><strong>{leavePreviewQuery.data.excludedHolidays.length}</strong></div>
+                      </div>
+                    ) : (
+                      <div className="small text-muted">Choose a valid start and end date to preview applied leave days.</div>
+                    )}
+                    {leavePreviewQuery.isError ? <div className="text-danger small mt-2">{getErrorMessage(leavePreviewQuery.error)}</div> : null}
+                    {missingRequestBalanceMessage ? <div className="alert alert-warning mt-3 mb-0">{missingRequestBalanceMessage}</div> : null}
+                    {insufficientLeaveBalanceMessage ? <div className="alert alert-warning mt-3 mb-0">{insufficientLeaveBalanceMessage}</div> : null}
                   </div>
-                  <button type="button" className="btn btn-primary w-100 mt-3" disabled={!canCreateLeaveRequest || !currentEmployeeUid || !leaveForm.leaveTypeUid || !leaveForm.startDate || !leaveForm.endDate || !previewEnabled || !selectedRequestHasLedger || insufficientLeaveBalance || requestedAppliedDays <= 0} onClick={submitLeaveRequest}>Submit Request</button>
+                </div>
+                <div className="col-12 col-lg-4 d-flex align-items-end">
+                  <div className="leave-preview-card w-100 h-100 d-flex flex-column justify-content-between">
+                    <div>
+                      <div className="leave-preview-card__title">Submission Guidance</div>
+                      <div className="small text-muted">The request uses the backend leave preview API, which excludes weekends and active holidays before submission.</div>
+                      {selectedRequestBalance ? <div className="small text-muted mt-2">Available balance for the selected leave type: <strong>{formatLeaveDays(selectedRequestBalance.availableBalance)}</strong> day(s).</div> : null}
+                      {!canViewMyLeaveBalance ? <div className="small text-muted mt-2">Leave balance visibility is not enabled for your role. The backend will validate availability when you submit the request.</div> : null}
+                      {missingRequestBalanceMessage ? <div className="text-warning small mt-2">{missingRequestBalanceMessage}</div> : null}
+                      {insufficientLeaveBalanceMessage ? <div className="text-warning small mt-2">{insufficientLeaveBalanceMessage}</div> : null}
+                    </div>
+                    <button type="button" className="btn btn-primary w-100 mt-3" disabled={!canCreateLeaveRequest || !currentEmployeeUid || !leaveForm.leaveTypeUid || !leaveForm.startDate || !leaveForm.endDate || !previewEnabled || !selectedRequestHasLedger || insufficientLeaveBalance || requestedAppliedDays <= 0} onClick={submitLeaveRequest}>Submit Request</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </CardShell>
+            </CardShell>
+          ) : null}
 
-          <CardShell title="My Leave Balance">
-            {!currentEmployeeUid && !isResolvingCurrentEmployee ? <div className="alert alert-warning mb-0">Your leave balance could not be resolved from the current account yet. Once your account has at least one linked attendance, regularization, or leave request record, the balance ledger will load here automatically.</div> : myBalancesQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myBalancesQuery.error, 'Your leave balance could not be loaded.')}</div> : (
-              <PaginatedTable rows={sortedMyBalances}>
-                {({ rows: paginatedRows }) => (
-                  <table className="table employee-table workspace-table align-middle mb-0">
-                    <thead>
-                      <tr>
-                        <th><SortableHeader label="Leave" sortKey="leave" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                        <th><SortableHeader label="Allocated" sortKey="allocated" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                        <th><SortableHeader label="Used" sortKey="used" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                        <th><SortableHeader label="Pending" sortKey="pending" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                        <th><SortableHeader label="Available" sortKey="available" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedRows.length ? paginatedRows.map((balance) => {
-                        const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
-                        return (
-                          <tr key={balance.uid}>
-                            <td><TableCellStack title={leaveType ? leaveType.name : balance.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
-                            <td><TableBadge value={formatLeaveDays(getBalanceEntitlementDays(balance))} tone="blue" /></td>
-                            <td><TableBadge value={formatLeaveDays(balance.usedDays)} tone="danger" /></td>
-                            <td><TableBadge value={formatLeaveDays(balance.pendingDays)} tone="orange" /></td>
-                            <td><TableBadge value={formatLeaveDays(balance.availableBalance)} tone="success" /></td>
-                          </tr>
-                        )
-                      }) : <tr><td colSpan="5"><div className="employee-empty-state text-center py-5 text-muted">No leave balance is available for the selected year yet.</div></td></tr>}
-                    </tbody>
-                  </table>
-                )}
-              </PaginatedTable>
-            )}
-          </CardShell>
-
-          <CardShell title="My Leave Requests">
-            {myRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myRequestsQuery.error, 'Your leave requests could not be loaded.')}</div> : (
-              <PaginatedTable rows={sortedMyRequests}>
-                {({ rows: paginatedRows }) => (
-                  <table className="table employee-table workspace-table align-middle mb-0">
-                    <thead>
-                      <tr>
-                        <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Status" sortKey="status" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Reason" sortKey="reason" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                        <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={myRequestSortConfig} onSort={requestMyRequestSort} /></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedRows.length ? paginatedRows.map((request) => {
-                        const leaveType = leaveTypeMap.get(request.leaveTypeUid)
-                        return (
-                          <tr key={request.uid}>
-                            <td><TableCellStack title={leaveType ? leaveType.name : request.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
-                            <td><TableCellStack title={`${formatLeaveDate(request.startDate)} to ${formatLeaveDate(request.endDate)}`} subtitle={`${request.startDate} → ${request.endDate}`} /></td>
-                            <td><TableBadge value={formatLeaveDays(request.appliedDays)} tone="blue" /></td>
-                            <td><LeaveStatusBadge status={request.status} /></td>
-                            <td className="small text-muted">{request.reason || '—'}</td>
-                            <td className="small text-muted">{request.reviewerNote || '—'}</td>
-                          </tr>
-                        )
-                      }) : <tr><td colSpan="6"><div className="employee-empty-state text-center py-5 text-muted">No leave requests have been raised yet.</div></td></tr>}
-                    </tbody>
-                  </table>
-                )}
-              </PaginatedTable>
-            )}
-          </CardShell>
-
-          {isManagementWorkspace ? (
-            <CardShell title="Team Leave Requests">
-              {pendingRequestsQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(pendingRequestsQuery.error, 'Employee leave requests could not be loaded.')}</div> : (
-                <PaginatedTable rows={sortedPendingRequests}>
+          {canViewMyLeaveBalance ? (
+            <CardShell title="My Leave Balance">
+              {!currentEmployeeUid && !isResolvingCurrentEmployee ? <div className="alert alert-warning mb-0">Your leave balance could not be resolved from the current account yet. Once your account has at least one linked attendance, regularization, or leave request record, the balance ledger will load here automatically.</div> : myBalancesQuery.isError ? <div className="alert alert-warning mb-0">{getErrorMessage(myBalancesQuery.error, 'Your leave balance could not be loaded.')}</div> : (
+                <PaginatedTable rows={sortedMyBalances}>
                   {({ rows: paginatedRows }) => (
                     <table className="table employee-table workspace-table align-middle mb-0">
                       <thead>
                         <tr>
-                          <th><SortableHeader label="Employee" sortKey="employee" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Reason" sortKey="reason" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th><SortableHeader label="Status" sortKey="status" sortConfig={pendingRequestSortConfig} onSort={requestPendingRequestSort} /></th>
-                          <th className="table-header-center">Decision</th>
+                          <th><SortableHeader label="Leave" sortKey="leave" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                          <th><SortableHeader label="Allocated" sortKey="allocated" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                          <th><SortableHeader label="Used" sortKey="used" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                          <th><SortableHeader label="Pending" sortKey="pending" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                          <th><SortableHeader label="Available" sortKey="available" sortConfig={myBalanceSortConfig} onSort={requestMyBalanceSort} /></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedRows.length ? paginatedRows.map((balance) => {
+                          const leaveType = leaveTypeMap.get(balance.leaveTypeUid)
+                          return (
+                            <tr key={balance.uid}>
+                              <td><TableCellStack title={leaveType ? leaveType.name : balance.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
+                              <td><TableBadge value={formatLeaveDays(getBalanceEntitlementDays(balance))} tone="blue" /></td>
+                              <td><TableBadge value={formatLeaveDays(balance.usedDays)} tone="danger" /></td>
+                              <td><TableBadge value={formatLeaveDays(balance.pendingDays)} tone="orange" /></td>
+                              <td><TableBadge value={formatLeaveDays(balance.availableBalance)} tone="success" /></td>
+                            </tr>
+                          )
+                        }) : <tr><td colSpan="5"><div className="employee-empty-state text-center py-5 text-muted">No leave balance is available for the selected year yet.</div></td></tr>}
+                      </tbody>
+                    </table>
+                  )}
+                </PaginatedTable>
+              )}
+            </CardShell>
+          ) : null}
+
+          {(canViewLeaveRequests || canCreateLeaveRequest || canAccessManageLeaveQueue) ? (
+            <CardShell title="Leave Requests">
+              {leaveRequestsLoadError ? (
+                <div className="alert alert-warning mb-0">{getErrorMessage(leaveRequestsLoadError, 'Leave requests could not be loaded.')}</div>
+              ) : (
+                <PaginatedTable rows={pinnedLeaveRequestRows}>
+                  {({ rows: paginatedRows }) => (
+                    <table className="table employee-table workspace-table align-middle mb-0">
+                      <thead>
+                        <tr>
+                          {isManagementWorkspace ? <th><SortableHeader label="Employee" sortKey="employee" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th> : null}
+                          <th><SortableHeader label="Leave Type" sortKey="leaveType" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Date Range" sortKey="dateRange" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Applied Days" sortKey="appliedDays" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Status" sortKey="status" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Cancellation" sortKey="cancellationStatus" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Reason" sortKey="reason" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th>
+                          <th className="table-header-center">Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {paginatedRows.length ? paginatedRows.map((request) => {
                           const employee = employeeMap.get(request.employeeUid)
                           const leaveType = leaveTypeMap.get(request.leaveTypeUid)
+                          const hasCancellationRequest = String(request.cancellationStatus || 'NoneRequested').trim() !== 'NoneRequested'
+
                           return (
                             <tr key={request.uid}>
-                              <td><TableCellStack title={employee ? employee.fullName : request.employeeUid} subtitle={employee ? employee.employeeCode : 'Employee'} /></td>
+                              {isManagementWorkspace ? <td><TableCellStack title={employee ? employee.fullName : request.employeeUid} subtitle={employee ? employee.employeeCode : 'Employee'} /></td> : null}
                               <td><TableCellStack title={leaveType ? leaveType.name : request.leaveTypeUid} subtitle={leaveType ? leaveType.code : 'Leave type'} /></td>
                               <td><TableCellStack title={`${formatLeaveDate(request.startDate)} to ${formatLeaveDate(request.endDate)}`} subtitle={`${request.startDate} → ${request.endDate}`} /></td>
                               <td><TableBadge value={formatLeaveDays(request.appliedDays)} tone="blue" /></td>
-                              <td className="small text-muted">{request.reason || '—'}</td>
-                              <td><LeaveStatusBadge status={request.status} /></td>
-                              <td className="table-actions-cell">
-                                {canReviewLeaveRequests ? (
-                                  <TableActionCluster>
-                                    <TableActionButton icon={<CheckCircleIcon />} label="Approve" variant="view" onClick={() => openDecision('approve', request)} />
-                                    <TableActionButton icon={<XCircleIcon />} label="Reject" variant="delete" onClick={() => openDecision('reject', request)} />
-                                  </TableActionCluster>
-                                ) : <TableBadge value="Read only" tone="neutral" />}
+                              <td>
+                                <div className="d-flex flex-column gap-2 align-items-start">
+                                  <LeaveStatusBadge status={request.status} />
+                                  {hasCancellationRequest ? <TableBadge value={`Cancellation ${getCancellationStatusLabel(request.cancellationStatus)}`} tone={getCancellationStatusTone(request.cancellationStatus)} /> : null}
+                                </div>
                               </td>
+                              <td>
+                                <div className="d-flex flex-column gap-2 align-items-start">
+                                  <TableBadge value={getCancellationStatusLabel(request.cancellationStatus)} tone={getCancellationStatusTone(request.cancellationStatus)} />
+                                  {hasCancellationRequest ? <div className="small text-muted">{request.cancellationReason || 'No cancellation reason provided.'}</div> : null}
+                                </div>
+                              </td>
+                              <td><TableCellStack title={request.reason || '—'} subtitle={hasCancellationRequest ? 'Cancellation details are listed in the cancellation column.' : ''} /></td>
+                              <td><TableCellStack title={request.reviewerNote || '—'} subtitle={hasCancellationRequest ? `Cancellation: ${request.cancellationReviewerNote || '—'}` : ''} /></td>
+                              <td className="table-actions-cell">{renderLeaveRequestActions(request)}</td>
                             </tr>
                           )
-                        }) : <tr><td colSpan="7"><div className="employee-empty-state text-center py-5 text-muted">There are no pending leave requests waiting for review.</div></td></tr>}
+                        }) : <tr><td colSpan={isManagementWorkspace ? 9 : 8}><div className="employee-empty-state text-center py-5 text-muted">No leave requests are available right now.</div></td></tr>}
                       </tbody>
                     </table>
                   )}
@@ -2220,7 +2714,9 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
       <HolidayModal mode={holidayModal.mode} draft={holidayModal.draft} errors={holidayErrors} touched={holidayTouched} onChange={onHolidayDraftChange} onBlur={handleHolidayFieldBlur} onClose={() => { setHolidayTouched({}); setHolidayModal({ mode: '', draft: emptyHolidayDraft(isManagementWorkspace ? 'org' : 'personal'), recordUid: '', recordSource: 'org' }) }} onSubmit={submitHoliday} isPending={holidayMutation.isPending} isManagementWorkspace={isManagementWorkspace} />
       <LeaveTypeModal mode={leaveTypeModal.mode} draft={leaveTypeModal.draft} errors={leaveTypeErrors} touched={leaveTypeTouched} onChange={handleLeaveTypeModalChange} onBlur={handleLeaveTypeFieldBlur} onClose={() => { setLeaveTypeActionError(''); setLeaveTypeTouched({}); setLeaveTypeModal({ mode: '', draft: emptyLeaveTypeDraft(), recordUid: '' }) }} onSubmit={submitLeaveType} isPending={leaveTypeMutation.isPending} errorMessage={leaveTypeActionError} />
-      <LeaveDecisionModal mode={decisionState.mode} record={decisionState.record} note={decisionState.note} onNoteChange={(value) => setDecisionState((current) => ({ ...current, note: value }))} onClose={() => setDecisionState({ mode: '', record: null, note: '' })} onSubmit={submitDecision} isPending={approveMutation.isPending || rejectMutation.isPending} employeeLabel={decisionState.record ? (employeeMap.get(decisionState.record.employeeUid)?.fullName || decisionState.record.employeeUid) : ''} leaveTypeLabel={decisionState.record ? (() => { const leaveType = leaveTypeMap.get(decisionState.record.leaveTypeUid); return leaveType ? `${leaveType.name} (${leaveType.code})` : decisionState.record.leaveTypeUid })() : ''} />
+      <LeaveRequestModal mode={leaveRequestModal.mode} draft={leaveRequestModal.draft} errors={leaveRequestErrors} touched={leaveRequestTouched} onChange={onLeaveRequestModalChange} onBlur={handleLeaveRequestFieldBlur} onClose={closeLeaveRequestModal} onSubmit={submitLeaveRequestEdit} isPending={editLeaveMutation.isPending} leaveTypeOptions={leaveRequestModalLeaveTypeOptions} />
+      <LeaveCancellationRequestModal record={cancellationRequestState.record} reason={cancellationRequestState.reason} onReasonChange={(value) => setCancellationRequestState((current) => ({ ...current, reason: value }))} onClose={closeCancellationRequestModal} onSubmit={submitLeaveCancellationRequest} isPending={requestLeaveCancellationMutation.isPending} leaveTypeLabel={getLeaveTypeLabel(cancellationRequestState.record)} />
+      <LeaveDecisionModal mode={decisionState.mode} record={decisionState.record} note={decisionState.note} onNoteChange={(value) => setDecisionState((current) => ({ ...current, note: value }))} onClose={() => setDecisionState({ mode: '', record: null, note: '' })} onSubmit={submitDecision} isPending={approveMutation.isPending || rejectMutation.isPending || approveCancellationMutation.isPending || rejectCancellationMutation.isPending} employeeLabel={decisionState.record ? (employeeMap.get(decisionState.record.employeeUid)?.fullName || decisionState.record.employeeUid) : ''} leaveTypeLabel={getLeaveTypeLabel(decisionState.record)} />
     </div>
   )
 }

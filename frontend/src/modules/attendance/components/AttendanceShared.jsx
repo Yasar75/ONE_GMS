@@ -53,7 +53,10 @@ export function AttendanceTabs({ activeTab, onChange, tabs }) {
             key={tab.key}
             type="button"
             className={`attendance-tab-btn${activeTab === tab.key ? ' active' : ''}`}
-            onClick={() => onChange(tab.key)}
+            onClick={() => {
+              if (activeTab === tab.key) return
+              onChange(tab.key)
+            }}
           >
             <span className="attendance-tab-title">{tab.label}</span>
             <span className="attendance-tab-helper">{tab.helper}</span>
@@ -93,7 +96,8 @@ export function PunchSessionCard({
   requestAction,
   note,
   secondaryNote,
-  rightSlot
+  rightSlot,
+  assignedShift
 }) {
   const [tick, setTick] = useState(0)
   const splitActionRef = useRef(null)
@@ -203,6 +207,17 @@ export function PunchSessionCard({
           <strong>{session.totalWorkedHours != null ? formatHours(session.totalWorkedHours) : '—'}</strong>
         </div>
       </div>
+
+      {assignedShift ? (
+        <div className="attendance-punch-shift-card">
+          <div className="attendance-punch-shift-card__label">Assigned Shift</div>
+          <div className="attendance-punch-shift-card__title">{assignedShift.title || 'Not assigned'}</div>
+          <div className="attendance-punch-shift-card__meta">
+            {[assignedShift.code, assignedShift.window, assignedShift.status].filter(Boolean).join(' • ') || 'Shift details are not available yet.'}
+          </div>
+          {assignedShift.helper ? <div className="attendance-punch-shift-card__helper">{assignedShift.helper}</div> : null}
+        </div>
+      ) : null}
 
       {(primaryAction || requestAction) ? (
         <div className="attendance-punch-card__actions">

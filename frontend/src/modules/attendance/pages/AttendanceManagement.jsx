@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../../../components/common/PageHeader.jsx'
@@ -6,6 +6,8 @@ import CardShell from '../../../components/common/CardShell.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
+import PageContentLoader from '../../../components/common/PageContentLoader.jsx'
+import AppSearchField from '../../../components/common/AppSearchField.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
 import { TableActionButton, TableActionCluster, TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
@@ -16,7 +18,6 @@ import {
   FilterIcon,
   PencilIcon,
   PlusIcon,
-  SearchIcon,
   SparklesIcon,
   TrashIcon,
   UserPlusIcon,
@@ -58,14 +59,15 @@ import {
 import { getErrorMessage } from '../../../utils/auth.js'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
+import { useToast } from '../../../app/providers/ToastProvider.jsx'
 import {
   AttendanceBadge,
   AttendanceMetricCard,
   AttendanceTabs,
   DownloadActionGroup,
   OverviewList,
-  PunchSessionCard,
   PunchTypeBadge,
+  PunchSessionCard,
   RegularizationBadge
 } from '../../attendance/components/AttendanceShared.jsx'
 import {
@@ -83,15 +85,20 @@ import {
   filterAccessibleTabs,
   hasModulePermission,
   hasModuleVisibility,
+  isAdminBypassUser,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
+import { filterCollectionByQuery } from '../../../utils/search.js'
 
 const TAB_ITEMS = [
   { key: 'overview', label: 'Overview', helper: 'Unified workforce summary' },
-  { key: 'attendance', label: 'Manage Attendances', helper: 'Punches, edits, and exports' },
-  { key: 'shifts', label: 'Manage Shifts', helper: 'Shift roster and assignment control' },
-  { key: 'regularization', label: 'Manage Regularizations', helper: 'Review, verify, and action requests' }
+  { key: 'attendance', label: 'Manage Attendance', helper: 'Punches, edits, and exports' },
+  { key: 'shifts', label: 'Shift Roster', helper: 'Shift roster and assignment control' },
+  { key: 'regularization', label: 'Manage Regularization', helper: 'Review, verify, and action requests' }
 ]
+
+// The backend attendance PATCH route is currently not exposed.
+const ATTENDANCE_EDIT_API_AVAILABLE = false
 
 function buildRegularizationDraft(dateValue, logs) {
   const firstIn = logs.find((log) => log.punchType === 'IN')?.punchTime || null
@@ -143,6 +150,18 @@ function buildAssignmentErrors(draft) {
     employeeUid: getRequiredFieldMessage(draft.employeeUid, 'Employee'),
     shiftUid: getRequiredFieldMessage(draft.shiftUid, 'Shift')
   }
+}
+
+function prioritizeRowsByEmployee(rows = [], employeeUid = '') {
+  const normalizedEmployeeUid = String(employeeUid || '').trim()
+  if (!normalizedEmployeeUid) return Array.isArray(rows) ? rows : []
+
+  return [...(Array.isArray(rows) ? rows : [])].sort((left, right) => {
+    const leftOwnsRecord = String(left?.employeeUid || '') === normalizedEmployeeUid
+    const rightOwnsRecord = String(right?.employeeUid || '') === normalizedEmployeeUid
+    if (leftOwnsRecord === rightOwnsRecord) return 0
+    return leftOwnsRecord ? -1 : 1
+  })
 }
 
 function AttendanceDetailModal({ record, onClose }) {
@@ -484,27 +503,34 @@ export default function AttendanceManagement() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const { showStatus, runWithLoader, showConfirm } = useModal()
+  const { showToast } = useToast()
   const { user } = useAuth()
-  const canViewAttendanceTab = hasModuleVisibility(user, [...PERMISSION_MODULES.attendance, ...PERMISSION_MODULES.attendanceLogs])
-  const canViewShiftsTab = hasModuleVisibility(user, [...PERMISSION_MODULES.shiftRoster, ...PERMISSION_MODULES.assignShift])
-  const canViewRegularizationTab = hasModuleVisibility(user, [...PERMISSION_MODULES.attendanceRegularization, ...PERMISSION_MODULES.attendanceRegularizationLogs])
-  const canViewOverview = canViewAttendanceTab || canViewShiftsTab || canViewRegularizationTab
-  const canSelfPunch = hasModulePermission(user, PERMISSION_MODULES.attendance, PERMISSION_ACTIONS.create)
-  const canModifyAttendance = hasModulePermission(user, PERMISSION_MODULES.attendance, PERMISSION_ACTIONS.update)
-  const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.attendanceRegularization, PERMISSION_ACTIONS.create)
-  const canReviewRegularization = hasModulePermission(user, PERMISSION_MODULES.attendanceRegularization, PERMISSION_ACTIONS.update)
-  const canViewRegularizationLogs = hasModuleVisibility(user, PERMISSION_MODULES.attendanceRegularizationLogs)
+  const isAdminUser = isAdminBypassUser(user)
+  const canViewAttendanceRegister = hasModulePermission(user, PERMISSION_MODULES.attendanceLogs, PERMISSION_ACTIONS.read)
+  const canViewSelfAttendance = isAdminUser
+  const canViewShiftsTab = isAdminUser && hasModuleVisibility(user, [...PERMISSION_MODULES.shiftRoster, ...PERMISSION_MODULES.assignShift])
+  const canViewOwnRegularizations = isAdminUser
+  const canViewRegularizationQueue = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.read)
+  const canSelfPunch = isAdminUser
+  const canModifyAttendance = ATTENDANCE_EDIT_API_AVAILABLE && hasModulePermission(user, PERMISSION_MODULES.attendanceLogs, PERMISSION_ACTIONS.update)
+  const canCreateRegularization = isAdminUser
+  const canReviewRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
+  const canViewRegularizationLogs = canViewRegularizationQueue
   const canCreateShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.create)
   const canUpdateShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.update)
   const canDeleteShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.delete)
   const canCreateAssignment = hasModulePermission(user, PERMISSION_MODULES.assignShift, PERMISSION_ACTIONS.create)
   const canUpdateAssignment = hasModulePermission(user, PERMISSION_MODULES.assignShift, PERMISSION_ACTIONS.update)
   const canDeleteAssignment = hasModulePermission(user, PERMISSION_MODULES.assignShift, PERMISSION_ACTIONS.delete)
-  const canUseSelfAttendance = canSelfPunch || canCreateRegularization || canViewRegularizationTab || canViewAttendanceTab
+  const canUseSelfAttendance = canViewSelfAttendance || canSelfPunch || canViewOwnRegularizations || canCreateRegularization
+  const canViewAttendanceTab = canViewAttendanceRegister
+  const canViewRegularizationTab = canViewRegularizationQueue
+  const canViewOverview = isAdminUser && (canViewAttendanceRegister || canViewRegularizationQueue)
 
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'overview')
   const [searchTerm, setSearchTerm] = useState('')
+  const deferredSearchTerm = useDeferredValue(searchTerm)
   const [statusFilter, setStatusFilter] = useState('All')
   const [regularizedFilter, setRegularizedFilter] = useState('All')
   const [dateRangeFilter, setDateRangeFilter] = useState({ start: '', end: '' })
@@ -526,14 +552,14 @@ export default function AttendanceManagement() {
   const [selectedRegularizationLogRecord, setSelectedRegularizationLogRecord] = useState(null)
   const [punchControlVersion, setPunchControlVersion] = useState(0)
 
-  const employeesQuery = useEmployeeLookupQuery(canViewAttendanceTab || canViewShiftsTab || canViewRegularizationTab)
-  const attendanceQuery = useAdminAttendanceQuery(canViewAttendanceTab || canViewOverview)
-  const pendingRegularizationsQuery = usePendingRegularizationsQuery(canViewRegularizationTab || canViewOverview)
+  const employeesQuery = useEmployeeLookupQuery(canViewAttendanceRegister || canViewShiftsTab || canViewRegularizationQueue)
+  const attendanceQuery = useAdminAttendanceQuery(canViewAttendanceRegister || canModifyAttendance)
+  const pendingRegularizationsQuery = usePendingRegularizationsQuery(canViewRegularizationQueue)
   const shiftRosterQuery = useShiftRosterQuery(canViewShiftsTab || canViewOverview)
   const employeeShiftAssignmentsQuery = useEmployeeShiftAssignmentsQuery(canViewShiftsTab || canViewOverview)
   const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canUseSelfAttendance)
   const todayLogsQuery = useMyPunchLogsQuery(todayDate, canUseSelfAttendance)
-  const myRegularizationsQuery = useMyRegularizationsQuery(canUseSelfAttendance)
+  const myRegularizationsQuery = useMyRegularizationsQuery(canViewOwnRegularizations || canViewRegularizationQueue)
   const regularizationLogsQuery = useRegularizationLogsQuery(selectedRegularizationLogRecord?.uid, Boolean(selectedRegularizationLogRecord) && canViewRegularizationLogs)
 
   const employeeDirectory = employeesQuery.data || []
@@ -553,6 +579,38 @@ export default function AttendanceManagement() {
   )
   const myRegularizations = myRegularizationsQuery.data || []
   const regularizationLogs = regularizationLogsQuery.data || []
+  const { items: sortedSelectedLogs, sortConfig: selectedLogsSortConfig, requestSort: requestSelectedLogsSort } = useSortableData(selectedLogs, {
+    initialKey: 'punchTime',
+    initialDirection: 'desc',
+    accessors: {
+      punchType: (log) => log.punchType || '',
+      punchTime: (log) => log.punchTime || '',
+      source: (log) => log.source || 'SELF',
+      validity: (log) => (log.isValid ? 'Valid' : 'Invalid'),
+      notes: (log) => log.invalidReason || ''
+    }
+  })
+  const currentEmployeeUid = useMemo(() => {
+    const explicitEmployeeUid = String(user?.employeeUid || '').trim()
+    if (explicitEmployeeUid) return explicitEmployeeUid
+
+    const currentUserUid = String(user?.uid || '').trim()
+    const currentUserEmail = String(user?.email || '').trim().toLowerCase()
+    const matchedDirectoryRecord = employeeDirectory.find((employee) => (
+      (currentUserUid && String(employee.userUid || '').trim() === currentUserUid)
+      || (currentUserEmail && String(employee.email || '').trim().toLowerCase() === currentUserEmail)
+    ))
+
+    if (matchedDirectoryRecord?.uid) return String(matchedDirectoryRecord.uid)
+
+    return String(
+      attendanceRecords.find((record) => String(record.userUid || '').trim() === currentUserUid)?.employeeUid
+      || myRegularizations.find((record) => String(record.userUid || '').trim() === currentUserUid)?.employeeUid
+      || selectedLogsRaw.find((record) => String(record.userUid || '').trim() === currentUserUid)?.employeeUid
+      || todayLogsRaw.find((record) => String(record.userUid || '').trim() === currentUserUid)?.employeeUid
+      || ''
+    )
+  }, [attendanceRecords, employeeDirectory, myRegularizations, selectedLogsRaw, todayLogsRaw, user?.email, user?.employeeUid, user?.uid])
 
   const employeesByUid = useMemo(() => new Map(employeeDirectory.map((employee) => [String(employee.uid), employee])), [employeeDirectory])
   const shiftsByUid = useMemo(() => new Map(shiftRoster.map((shift) => [String(shift.uid), shift])), [shiftRoster])
@@ -565,10 +623,11 @@ export default function AttendanceManagement() {
         employeeName: employee?.fullName || employee?.email || `Employee ${String(record.employeeUid || '').slice(0, 8)}`,
         employeeCode: employee?.employeeCode || '—',
         department: employee?.department || '—',
-        email: employee?.email || '—'
+        email: employee?.email || '—',
+        isOwnRecord: String(record.employeeUid || '') === currentEmployeeUid
       }
     })
-  }, [attendanceRecords, employeesByUid])
+  }, [attendanceRecords, currentEmployeeUid, employeesByUid])
 
   const regularizationRows = useMemo(() => {
     return pendingRegularizations.map((record) => {
@@ -576,17 +635,23 @@ export default function AttendanceManagement() {
       return {
         ...record,
         employeeName: employee?.fullName || employee?.email || `Employee ${String(record.employeeUid || '').slice(0, 8)}`,
-        employeeCode: employee?.employeeCode || '—'
+        employeeCode: employee?.employeeCode || '—',
+        isOwnRecord: String(record.employeeUid || '') === currentEmployeeUid
       }
     })
-  }, [pendingRegularizations, employeesByUid])
+  }, [currentEmployeeUid, pendingRegularizations, employeesByUid])
 
   const myRegularizationRows = useMemo(() => {
-    return myRegularizations.map((record) => ({
-      ...record,
-      employeeName: employeesByUid.get(String(record.employeeUid))?.fullName || 'Me'
-    }))
-  }, [employeesByUid, myRegularizations])
+    return myRegularizations.map((record) => {
+      const employee = employeesByUid.get(String(record.employeeUid))
+      return {
+        ...record,
+        employeeName: employee?.fullName || 'Me',
+        employeeCode: employee?.employeeCode || '—',
+        isOwnRecord: String(record.employeeUid || '') === currentEmployeeUid
+      }
+    })
+  }, [currentEmployeeUid, employeesByUid, myRegularizations])
 
   const assignmentRows = useMemo(() => {
     return shiftAssignments.map((assignment) => {
@@ -603,11 +668,36 @@ export default function AttendanceManagement() {
       }
     })
   }, [employeesByUid, shiftAssignments, shiftsByUid])
+  const currentAssignedShiftCard = useMemo(() => {
+    if (!canUseSelfAttendance) return null
+    const currentAssignment = assignmentRows.find((row) => String(row.employeeUid || '') === currentEmployeeUid && row.isActive)
+
+    if (!currentEmployeeUid) {
+      return {
+        title: 'Assigned shift unavailable',
+        helper: 'Your employee record could not be resolved for shift lookup.'
+      }
+    }
+
+    if (!currentAssignment) {
+      return {
+        title: 'No active shift',
+        helper: 'Once a shift is assigned, it will appear here before the punch controls.'
+      }
+    }
+
+    return {
+      title: currentAssignment.shiftName,
+      code: currentAssignment.shiftCode,
+      window: `${formatTime(currentAssignment.shiftStartTime)} - ${formatTime(currentAssignment.shiftEndTime)}`,
+      status: currentAssignment.isActive ? 'Assigned' : 'Inactive',
+      helper: 'This is the shift currently linked with your attendance session.'
+    }
+  }, [assignmentRows, canUseSelfAttendance, currentEmployeeUid])
 
   const filteredAttendanceRows = useMemo(() => {
-    return attendanceRows.filter((row) => {
-      const query = searchTerm.trim().toLowerCase()
-      const matchesSearch = !query || [row.employeeName, row.employeeCode, row.department, row.email, row.remarks].join(' ').toLowerCase().includes(query)
+    return filterCollectionByQuery(attendanceRows, deferredSearchTerm, ['employeeName', 'employeeCode', 'department', 'email', 'remarks']).filter((row) => {
+      const matchesSearch = true
       const matchesStatus = statusFilter === 'All' || row.status === statusFilter
       const matchesRegularized = regularizedFilter === 'All'
         || (regularizedFilter === 'Regularized' && row.isRegularized)
@@ -616,7 +706,7 @@ export default function AttendanceManagement() {
       const matchesEndDate = !dateRangeFilter?.end || row.attendanceDate <= dateRangeFilter.end
       return matchesSearch && matchesStatus && matchesRegularized && matchesStartDate && matchesEndDate
     })
-  }, [attendanceRows, dateRangeFilter, regularizedFilter, searchTerm, statusFilter])
+  }, [attendanceRows, dateRangeFilter, deferredSearchTerm, regularizedFilter, statusFilter])
 
   const { items: sortedAttendanceRows, sortConfig: attendanceSortConfig, requestSort: requestAttendanceSort } = useSortableData(filteredAttendanceRows, {
     initialKey: 'attendanceDate',
@@ -634,17 +724,6 @@ export default function AttendanceManagement() {
       remarks: (row) => row.remarks || ''
     }
   })
-  const { items: sortedSelectedLogs, sortConfig: selectedLogsSortConfig, requestSort: requestSelectedLogsSort } = useSortableData(selectedLogs, {
-    initialKey: 'punchTime',
-    initialDirection: 'desc',
-    accessors: {
-      punchType: (log) => log.punchType || '',
-      punchTime: (log) => log.punchTime || '',
-      source: (log) => log.source || 'SELF',
-      validity: (log) => (log.isValid ? 'Valid' : 'Invalid'),
-      notes: (log) => log.invalidReason || ''
-    }
-  })
   const { items: sortedRegularizationRows, sortConfig: regularizationSortConfig, requestSort: requestRegularizationSort } = useSortableData(regularizationRows, {
     initialKey: 'regularizationDate',
     initialDirection: 'desc',
@@ -657,7 +736,7 @@ export default function AttendanceManagement() {
       status: (row) => row.status || ''
     }
   })
-  const { items: sortedMyRegularizationRows, sortConfig: myRegularizationSortConfig, requestSort: requestMyRegularizationSort } = useSortableData(myRegularizationRows, {
+  const { items: sortedMyRegularizationRows } = useSortableData(myRegularizationRows, {
     initialKey: 'regularizationDate',
     initialDirection: 'desc',
     accessors: {
@@ -669,6 +748,43 @@ export default function AttendanceManagement() {
       status: (row) => row.status || '',
       reviewerNote: (row) => row.reviewerNote || '',
       updatedAt: (row) => row.updatedAt || row.createdAt || ''
+    }
+  })
+  const regularizationRequestRows = useMemo(() => {
+    const rowsByUid = new Map()
+
+    sortedMyRegularizationRows.forEach((row) => {
+      rowsByUid.set(String(row.uid), { ...row, isOwnRecord: true })
+    })
+
+    regularizationRows.forEach((row) => {
+      const rowKey = String(row.uid)
+      if (rowsByUid.has(rowKey)) {
+        rowsByUid.set(rowKey, {
+          ...row,
+          ...rowsByUid.get(rowKey),
+          isOwnRecord: true
+        })
+        return
+      }
+
+      rowsByUid.set(rowKey, row)
+    })
+
+    return Array.from(rowsByUid.values())
+  }, [regularizationRows, sortedMyRegularizationRows])
+  const { items: sortedRegularizationRequestRows, sortConfig: regularizationRequestSortConfig, requestSort: requestRegularizationRequestSort } = useSortableData(regularizationRequestRows, {
+    initialKey: 'regularizationDate',
+    initialDirection: 'desc',
+    accessors: {
+      employeeName: (row) => row.employeeName || '',
+      regularizationDate: (row) => row.regularizationDate || '',
+      requestedPunchIn: (row) => row.requestedPunchIn || '',
+      requestedPunchOut: (row) => row.requestedPunchOut || '',
+      requestedWorkedHours: (row) => Number(row.requestedWorkedHours ?? -1),
+      status: (row) => row.status || '',
+      reviewerNote: (row) => row.reviewerNote || '',
+      updatedAt: (row) => row.updatedAt || row.reviewedAt || row.createdAt || ''
     }
   })
   const { items: sortedShiftRoster, sortConfig: shiftRosterSortConfig, requestSort: requestShiftRosterSort } = useSortableData(shiftRoster, {
@@ -696,8 +812,8 @@ export default function AttendanceManagement() {
   const shiftSummary = useMemo(() => getShiftOverview(shiftRoster, shiftAssignments), [shiftAssignments, shiftRoster])
   const statusOptions = useMemo(() => ['All', ...Array.from(new Set(attendanceRows.map((row) => row.status).filter(Boolean)))], [attendanceRows])
   const todaySession = useMemo(
-    () => ({ ...getPunchSessionState(todayLogs), totalWorkedHours: attendanceRows.find((row) => row.attendanceDate === todayDate && row.employeeUid === '')?.totalWorkedHours }),
-    [attendanceRows, todayDate, todayLogs]
+    () => ({ ...getPunchSessionState(todayLogs), totalWorkedHours: attendanceRows.find((row) => row.attendanceDate === todayDate && row.employeeUid === currentEmployeeUid)?.totalWorkedHours }),
+    [attendanceRows, currentEmployeeUid, todayDate, todayLogs]
   )
   const selectedSession = useMemo(() => getPunchSessionState(selectedLogs), [selectedLogs])
   const latestRegularizationStatus = useMemo(() => getLatestRegularizationStatus(myRegularizations), [myRegularizations])
@@ -730,8 +846,11 @@ export default function AttendanceManagement() {
     }
   }, [activeTab, requestedTab])
 
-  const previewAttendance = sortedAttendanceRows.slice(0, 5)
-  const previewRegularizations = sortedRegularizationRows.slice(0, 5)
+  const pinnedAttendanceRows = useMemo(() => prioritizeRowsByEmployee(sortedAttendanceRows, currentEmployeeUid), [currentEmployeeUid, sortedAttendanceRows])
+  const pinnedPendingRegularizationRows = useMemo(() => prioritizeRowsByEmployee(sortedRegularizationRows, currentEmployeeUid), [currentEmployeeUid, sortedRegularizationRows])
+  const pinnedRegularizationRequestRows = useMemo(() => prioritizeRowsByEmployee(sortedRegularizationRequestRows, currentEmployeeUid), [currentEmployeeUid, sortedRegularizationRequestRows])
+  const overviewAttendanceRows = sortedAttendanceRows
+  const previewRegularizations = pinnedPendingRegularizationRows.slice(0, 5)
 
   useEffect(() => {
     const nextTab = resolveAccessibleTab(availableTabs, activeTab, (tabKey) => {
@@ -781,9 +900,9 @@ export default function AttendanceManagement() {
     mutationFn: attendanceService.punchIn,
     onSuccess: async (result) => {
       await invalidateAttendanceState()
-      showStatus({ type: 'success', title: 'Punch-in recorded', message: `${result.message} Current status: ${result.status}.` })
+      showToast({ tone: 'success', title: 'Punch-in recorded', message: `${result.message} Current status: ${result.status}.` })
     },
-    onError: (error) => showStatus({ type: 'error', title: 'Punch-in failed', message: getErrorMessage(error, 'The system could not record your punch-in.') })
+    onError: (error) => showToast({ tone: 'danger', title: 'Punch-in failed', message: getErrorMessage(error, 'The system could not record your punch-in.') })
   })
 
   const punchOutMutation = useMutation({
@@ -792,13 +911,13 @@ export default function AttendanceManagement() {
       rememberPunchOutMode(todayDate, result?.lastPunchOut || new Date(), mode)
       setPunchControlVersion((current) => current + 1)
       await invalidateAttendanceState()
-      showStatus({
-        type: 'success',
+      showToast({
+        tone: 'success',
         title: String(mode).toLowerCase() === 'soft' ? 'Soft punch-out recorded' : 'Final punch-out recorded',
         message: `${result.message} Total worked hours: ${formatHours(result.totalWorkedHours)}.`
       })
     },
-    onError: (error) => showStatus({ type: 'error', title: 'Punch-out failed', message: getErrorMessage(error, 'The system could not record your punch-out.') })
+    onError: (error) => showToast({ tone: 'danger', title: 'Punch-out failed', message: getErrorMessage(error, 'The system could not record your punch-out.') })
   })
 
   const regularizationMutation = useMutation({
@@ -884,15 +1003,15 @@ export default function AttendanceManagement() {
 
   const handlePunchIn = async () => {
     if (!canSelfPunch) {
-      showStatus({ type: 'error', title: 'Attendance access blocked', message: 'Your role does not have permission to create attendance punch entries.' })
+      showToast({ tone: 'danger', title: 'Attendance unavailable', message: 'Your role does not have permission to create attendance punch entries.' })
       return
     }
 
     if (todaySession.hasSoftPunchOut && todaySession.canPunchIn) {
       rememberSoftPunchResume(todayDate)
       setPunchControlVersion((current) => current + 1)
-      showStatus({
-        type: 'success',
+      showToast({
+        tone: 'success',
         title: 'Timer resumed',
         message: 'Your shift timer has resumed. Use Punch Out to pause again or finalize the day.'
       })
@@ -908,7 +1027,7 @@ export default function AttendanceManagement() {
 
   const handleSoftPunchOut = async () => {
     if (!canSelfPunch) {
-      showStatus({ type: 'error', title: 'Attendance access blocked', message: 'Your role does not have permission to create attendance punch entries.' })
+      showToast({ tone: 'danger', title: 'Attendance unavailable', message: 'Your role does not have permission to create attendance punch entries.' })
       return
     }
 
@@ -921,7 +1040,7 @@ export default function AttendanceManagement() {
 
   const handleFinalPunchOut = async () => {
     if (!canSelfPunch) {
-      showStatus({ type: 'error', title: 'Attendance access blocked', message: 'Your role does not have permission to create attendance punch entries.' })
+      showToast({ tone: 'danger', title: 'Attendance unavailable', message: 'Your role does not have permission to create attendance punch entries.' })
       return
     }
 
@@ -1166,13 +1285,13 @@ export default function AttendanceManagement() {
   const overviewItems = [
     { label: 'Pending approvals', value: `${regularizationRows.length} request(s)`, helper: 'Requests requiring admin verification', icon: <SparklesIcon /> },
     { label: 'Shift coverage', value: `${shiftSummary.activeAssignments} active assignment(s)`, helper: `${shiftSummary.activeShifts} active shift templates`, icon: <BriefcaseIcon /> },
-    { label: 'My punch state', value: todaySession.isClockedIn ? 'Clocked In' : (todaySession.totalPunches ? 'Completed' : 'Ready'), helper: `Latest personal request: ${latestRegularizationStatus}`, icon: <CalendarIcon /> }
+    { label: 'Attendance records', value: `${attendanceRows.length} record(s)`, helper: `${overviewAttendanceRows.length} register row(s) available in overview`, icon: <CalendarIcon /> }
   ]
 
   const isLoading = attendanceQuery.isLoading || employeesQuery.isLoading || pendingRegularizationsQuery.isLoading || shiftRosterQuery.isLoading || employeeShiftAssignmentsQuery.isLoading || selectedLogsQuery.isLoading || todayLogsQuery.isLoading || myRegularizationsQuery.isLoading
 
   if (isLoading) {
-    return <div className="text-muted">Loading attendance control center…</div>
+    return <PageContentLoader cards={4} />
   }
 
   return (
@@ -1214,15 +1333,16 @@ export default function AttendanceManagement() {
                     isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
                     note={todaySession.isClockedIn ? 'Your admin attendance session is active. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : 'Use self punch controls for your own attendance and the admin register below for workforce monitoring.'}
                     secondaryNote="Both employees and admins can add their own time entries from this workspace."
+                    assignedShift={currentAssignedShiftCard}
                   />
                 </CardShell>
               </div>
             ) : null}
           </div>
 
-          {canViewAttendanceTab ? (
-            <CardShell title="Attendance Register Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('attendance')}>Open full register</button>}>
-            <PaginatedTable rows={previewAttendance}>
+            {canViewAttendanceRegister ? (
+              <CardShell title="Attendance Register" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('attendance')}>Open manage tab</button>}>
+            <PaginatedTable rows={overviewAttendanceRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--attendance-preview align-middle mb-0">
                   <thead>
@@ -1251,8 +1371,8 @@ export default function AttendanceManagement() {
             </CardShell>
           ) : null}
 
-          {canViewRegularizationTab ? (
-            <CardShell title="Pending Regularization Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('regularization')}>Open full queue</button>}>
+            {canViewRegularizationQueue ? (
+              <CardShell title="Pending Regularization Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('regularization')}>Open full queue</button>}>
             <PaginatedTable rows={previewRegularizations}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-preview align-middle mb-0">
@@ -1285,7 +1405,14 @@ export default function AttendanceManagement() {
       {activeTab === 'attendance' ? (
         <>
           <div className="row g-3">
-            {canUseSelfAttendance ? (
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Register Records" value={filteredAttendanceRows.length} helper="Attendance rows after filters" tone="blue" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="My Punches Today" value={todaySession.totalPunches} helper="Self punches captured for today" tone="teal" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Active Assignments" value={shiftSummary.activeAssignments} helper="Employees currently mapped to shifts" tone="purple" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="My Session" value={todaySession.isClockedIn ? 'Clocked In' : (todaySession.hasSoftPunchOut ? 'Paused' : (todaySession.totalPunches ? 'Completed' : 'Ready'))} helper="Admin self-attendance state" tone="orange" /></div>
+          </div>
+
+          {canUseSelfAttendance ? (
+            <div className="row g-3">
               <div className="col-12 col-xl-5">
                 <CardShell title="Punch In / Punch Out">
                   <PunchSessionCard
@@ -1298,73 +1425,67 @@ export default function AttendanceManagement() {
                     onSoftPunchOut={handleSoftPunchOut}
                     onFinalPunchOut={handleFinalPunchOut}
                     isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
-                    note={todaySession.isClockedIn ? 'Your admin attendance session is active. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches ? 'Generate and download your own punch logs from the inspector on the right.' : 'No punch has been recorded yet for today. Use punch in to start your shift.'}
+                    note={todaySession.isClockedIn ? 'Your admin attendance session is active. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches ? 'Your latest attendance entries are pinned at the top of the register below.' : 'No punch has been recorded yet for today. Use punch in to start your shift.'}
                     secondaryNote="Admins can also modify workforce attendance entries directly in the register below."
+                    assignedShift={currentAssignedShiftCard}
                   />
                 </CardShell>
               </div>
-            ) : null}
-            <div className={`col-12 ${canUseSelfAttendance ? 'col-xl-7' : ''}`.trim()}>
-              <CardShell title="My Daily Log Inspector" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `admin-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `admin-punch-logs-${selectedDate}.xls`)} align="end" />}>
-                <div className="attendance-toolbar mb-3">
-                  <div className="employee-toolbar-left">
-                    <div className="employee-search-field attendance-date-field">
-                      <label className="form-label small text-muted mb-1">Inspect Date</label>
-                      <div className="input-group employee-search-group">
-                        <span className="input-group-text"><SearchIcon /></span>
+
+              <div className="col-12 col-xl-7">
+                <CardShell title="Daily Punch In / Punch Out Log" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `admin-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `admin-punch-logs-${selectedDate}.xls`)} align="end" />}>
+                  <div className="attendance-toolbar mb-3">
+                    <div className="employee-toolbar-left">
+                      <div className="employee-search-field attendance-date-field">
+                        <label className="form-label small text-muted mb-1">Inspect Date</label>
                         <input className="form-control" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="attendance-log-strip mb-3">
-                  <div><div className="attendance-detail-label">Selected Date</div><div className="attendance-detail-value">{formatDate(selectedDate)}</div></div>
-                  <div><div className="attendance-detail-label">Punch Count</div><div className="attendance-detail-value">{selectedSession.totalPunches}</div></div>
-                  <div><div className="attendance-detail-label">First In</div><div className="attendance-detail-value">{formatTime(selectedSession.firstPunchIn)}</div></div>
-                  <div><div className="attendance-detail-label">Last Out</div><div className="attendance-detail-value">{formatTime(selectedSession.lastPunchOut)}</div></div>
-                </div>
+                  <div className="attendance-log-strip mb-3">
+                    <div><div className="attendance-detail-label">Selected Date</div><div className="attendance-detail-value">{formatDate(selectedDate)}</div></div>
+                    <div><div className="attendance-detail-label">Punch Count</div><div className="attendance-detail-value">{selectedSession.totalPunches}</div></div>
+                    <div><div className="attendance-detail-label">First In</div><div className="attendance-detail-value">{formatTime(selectedSession.firstPunchIn)}</div></div>
+                    <div><div className="attendance-detail-label">Last Out</div><div className="attendance-detail-value">{formatTime(selectedSession.lastPunchOut)}</div></div>
+                  </div>
 
-                <PaginatedTable rows={sortedSelectedLogs}>
-                  {({ rows: paginatedRows }) => (
-                    <table className="table employee-table workspace-table workspace-table--attendance-log align-middle mb-0">
-                      <thead>
-                        <tr>
-                          <th><SortableHeader label="Punch Type" sortKey="punchType" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
-                          <th><SortableHeader label="Punch Time" sortKey="punchTime" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
-                          <th><SortableHeader label="Source" sortKey="source" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
-                          <th><SortableHeader label="Validity" sortKey="validity" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
-                          <th><SortableHeader label="Notes" sortKey="notes" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginatedRows.length ? paginatedRows.map((log) => (
-                          <tr key={log.uid}>
-                            <td><PunchTypeBadge type={log.punchType} /></td>
-                            <td><TableCellStack title={formatDateTime(log.punchTime)} subtitle={formatDate(log.punchTime)} /></td>
-                            <td><TableBadge value={log.source || 'SELF'} tone="neutral" /></td>
-                            <td>{log.isValid ? <TableBadge value="Valid" tone="success" /> : <TableBadge value="Invalid" tone="danger" />}</td>
-                            <td className="small text-muted">{log.invalidReason || '—'}</td>
+                  <PaginatedTable rows={sortedSelectedLogs}>
+                    {({ rows: paginatedRows }) => (
+                      <table className="table employee-table workspace-table workspace-table--attendance-log align-middle mb-0">
+                        <thead>
+                          <tr>
+                            <th><SortableHeader label="Punch Type" sortKey="punchType" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                            <th><SortableHeader label="Punch Time" sortKey="punchTime" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                            <th><SortableHeader label="Source" sortKey="source" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                            <th><SortableHeader label="Validity" sortKey="validity" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
+                            <th><SortableHeader label="Notes" sortKey="notes" sortConfig={selectedLogsSortConfig} onSort={requestSelectedLogsSort} /></th>
                           </tr>
-                        )) : <tr><td colSpan="5"><div className="employee-empty-state text-center py-5 text-muted">No punch logs were found for the selected date.</div></td></tr>}
-                      </tbody>
-                    </table>
-                  )}
-                </PaginatedTable>
-              </CardShell>
+                        </thead>
+                        <tbody>
+                          {paginatedRows.length ? paginatedRows.map((log) => (
+                            <tr key={log.uid}>
+                              <td><PunchTypeBadge type={log.punchType} /></td>
+                              <td><TableCellStack title={formatDateTime(log.punchTime)} subtitle={formatDate(log.punchTime)} /></td>
+                              <td><TableBadge value={log.source || 'SELF'} tone="neutral" /></td>
+                              <td>{log.isValid ? <TableBadge value="Valid" tone="success" /> : <TableBadge value="Invalid" tone="danger" />}</td>
+                              <td className="small text-muted">{log.invalidReason || '—'}</td>
+                            </tr>
+                          )) : <tr><td colSpan="5"><div className="employee-empty-state text-center py-5 text-muted">No punch logs were found for the selected date.</div></td></tr>}
+                        </tbody>
+                      </table>
+                    )}
+                  </PaginatedTable>
+                </CardShell>
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          <CardShell title="Attendance Register" right={<DownloadActionGroup onCsv={() => downloadAttendanceRowsCsv(sortedAttendanceRows, 'attendance-register.csv')} onExcel={() => downloadAttendanceRowsExcel(sortedAttendanceRows, 'attendance-register.xls')} align="end" />}>
+          {canViewAttendanceRegister ? (
+            <CardShell title="Attendance Register" right={<DownloadActionGroup onCsv={() => downloadAttendanceRowsCsv(pinnedAttendanceRows, 'attendance-register.csv')} onExcel={() => downloadAttendanceRowsExcel(pinnedAttendanceRows, 'attendance-register.xls')} align="end" />}>
             <div className="attendance-toolbar attendance-toolbar--register mb-3">
   <div className="employee-toolbar-left">
-    <div className="employee-search-field">
-      <label className="form-label small text-muted mb-1">Search</label>
-      <div className="input-group employee-search-group">
-        <span className="input-group-text"><SearchIcon /></span>
-        <input className="form-control" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search employee, department, code, or remarks" />
-      </div>
-    </div>
+    <AppSearchField value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search employee, department, code, or remarks" />
     <div className="employee-filter-field">
       <label className="form-label small text-muted mb-1">Status</label>
       <AppSelect value={statusFilter} onChange={setStatusFilter} options={statusOptions.map((option) => ({ value: option, label: option }))} placeholder="Select status" icon={<FilterIcon />} hideSelectedDescription />
@@ -1391,7 +1512,7 @@ export default function AttendanceManagement() {
   </div>
 </div>
 
-            <PaginatedTable rows={sortedAttendanceRows}>
+            <PaginatedTable rows={pinnedAttendanceRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--attendance-register align-middle mb-0">
                   <thead>
@@ -1434,7 +1555,8 @@ export default function AttendanceManagement() {
                 </table>
               )}
             </PaginatedTable>
-          </CardShell>
+            </CardShell>
+          ) : null}
         </>
       ) : null}
 
@@ -1519,98 +1641,76 @@ export default function AttendanceManagement() {
 
       {activeTab === 'regularization' ? (
         <>
-          <CardShell title="Regularization Request Desk">
-            <div className="row g-3 align-items-end">
-              <div className="col-12 col-md-4">
-                <label className="form-label">Selected Date</label>
-                <input className="form-control" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
-              </div>
-              <div className="col-12 col-md-8">
-                <div className="attendance-note-card mb-0">
-                  Latest status: <strong>{latestRegularizationStatus}</strong>. Use this section to raise your own correction request and to process employee verification tasks.
-                </div>
-              </div>
-              {canCreateRegularization ? (
-                <div className="col-12 d-flex justify-content-end">
-                  <button type="button" className="btn btn-primary px-4" onClick={() => setRegularizationOpen(true)}>Create Regularization Request</button>
-                </div>
-              ) : null}
-            </div>
-          </CardShell>
+          <div className="row g-3">
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Pending Queue" value={regularizationRows.length} helper="Requests awaiting admin action" tone="blue" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="My Requests" value={myRegularizationRows.length} helper="Your submitted regularizations" tone="teal" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Latest Status" value={latestRegularizationStatus} helper="Most recent self-request state" tone="purple" /></div>
+            <div className="col-12 col-sm-6 col-xl-3"><AttendanceMetricCard label="Queue Access" value={canReviewRegularization ? 'Review Enabled' : 'Read Only'} helper="Approve or reject availability" tone="orange" /></div>
+          </div>
 
-          <CardShell title="Employees Regularization Requests">
-            <PaginatedTable rows={sortedRegularizationRows}>
-              {({ rows: paginatedRows }) => (
-                <table className="table employee-table workspace-table workspace-table--regularization-queue align-middle mb-0">
-                  <thead>
-                    <tr>
-                      <th><SortableHeader label="Employee" sortKey="employeeName" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
-                      <th><SortableHeader label="Date" sortKey="regularizationDate" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
-                      <th><SortableHeader label="Requested In" sortKey="requestedPunchIn" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
-                      <th><SortableHeader label="Requested Out" sortKey="requestedPunchOut" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
-                      <th><SortableHeader label="Worked Hours" sortKey="requestedWorkedHours" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
-                      <th><SortableHeader label="Status" sortKey="status" sortConfig={regularizationSortConfig} onSort={requestRegularizationSort} /></th>
-                      <th className="table-header-center">Decision</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedRows.length ? paginatedRows.map((row) => (
-                      <tr key={row.uid}>
-                        <td><TableCellStack title={row.employeeName} subtitle={row.employeeCode} /></td>
-                        <td><TableCellStack title={formatDate(row.regularizationDate)} subtitle="Submitted request" /></td>
-                        <td><TableCellStack title={formatDateTime(row.requestedPunchIn)} subtitle={formatTime(row.requestedPunchIn)} /></td>
-                        <td><TableCellStack title={formatDateTime(row.requestedPunchOut)} subtitle={formatTime(row.requestedPunchOut)} /></td>
-                        <td><TableBadge value={row.requestedWorkedHours == null ? '—' : formatHours(row.requestedWorkedHours)} tone="blue" /></td>
-                        <td><RegularizationBadge status={row.status} /></td>
-                        <td className="table-actions-cell">
-                          <TableActionCluster>
-                            {canViewRegularizationLogs ? <TableActionButton icon={<ViewIcon />} label="Timeline" variant="view" onClick={() => setSelectedRegularizationLogRecord(row)} /> : null}
-                            {canReviewRegularization ? <TableActionButton icon={<CheckCircleIcon />} label="Approve" variant="view" onClick={() => { setDecisionState({ mode: 'approve', record: row }); setReviewerNote('') }} /> : null}
-                            {canReviewRegularization ? <TableActionButton icon={<XCircleIcon />} label="Reject" variant="delete" className="attendance-danger-btn" onClick={() => { setDecisionState({ mode: 'reject', record: row }); setReviewerNote('') }} /> : null}
-                          </TableActionCluster>
-                        </td>
-                      </tr>
-                    )) : <tr><td colSpan="7"><div className="employee-empty-state text-center py-5 text-muted">There are no pending regularization requests in the queue.</div></td></tr>}
-                  </tbody>
-                </table>
-              )}
-            </PaginatedTable>
-          </CardShell>
+          {(canCreateRegularization || canViewOwnRegularizations) ? (
+            <CardShell title="Regularization Request Desk">
+              <div className="row g-3 align-items-end">
+                <div className="col-12 col-md-4">
+                  <label className="form-label">Selected Date</label>
+                  <input className="form-control" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+                </div>
+                <div className="col-12 col-md-8">
+                  <div className="attendance-note-card mb-0">
+                    Latest status: <strong>{latestRegularizationStatus}</strong>. Use this section to raise your own correction request and to process employee verification tasks.
+                  </div>
+                </div>
+                {canCreateRegularization ? (
+                  <div className="col-12 d-flex justify-content-end">
+                    <button type="button" className="btn btn-primary px-4" onClick={() => setRegularizationOpen(true)}>Create Regularization Request</button>
+                  </div>
+                ) : null}
+              </div>
+            </CardShell>
+          ) : null}
 
-          <CardShell title="My Submitted Regularization Requests">
-            <PaginatedTable rows={sortedMyRegularizationRows}>
-              {({ rows: paginatedRows }) => (
-                <table className="table employee-table workspace-table workspace-table--regularization-history align-middle mb-0">
-                  <thead>
-                    <tr>
-                      <th><SortableHeader label="Date" sortKey="regularizationDate" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
-                      <th><SortableHeader label="Requested In" sortKey="requestedPunchIn" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
-                      <th><SortableHeader label="Requested Out" sortKey="requestedPunchOut" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
-                      <th><SortableHeader label="Worked Hours" sortKey="requestedWorkedHours" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
-                      <th><SortableHeader label="Reason" sortKey="reason" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
-                      <th><SortableHeader label="Status" sortKey="status" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
-                      <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
-                      <th><SortableHeader label="Updated" sortKey="updatedAt" sortConfig={myRegularizationSortConfig} onSort={requestMyRegularizationSort} /></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedRows.length ? paginatedRows.map((request) => (
-                      <tr key={request.uid}>
-                        <td><TableCellStack title={formatDate(request.regularizationDate)} subtitle={formatDateTime(request.updatedAt || request.createdAt)} /></td>
-                        <td><TableCellStack title={formatDateTime(request.requestedPunchIn)} subtitle={formatTime(request.requestedPunchIn)} /></td>
-                        <td><TableCellStack title={formatDateTime(request.requestedPunchOut)} subtitle={formatTime(request.requestedPunchOut)} /></td>
-                        <td><TableBadge value={request.requestedWorkedHours == null ? '—' : formatHours(request.requestedWorkedHours)} tone="blue" /></td>
-                        <td className="small text-muted attendance-reason-cell">{request.reason}</td>
-                        <td><RegularizationBadge status={request.status} /></td>
-                        <td className="small text-muted">{request.reviewerNote || '—'}</td>
-                        <td><TableCellStack title={formatDateTime(request.updatedAt || request.createdAt)} subtitle="Last update" /></td>
+          {canViewRegularizationQueue ? (
+            <CardShell title="Regularization Requests">
+              <PaginatedTable rows={pinnedRegularizationRequestRows}>
+                {({ rows: paginatedRows }) => (
+                  <table className="table employee-table workspace-table workspace-table--regularization-queue align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th><SortableHeader label="Employee" sortKey="employeeName" sortConfig={regularizationRequestSortConfig} onSort={requestRegularizationRequestSort} /></th>
+                        <th><SortableHeader label="Date" sortKey="regularizationDate" sortConfig={regularizationRequestSortConfig} onSort={requestRegularizationRequestSort} /></th>
+                        <th><SortableHeader label="Requested In" sortKey="requestedPunchIn" sortConfig={regularizationRequestSortConfig} onSort={requestRegularizationRequestSort} /></th>
+                        <th><SortableHeader label="Requested Out" sortKey="requestedPunchOut" sortConfig={regularizationRequestSortConfig} onSort={requestRegularizationRequestSort} /></th>
+                        <th><SortableHeader label="Worked Hours" sortKey="requestedWorkedHours" sortConfig={regularizationRequestSortConfig} onSort={requestRegularizationRequestSort} /></th>
+                        <th><SortableHeader label="Status" sortKey="status" sortConfig={regularizationRequestSortConfig} onSort={requestRegularizationRequestSort} /></th>
+                        <th><SortableHeader label="Reviewer Note" sortKey="reviewerNote" sortConfig={regularizationRequestSortConfig} onSort={requestRegularizationRequestSort} /></th>
+                        <th className="table-header-center">Action</th>
                       </tr>
-                    )) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">You have not submitted any attendance regularization requests yet.</div></td></tr>}
-                  </tbody>
-                </table>
-              )}
-            </PaginatedTable>
-          </CardShell>
+                    </thead>
+                    <tbody>
+                      {paginatedRows.length ? paginatedRows.map((row) => (
+                        <tr key={row.uid}>
+                          <td><TableCellStack title={row.employeeName} subtitle={row.employeeCode} /></td>
+                          <td><TableCellStack title={formatDate(row.regularizationDate)} subtitle="Submitted request" /></td>
+                          <td><TableCellStack title={formatDateTime(row.requestedPunchIn)} subtitle={formatTime(row.requestedPunchIn)} /></td>
+                          <td><TableCellStack title={formatDateTime(row.requestedPunchOut)} subtitle={formatTime(row.requestedPunchOut)} /></td>
+                          <td><TableBadge value={row.requestedWorkedHours == null ? '—' : formatHours(row.requestedWorkedHours)} tone="blue" /></td>
+                          <td><RegularizationBadge status={row.status} /></td>
+                          <td className="small text-muted">{row.reviewerNote || '—'}</td>
+                          <td className="table-actions-cell">
+                            <TableActionCluster>
+                              {canViewRegularizationLogs ? <TableActionButton icon={<ViewIcon />} label="Timeline" variant="view" onClick={() => setSelectedRegularizationLogRecord(row)} /> : null}
+                              {canReviewRegularization && String(row.status || '').toLowerCase() === 'pending' ? <TableActionButton icon={<CheckCircleIcon />} label="Approve" variant="view" onClick={() => { setDecisionState({ mode: 'approve', record: row }); setReviewerNote('') }} /> : null}
+                              {canReviewRegularization && String(row.status || '').toLowerCase() === 'pending' ? <TableActionButton icon={<XCircleIcon />} label="Reject" variant="delete" className="attendance-danger-btn" onClick={() => { setDecisionState({ mode: 'reject', record: row }); setReviewerNote('') }} /> : null}
+                            </TableActionCluster>
+                          </td>
+                        </tr>
+                      )) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">There are no regularization requests available right now.</div></td></tr>}
+                    </tbody>
+                  </table>
+                )}
+              </PaginatedTable>
+            </CardShell>
+          ) : null}
         </>
       ) : null}
 

@@ -15,7 +15,7 @@ access_token_bearer = AccessTokenBearer()
 adminonly = Depends(AdminOnly)
 module= "Employee Metadata"
 
-@employee_metadata_router.get("/", response_model=List[EmployeeMetadataRead], status_code=status.HTTP_200_OK)
+@employee_metadata_router.get("/", response_model=List[EmployeeMetadataRead], status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "r"))])
 async def list_employee_metadata(
     category: Optional[MetadataCategory] = Query(default=None),
     active_only: bool = Query(default=False),

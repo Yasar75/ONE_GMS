@@ -121,7 +121,12 @@ export const leaveService = {
   },
 
   async getPendingLeaveRequests() {
-    const response = await http.get('/api/v1/leave-requests/leave-request-pending')
+    const response = await http.get(endpoints.leave.requests.pending)
+    return Array.isArray(response.data) ? response.data.map(normalizeLeaveRequest).filter(Boolean) : []
+  },
+
+  async getPendingLeaveCancellationRequests() {
+    const response = await http.get(endpoints.leave.requests.pendingCancellations)
     return Array.isArray(response.data) ? response.data.map(normalizeLeaveRequest).filter(Boolean) : []
   },
 
@@ -134,6 +139,42 @@ export const leaveService = {
 
   async rejectLeaveRequest(leaveRequestUid, reviewerNote = '') {
     const response = await http.post(endpoints.leave.requests.reject(leaveRequestUid), {
+      reviewer_note: reviewerNote || null
+    })
+    return normalizeLeaveRequest(response.data)
+  },
+
+  async editPendingLeaveRequest(leaveRequestUid, payload) {
+    const response = await http.put(endpoints.leave.requests.editPending(leaveRequestUid), {
+      leave_type_uid: payload.leaveTypeUid,
+      start_date: payload.startDate,
+      end_date: payload.endDate,
+      reason: payload.reason || null
+    })
+    return normalizeLeaveRequest(response.data)
+  },
+
+  async deletePendingLeaveRequest(leaveRequestUid) {
+    await http.delete(endpoints.leave.requests.deletePending(leaveRequestUid))
+    return leaveRequestUid
+  },
+
+  async requestLeaveCancellation(leaveRequestUid, cancellationReason = '') {
+    const response = await http.post(endpoints.leave.requests.requestCancellation(leaveRequestUid), {
+      cancellation_reason: cancellationReason || null
+    })
+    return normalizeLeaveRequest(response.data)
+  },
+
+  async approveLeaveCancellation(leaveRequestUid, reviewerNote = '') {
+    const response = await http.post(endpoints.leave.requests.approveCancellation(leaveRequestUid), {
+      reviewer_note: reviewerNote || null
+    })
+    return normalizeLeaveRequest(response.data)
+  },
+
+  async rejectLeaveCancellation(leaveRequestUid, reviewerNote = '') {
+    const response = await http.post(endpoints.leave.requests.rejectCancellation(leaveRequestUid), {
       reviewer_note: reviewerNote || null
     })
     return normalizeLeaveRequest(response.data)

@@ -56,10 +56,17 @@ class EmployeeSkillService:
         result = await session.exec(stmt)
         return result.all()
 
-    async def get_employee_skill_by_uid(
-        self, session: AsyncSession, employee_skill_uid: uuid.UUID
+    async def get_skills_by_employee_uid(
+        self, session: AsyncSession, employee_uid: uuid.UUID
+    ) -> List[EmployeeSkill]:
+        stmt = select(EmployeeSkill).where(EmployeeSkill.employee_uid == employee_uid).order_by(desc(EmployeeSkill.created_at))
+        result = await session.exec(stmt)
+        return result.all()
+
+    async def get_skill_by_uid(
+        self, session: AsyncSession, skill_uid: uuid.UUID
     ) -> EmployeeSkill:
-        stmt = select(EmployeeSkill).where(EmployeeSkill.uid == employee_skill_uid)
+        stmt = select(EmployeeSkill).where(EmployeeSkill.uid == skill_uid)
         result = await session.exec(stmt)
         obj = result.first()
         if obj is None:
@@ -121,7 +128,7 @@ class EmployeeSkillService:
         skill_uid: uuid.UUID,
         payload: EmployeeSkillUpdate,
     ) -> EmployeeSkill:
-        obj = await self.get_employee_skill_by_uid(session, skill_uid)
+        obj = await self.get_skill_by_uid(session, skill_uid)
 
         if payload.skill is not None:
             await _ensure_skill_not_duplicate(
@@ -146,6 +153,6 @@ class EmployeeSkillService:
         return obj
 
     async def delete(self, session: AsyncSession, skill_uid: uuid.UUID) -> None:
-        obj = await self.get_employee_skill_by_uid(session, skill_uid)
+        obj = await self.get_skill_by_uid(session, skill_uid)
         await session.delete(obj)
         await session.commit()

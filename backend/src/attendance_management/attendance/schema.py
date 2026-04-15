@@ -27,7 +27,21 @@ class AttendanceRead(BaseModel):
 class AttendanceUpdate(BaseModel):
     first_punch_in: Optional[datetime] = None
     last_punch_out: Optional[datetime] = None
-    total_worked_hours: Optional[Decimal] = Field(default=None, ge=Decimal('0'))
+    total_worked_hours: Optional[Decimal] = Field(default=None, ge=Decimal("0"))
     status: Optional[AttendanceStatus] = None
     is_regularized: Optional[bool] = None
     remarks: Optional[str] = Field(default=None, max_length=1000)
+
+
+class AttendanceSyncRequest(BaseModel):
+    start_date: date
+    end_date: Optional[date] = None
+
+
+class AttendanceSyncResponse(BaseModel):
+    start_date: date
+    end_date: date
+    total_days: int
+    employees_processed: int
+    created_count: int
+    updated_count: int

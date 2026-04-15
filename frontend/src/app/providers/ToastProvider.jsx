@@ -21,22 +21,27 @@ export function ToastProvider({ children }) {
   }, [])
 
   const showToast = useCallback((options = {}) => {
+    const requestedDuration = Number(options.duration ?? options.autoCloseMs ?? 2800)
+    const persist = Boolean(options.persist) || requestedDuration <= 0
     const nextToast = {
       id: createToastId(),
       tone: options.tone || 'info',
       title: options.title || '',
       message: options.message || '',
-      duration: Math.max(1200, Number(options.duration || options.autoCloseMs || 2800))
+      duration: persist ? 0 : Math.max(1200, requestedDuration)
     }
 
     setToasts((current) => [...current, nextToast].slice(-4))
 
-    const timeoutId = window.setTimeout(() => {
-      timeoutMapRef.current.delete(nextToast.id)
-      setToasts((current) => current.filter((item) => item.id !== nextToast.id))
-    }, nextToast.duration)
+    if (!persist) {
+      const timeoutId = window.setTimeout(() => {
+        timeoutMapRef.current.delete(nextToast.id)
+        setToasts((current) => current.filter((item) => item.id !== nextToast.id))
+      }, nextToast.duration)
 
-    timeoutMapRef.current.set(nextToast.id, timeoutId)
+      timeoutMapRef.current.set(nextToast.id, timeoutId)
+    }
+
     return nextToast.id
   }, [])
 

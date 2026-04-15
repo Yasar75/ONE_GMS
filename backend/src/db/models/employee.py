@@ -21,6 +21,9 @@ class EmployeeType(str, Enum):
     Contract = "Contract"
     Intern = "Intern"
 
+# class BillingStatus(str, Enum):
+#     Billable = "Billable"
+#     NonBillable = "NonBillable"
 
 class Employee(SQLModel, table=True):
     __tablename__ = "employees"
@@ -44,6 +47,7 @@ class Employee(SQLModel, table=True):
     gender: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     caste:  Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     emergency_contact: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    billing_status: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     blood_group: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(10), nullable=True))
     employee_type: Optional[EmployeeType] = Field(default=None,sa_column=Column(pg.ENUM(EmployeeType, name="employee_type", create_type=True),nullable=True,))
     work_location: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
@@ -162,3 +166,28 @@ class EmployeeFamilyDetail(SQLModel, table=True):
 
     def __repr__(self):
         return f"{self.employee_uid} - {self.relation} - {self.full_name}"
+
+
+class EmployeeWorkExperience(SQLModel, table=True):
+    __tablename__ = "employee_work_experiences"
+
+    uid: uuid.UUID = Field(sa_column=Column(pg.UUID(as_uuid=True), primary_key=True, nullable=False, default=uuid.uuid4))
+    user_uid: uuid.UUID = Field(foreign_key="users.uid", nullable=False, index=True)
+    employee_uid: uuid.UUID = Field(sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="CASCADE"),nullable=False,index=True))
+    company_name: str = Field(sa_column=Column(pg.VARCHAR(150), nullable=False, index=True))
+    job_title: str = Field(sa_column=Column(pg.VARCHAR(120), nullable=False))
+    employment_type: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(50), nullable=True))
+    location: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
+    start_date: date = Field(nullable=False)
+    end_date: Optional[date] = Field(default=None)
+    is_current: bool = Field(default=False, nullable=False)
+    year_of_exp: Optional[Decimal] = Field(default=None,sa_column=Column(Numeric(5, 2), nullable=True))
+    responsibilities: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    last_salary: Optional[Decimal] = Field(default=None,sa_column=Column(Numeric(12, 2), nullable=True))
+    reason_for_leaving: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    remarks: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=datetime.utcnow))
+
+    def __repr__(self):
+        return f"{self.employee_uid} - {self.year_of_exp}"

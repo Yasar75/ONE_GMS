@@ -1,25 +1,6 @@
 import { http } from '../http.js'
 import { endpoints } from '../endpoints.js'
-
-const DEFAULT_ROLE_MODULES = [
-  'Roles',
-  'Employee',
-  'Employee Documents',
-  'Employee Family Details',
-  'Employee Skills',
-  'Profile Picture',
-  'Shift Roster',
-  'Assign Shift',
-  'Employee Metadata',
-  'Holiday Calender',
-  'Leave Request',
-  'Leave Type',
-  'Assign Leave',
-  'Attendance',
-  'Attendance Punch Log',
-  'Attendance Regularization Logs',
-  'Attendance Regularization',
-]
+import { dedupePermissionModules, ROLE_MATRIX_MODULES } from '../../utils/permissions.js'
 
 function normalizeMetadataEntry(record) {
   if (!record) return null
@@ -47,13 +28,8 @@ function normalizeRoleEntry(record) {
 }
 
 function normalizeRoleModules(value) {
-  return Array.from(new Set([
-    ...(Array.isArray(value) ? value : []),
-    ...DEFAULT_ROLE_MODULES
-  ]
-    .filter(Boolean)
-    .map((moduleName) => String(moduleName).trim())
-    .filter(Boolean)))
+  const normalizedModules = dedupePermissionModules(Array.isArray(value) ? value : [])
+  return normalizedModules.length ? normalizedModules : dedupePermissionModules(ROLE_MATRIX_MODULES)
 }
 
 export const metadataService = {
@@ -100,7 +76,7 @@ export const metadataService = {
       const response = await http.get(endpoints.roles.modules)
       return normalizeRoleModules(response.data)
     } catch (error) {
-      return normalizeRoleModules(DEFAULT_ROLE_MODULES)
+      return dedupePermissionModules(ROLE_MATRIX_MODULES)
     }
   },
 

@@ -47,7 +47,9 @@ export default function TopNavbar() {
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) => `app-topnav__link ${isActive ? 'active' : ''}`.trim()}
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  setIsOpen(false)
+                }}
               >
                 <span className="app-topnav__link-icon" aria-hidden="true">{item.icon}</span>
                 <span>{item.label}</span>

@@ -1,5 +1,5 @@
 @echo off
-echo Starting Learning Management System...
+echo Starting ONE_GMS...
 
 set ROOT=%~dp0
 

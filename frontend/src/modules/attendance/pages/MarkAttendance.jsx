@@ -1,16 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../../../components/common/PageHeader.jsx'
 import CardShell from '../../../components/common/CardShell.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
+import PageContentLoader from '../../../components/common/PageContentLoader.jsx'
 import { SearchIcon } from '../../../components/common/AppIcons.jsx'
 import { TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { useMyPunchLogsQuery } from '../../../hooks/attendance/useMyPunchLogsQuery.js'
 import { useMyRegularizationsQuery } from '../../../hooks/attendance/useMyRegularizationsQuery.js'
 import { attendanceService } from '../../../api/services/attendance.service.js'
+import { endpoints } from '../../../api/endpoints.js'
+import { http } from '../../../api/http.js'
+import { employeeService } from '../../../api/services/employee.service.js'
 import {
   PUNCH_CONTROL_CHANGED_EVENT,
   applyLocalPunchControl,
@@ -23,6 +27,7 @@ import {
   getLatestRegularizationStatus,
   getPunchSessionState,
   getTodayDateInput,
+  normalizeShiftRoster,
   rememberPunchOutMode,
   rememberSoftPunchResume,
   toDateTimeLocalValue
@@ -30,7 +35,9 @@ import {
 import { getErrorMessage } from '../../../utils/auth.js'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
+import { useToast } from '../../../app/providers/ToastProvider.jsx'
 import {
+  AttendanceBadge,
   AttendanceTabs,
   DownloadActionGroup,
   PunchSessionCard,
@@ -46,18 +53,14 @@ import {
   markFieldsTouched
 } from '../../../utils/validation.js'
 import {
-  PERMISSION_ACTIONS,
-  PERMISSION_MODULES,
   filterAccessibleTabs,
-  hasModulePermission,
-  hasModuleVisibility,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
 import { useSortableData } from '../../../hooks/common/useSortableData.js'
 
 const TAB_ITEMS = [
   { key: 'attendance', label: 'Mark Attendance', helper: 'Punches and log downloads' },
-  { key: 'regularization', label: 'Create Regularization', helper: 'Request time corrections' }
+  { key: 'regularization', label: 'Apply Regularization', helper: 'Request time corrections' }
 ]
 
 function buildRegularizationDraft(dateValue, logs) {
@@ -82,6 +85,15 @@ function buildRegularizationErrors(draft) {
     requestedPunchOut: getDateTimeRangeValidationMessage(draft.requestedPunchIn, draft.requestedPunchOut, { startLabel: 'Requested punch in', endLabel: 'Requested punch out' }),
     reason: getRequiredFieldMessage(draft.reason, 'Reason')
   }
+}
+
+function formatShiftWindow(shift) {
+  const start = shift?.startTime ? formatTime(shift.startTime) : ''
+  const end = shift?.endTime ? formatTime(shift.endTime) : ''
+  if (!start && !end) return 'Schedule not available'
+  if (!start) return end
+  if (!end) return start
+  return `${start} - ${end}`
 }
 
 function RegularizationModal({ open, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit, isPending }) {
@@ -135,11 +147,15 @@ export default function MarkAttendance() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const { showStatus, runWithLoader, showConfirm } = useModal()
+  const { showToast } = useToast()
   const { user } = useAuth()
-  const canViewAttendanceTab = hasModuleVisibility(user, [...PERMISSION_MODULES.attendance, ...PERMISSION_MODULES.attendanceLogs])
-  const canViewRegularizationTab = hasModuleVisibility(user, PERMISSION_MODULES.attendanceRegularization)
-  const canSelfPunch = hasModulePermission(user, PERMISSION_MODULES.attendance, PERMISSION_ACTIONS.create)
-  const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.attendanceRegularization, PERMISSION_ACTIONS.create)
+  const canViewAttendanceLogs = true
+  const canSelfPunch = true
+  // Employee shift panel should always use employee roster lookup for the logged-in employee.
+  const canViewMyShift = true
+  const canViewAttendanceTab = true
+  const canViewRegularizationTab = true
+  const canCreateRegularization = true
 
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'attendance')
@@ -149,12 +165,75 @@ export default function MarkAttendance() {
   const [regularizationTouched, setRegularizationTouched] = useState({})
   const [punchControlVersion, setPunchControlVersion] = useState(0)
 
-  const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canViewAttendanceTab)
-  const todayLogsQuery = useMyPunchLogsQuery(todayDate, canViewAttendanceTab)
+  const selectedLogsQuery = useMyPunchLogsQuery(selectedDate, canViewAttendanceLogs || canSelfPunch)
+  const todayLogsQuery = useMyPunchLogsQuery(todayDate, canViewAttendanceLogs || canSelfPunch)
   const regularizationsQuery = useMyRegularizationsQuery(canViewRegularizationTab)
-
   const selectedLogsRaw = selectedLogsQuery.data || []
   const todayLogsRaw = todayLogsQuery.data || []
+  const regularizations = regularizationsQuery.data || []
+  const currentEmployeeQuery = useQuery({
+    queryKey: ['employees', 'me', 'record', 'attendance'],
+    queryFn: () => employeeService.getCurrentEmployee(),
+    enabled: Boolean(user),
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: 'always'
+  })
+  const currentEmployeeUid = useMemo(() => {
+    const fallbackEmployeeUid = user?.employeeUid
+      || selectedLogsRaw.find((entry) => entry?.employeeUid)?.employeeUid
+      || todayLogsRaw.find((entry) => entry?.employeeUid)?.employeeUid
+      || regularizations.find((entry) => entry?.employeeUid)?.employeeUid
+      || ''
+
+    return String(currentEmployeeQuery.data?.uid || fallbackEmployeeUid || '').trim()
+  }, [currentEmployeeQuery.data?.uid, regularizations, selectedLogsRaw, todayLogsRaw, user?.employeeUid])
+  const myShiftAssignmentQuery = useQuery({
+    queryKey: ['attendance', 'employee', 'my-shift', currentEmployeeUid],
+    queryFn: () => attendanceService.getEmployeeShiftAssignmentByEmployee(currentEmployeeUid),
+    enabled: canViewMyShift && Boolean(currentEmployeeUid),
+    retry: false,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: 'always'
+  })
+  const attendanceRegisterQuery = useQuery({
+    queryKey: ['attendance', 'employee', 'register', currentEmployeeUid],
+    queryFn: async () => {
+      if (!currentEmployeeUid) return []
+
+      try {
+        return await attendanceService.getAttendanceByEmployee(currentEmployeeUid)
+      } catch (error) {
+        if ([401, 403, 404, 405].includes(Number(error?.response?.status || 0))) {
+          return []
+        }
+        throw error
+      }
+    },
+    enabled: canViewAttendanceTab && Boolean(currentEmployeeUid),
+    retry: false,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: 'always'
+  })
+  const myShiftRosterQuery = useQuery({
+    queryKey: ['attendance', 'employee', 'my-shift-roster', myShiftAssignmentQuery.data?.shiftUid || ''],
+    queryFn: async () => {
+      const shiftUid = String(myShiftAssignmentQuery.data?.shiftUid || '').trim()
+      if (!shiftUid) return null
+
+      try {
+        const response = await http.get(endpoints.shiftRoster.detail(shiftUid))
+        return normalizeShiftRoster(response.data)
+      } catch (error) {
+        if ([401, 403, 404, 405].includes(Number(error?.response?.status || 0))) return null
+        throw error
+      }
+    },
+    enabled: canViewMyShift && Boolean(myShiftAssignmentQuery.data?.shiftUid),
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: 'always'
+  })
   const selectedLogs = useMemo(
     () => applyLocalPunchControl(selectedLogsRaw, selectedDate),
     [punchControlVersion, selectedDate, selectedLogsRaw]
@@ -163,7 +242,6 @@ export default function MarkAttendance() {
     () => applyLocalPunchControl(todayLogsRaw, todayDate),
     [punchControlVersion, todayDate, todayLogsRaw]
   )
-  const regularizations = regularizationsQuery.data || []
   const { items: sortedSelectedLogs, sortConfig: selectedLogsSortConfig, requestSort: requestSelectedLogsSort } = useSortableData(selectedLogs, {
     initialKey: 'punchTime',
     initialDirection: 'desc',
@@ -189,10 +267,92 @@ export default function MarkAttendance() {
       updatedAt: (request) => request.updatedAt || request.createdAt || ''
     }
   })
+  const attendanceRegisterRows = useMemo(() => {
+    const employeeName = currentEmployeeQuery.data?.fullName || user?.displayName || user?.firstName || 'Employee'
+    const employeeCode = currentEmployeeQuery.data?.employeeCode || '—'
+
+    return (attendanceRegisterQuery.data || []).map((record) => ({
+      ...record,
+      employeeName,
+      employeeCode
+    }))
+  }, [attendanceRegisterQuery.data, currentEmployeeQuery.data?.employeeCode, currentEmployeeQuery.data?.fullName, user?.displayName, user?.firstName])
+  const { items: sortedAttendanceRegisterRows, sortConfig: attendanceRegisterSortConfig, requestSort: requestAttendanceRegisterSort } = useSortableData(attendanceRegisterRows, {
+    initialKey: 'attendanceDate',
+    initialDirection: 'desc',
+    accessors: {
+      attendanceDate: (row) => row.attendanceDate || '',
+      status: (row) => row.status || '',
+      firstPunchIn: (row) => row.firstPunchIn || '',
+      lastPunchOut: (row) => row.lastPunchOut || '',
+      totalWorkedHours: (row) => Number(row.totalWorkedHours ?? -1),
+      totalAssignedShiftHours: (row) => Number(row.totalAssignedShiftHours ?? -1),
+      regularized: (row) => (row.isRegularized ? 'Regularized' : 'Standard'),
+      remarks: (row) => row.remarks || ''
+    }
+  })
 
   const todaySession = useMemo(() => getPunchSessionState(todayLogs), [todayLogs])
   const selectedSession = useMemo(() => getPunchSessionState(selectedLogs), [selectedLogs])
   const latestRegularizationStatus = useMemo(() => getLatestRegularizationStatus(regularizations), [regularizations])
+  const latestAttendanceRegisterEntry = useMemo(() => (
+    attendanceRegisterRows.find((record) => record.attendanceDate === todayDate)
+      || attendanceRegisterRows[0]
+      || null
+  ), [attendanceRegisterRows, todayDate])
+  const myShiftDetails = useMemo(() => {
+    const assignment = myShiftAssignmentQuery.data
+    if (!assignment) return null
+
+    const shift = myShiftRosterQuery.data || null
+    return {
+      ...assignment,
+      shiftName: shift?.name || 'Assigned shift',
+      shiftCode: shift?.code || (assignment.shiftUid ? String(assignment.shiftUid).slice(0, 8).toUpperCase() : '—'),
+      shiftWindow: shift
+        ? formatShiftWindow(shift)
+        : (latestAttendanceRegisterEntry?.totalAssignedShiftHours
+            ? `${formatHours(latestAttendanceRegisterEntry.totalAssignedShiftHours)} scheduled`
+            : 'Assigned roster linked'),
+      shiftActive: shift?.isActive ?? assignment.isActive ?? null,
+      hasRosterDetails: Boolean(shift)
+    }
+  }, [latestAttendanceRegisterEntry, myShiftAssignmentQuery.data, myShiftRosterQuery.data])
+  const assignedShiftCard = useMemo(() => {
+    if (!canViewMyShift) return null
+    if (currentEmployeeQuery.isLoading || myShiftAssignmentQuery.isLoading) {
+      return {
+        title: 'Loading assigned shift',
+        helper: 'Fetching your current shift details.'
+      }
+    }
+    if (currentEmployeeQuery.isError) {
+      return {
+        title: 'Employee link unavailable',
+        helper: 'Your employee record could not be resolved for shift lookup.'
+      }
+    }
+    if (myShiftAssignmentQuery.isError) {
+      return {
+        title: 'Assigned shift unavailable',
+        helper: 'Shift details are temporarily unavailable from the backend.'
+      }
+    }
+    if (!myShiftDetails) {
+      return {
+        title: 'No active shift',
+        helper: 'Once an admin assigns a shift, it will appear here.'
+      }
+    }
+
+    return {
+      title: myShiftDetails.shiftName,
+      code: myShiftDetails.shiftCode,
+      window: myShiftDetails.shiftWindow,
+      status: myShiftDetails.shiftActive ? 'Assigned' : 'Inactive',
+      helper: ''
+    }
+  }, [canViewMyShift, currentEmployeeQuery.isError, currentEmployeeQuery.isLoading, myShiftAssignmentQuery.isError, myShiftAssignmentQuery.isLoading, myShiftDetails])
   const attendanceStateLabel = todaySession.isClockedIn ? 'Clocked In' : todaySession.hasSoftPunchOut ? 'Paused' : todaySession.totalPunches > 0 ? 'Completed' : 'Ready'
   const elapsedSeconds = useMemo(() => Number(todaySession.workedSeconds || 0), [todaySession.workedSeconds])
   const regularizationErrors = useMemo(() => buildRegularizationErrors(regularizationDraft), [regularizationDraft])
@@ -269,9 +429,9 @@ export default function MarkAttendance() {
     mutationFn: attendanceService.punchIn,
     onSuccess: async (result) => {
       await invalidateAttendanceState()
-      showStatus({ type: 'success', title: 'Punch-in recorded', message: `${result.message} Current status: ${result.status}.` })
+      showToast({ tone: 'success', title: 'Punch-in recorded', message: `${result.message} Current status: ${result.status}.` })
     },
-    onError: (error) => showStatus({ type: 'error', title: 'Punch-in failed', message: getErrorMessage(error, 'The system could not record your punch-in.') })
+    onError: (error) => showToast({ tone: 'danger', title: 'Punch-in failed', message: getErrorMessage(error, 'The system could not record your punch-in.') })
   })
 
   const punchOutMutation = useMutation({
@@ -280,13 +440,13 @@ export default function MarkAttendance() {
       rememberPunchOutMode(todayDate, result?.lastPunchOut || new Date(), mode)
       setPunchControlVersion((current) => current + 1)
       await invalidateAttendanceState()
-      showStatus({
-        type: 'success',
+      showToast({
+        tone: 'success',
         title: String(mode).toLowerCase() === 'soft' ? 'Soft punch-out recorded' : 'Final punch-out recorded',
         message: `${result.message} Total worked hours: ${formatHours(result.totalWorkedHours)}.`
       })
     },
-    onError: (error) => showStatus({ type: 'error', title: 'Punch-out failed', message: getErrorMessage(error, 'The system could not record your punch-out.') })
+    onError: (error) => showToast({ tone: 'danger', title: 'Punch-out failed', message: getErrorMessage(error, 'The system could not record your punch-out.') })
   })
 
   const regularizationMutation = useMutation({
@@ -302,15 +462,15 @@ export default function MarkAttendance() {
 
   const handlePunchIn = async () => {
     if (!canSelfPunch) {
-      showStatus({ type: 'error', title: 'Attendance access blocked', message: 'Your role does not have permission to create attendance punch entries.' })
+      showToast({ tone: 'danger', title: 'Attendance unavailable', message: 'Your role does not have permission to create attendance punch entries.' })
       return
     }
 
     if (todaySession.hasSoftPunchOut && todaySession.canPunchIn) {
       rememberSoftPunchResume(todayDate)
       setPunchControlVersion((current) => current + 1)
-      showStatus({
-        type: 'success',
+      showToast({
+        tone: 'success',
         title: 'Timer resumed',
         message: 'Your shift timer has resumed. Use Punch Out to pause again or finalize the day.'
       })
@@ -326,7 +486,7 @@ export default function MarkAttendance() {
 
   const handleSoftPunchOut = async () => {
     if (!canSelfPunch) {
-      showStatus({ type: 'error', title: 'Attendance access blocked', message: 'Your role does not have permission to create attendance punch entries.' })
+      showToast({ tone: 'danger', title: 'Attendance unavailable', message: 'Your role does not have permission to create attendance punch entries.' })
       return
     }
 
@@ -339,7 +499,7 @@ export default function MarkAttendance() {
 
   const handleFinalPunchOut = async () => {
     if (!canSelfPunch) {
-      showStatus({ type: 'error', title: 'Attendance access blocked', message: 'Your role does not have permission to create attendance punch entries.' })
+      showToast({ tone: 'danger', title: 'Attendance unavailable', message: 'Your role does not have permission to create attendance punch entries.' })
       return
     }
 
@@ -388,10 +548,11 @@ export default function MarkAttendance() {
     setRegularizationTouched((current) => ({ ...current, [fieldName]: true }))
   }
 
-  const isLoading = selectedLogsQuery.isLoading || todayLogsQuery.isLoading || regularizationsQuery.isLoading
+  const isAttendanceTabLoading = selectedLogsQuery.isLoading || todayLogsQuery.isLoading || attendanceRegisterQuery.isLoading
+  const isRegularizationTabLoading = regularizationsQuery.isLoading
 
-  if (isLoading) {
-    return <div className="text-muted">Loading attendance workspace…</div>
+  if ((activeTab === 'attendance' && isAttendanceTabLoading) || (activeTab === 'regularization' && isRegularizationTabLoading)) {
+    return <PageContentLoader cards={3} />
   }
 
   return (
@@ -406,28 +567,33 @@ export default function MarkAttendance() {
       {activeTab === 'attendance' ? (
         <>
           <div className="row g-3">
-            {canSelfPunch ? (
+            {canSelfPunch || canViewMyShift ? (
               <div className="col-12 col-lg-5">
-                <CardShell title="Punch In / Punch Out">
-                  <PunchSessionCard
-                    title="Today’s attendance actions"
-                    attendanceStateLabel={attendanceStateLabel}
-                    session={{ ...todaySession, totalWorkedHours: null }}
-                    elapsedSeconds={elapsedSeconds}
-                    dateValue={todayDate}
-                    onPunchIn={handlePunchIn}
-                    onSoftPunchOut={handleSoftPunchOut}
-                    onFinalPunchOut={handleFinalPunchOut}
-                    isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
-                    note={todaySession.isClockedIn ? 'You are currently clocked in. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
-                    secondaryNote="Employees and admins can both add their own time entries from this module."
-                  />
-                </CardShell>
+                <div className="d-flex flex-column gap-3">
+                  {canSelfPunch ? (
+                    <CardShell title="Punch In / Punch Out">
+                      <PunchSessionCard
+                        title="Today’s attendance actions"
+                        attendanceStateLabel={attendanceStateLabel}
+                        session={{ ...todaySession, totalWorkedHours: null }}
+                        elapsedSeconds={elapsedSeconds}
+                        dateValue={todayDate}
+                        onPunchIn={handlePunchIn}
+                        onSoftPunchOut={handleSoftPunchOut}
+                        onFinalPunchOut={handleFinalPunchOut}
+                        isPunchPending={punchInMutation.isPending || punchOutMutation.isPending}
+                        note={todaySession.isClockedIn ? 'You are currently clocked in. Use soft punch-out to pause or final punch-out to close the day.' : todaySession.hasSoftPunchOut ? 'Your shift is paused after soft punch-out. Resume the timer when you start working again.' : todaySession.totalPunches > 0 ? 'Your punch cycle for today is complete. Use regularization only when a correction is required.' : 'No punch has been recorded yet for today. Start the session with punch in.'}
+                        secondaryNote="Employees and admins can both add their own time entries from this module."
+                        assignedShift={assignedShiftCard}
+                      />
+                    </CardShell>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
-            <div className={`col-12 ${canSelfPunch ? 'col-lg-7' : ''}`.trim()}>
-              <CardShell title="Daily Log Inspector" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.xls`)} align="end" />}>
+            <div className={`col-12 ${canSelfPunch || canViewMyShift ? 'col-lg-7' : ''}`.trim()}>
+              <CardShell title="Daily Punch In / Punch Out Log" right={<DownloadActionGroup onCsv={() => downloadPunchLogsCsv(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.csv`)} onExcel={() => downloadPunchLogsExcel(sortedSelectedLogs, `employee-punch-logs-${selectedDate}.xls`)} align="end" />}>
                 <div className="attendance-toolbar mb-3">
                   <div className="employee-toolbar-left">
                     <div className="employee-search-field attendance-date-field">
@@ -476,12 +642,47 @@ export default function MarkAttendance() {
               </CardShell>
             </div>
           </div>
+
+          <CardShell title="Attendance Register">
+            <PaginatedTable rows={sortedAttendanceRegisterRows}>
+              {({ rows: paginatedRows }) => (
+                <table className="table employee-table workspace-table workspace-table--attendance-register align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th><SortableHeader label="Date" sortKey="attendanceDate" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Status" sortKey="status" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="First In" sortKey="firstPunchIn" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Last Out" sortKey="lastPunchOut" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Worked" sortKey="totalWorkedHours" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Shift" sortKey="totalAssignedShiftHours" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Regularized" sortKey="regularized" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                      <th><SortableHeader label="Remarks" sortKey="remarks" sortConfig={attendanceRegisterSortConfig} onSort={requestAttendanceRegisterSort} /></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedRows.length ? paginatedRows.map((row) => (
+                      <tr key={row.uid}>
+                        <td><TableCellStack title={formatDate(row.attendanceDate)} subtitle={row.employeeCode} /></td>
+                        <td><AttendanceBadge status={row.status} /></td>
+                        <td><TableCellStack title={formatDateTime(row.firstPunchIn)} subtitle={formatTime(row.firstPunchIn)} /></td>
+                        <td><TableCellStack title={formatDateTime(row.lastPunchOut)} subtitle={formatTime(row.lastPunchOut)} /></td>
+                        <td><TableBadge value={formatHours(row.totalWorkedHours)} tone="blue" /></td>
+                        <td><TableBadge value={formatHours(row.totalAssignedShiftHours)} tone="violet" /></td>
+                        <td>{row.isRegularized ? <TableBadge value="Yes" tone="success" /> : <TableBadge value="No" tone="neutral" />}</td>
+                        <td className="text-muted small attendance-reason-cell">{row.remarks || '—'}</td>
+                      </tr>
+                    )) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No attendance records are currently available for your account.</div></td></tr>}
+                  </tbody>
+                </table>
+              )}
+            </PaginatedTable>
+          </CardShell>
         </>
       ) : null}
 
       {activeTab === 'regularization' ? (
         <>
-          <CardShell title="Create Regularization">
+          <CardShell title="Apply Regularization">
             <div className="row g-3 align-items-end">
               <div className="col-12 col-md-4">
                 <label className="form-label">Selected Date</label>
@@ -494,13 +695,13 @@ export default function MarkAttendance() {
               </div>
               {canCreateRegularization ? (
                 <div className="col-12 d-flex justify-content-end">
-                  <button type="button" className="btn btn-primary px-4" onClick={() => setRegularizationOpen(true)}>Create Regularization</button>
+                  <button type="button" className="btn btn-primary px-4" onClick={() => setRegularizationOpen(true)}>Apply Regularization</button>
                 </div>
               ) : null}
             </div>
           </CardShell>
 
-          <CardShell title="My Regularization Requests">
+          <CardShell title="Regularization Requested">
             <PaginatedTable rows={sortedRegularizations}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-history align-middle mb-0">

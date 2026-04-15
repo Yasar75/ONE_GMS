@@ -40,7 +40,7 @@ fastapi dev src/
 Generate a new script that calculates the difference between your code and the database:
 
 ```bash
-alembic revision --autogenerate -m "create employee_family details table"
+alembic revision --autogenerate -m "add half days in attendance"
 
 ```
 

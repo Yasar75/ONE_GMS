@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
@@ -8,11 +8,14 @@ import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
+import AppSearchField from '../../../components/common/AppSearchField.jsx'
+import EmployeeAdditionalDetailsEditor from '../components/EmployeeAdditionalDetailsEditor.jsx'
 import { AttendanceTabs } from '../../attendance/components/AttendanceShared.jsx'
 import { useEmployeesQuery } from '../../../hooks/employees/useEmployeesQuery.js'
 import { useEmployeeLookupQuery } from '../../../hooks/employees/useEmployeeLookupQuery.js'
 import { useEmployeeDirectoryActions } from '../../../hooks/employees/useEmployeeDirectoryActions.js'
 import { useEmployeeMetadataQuery, useRoleDirectoryQuery, useRoleModulesQuery } from '../../../hooks/employees/useEmployeeMetadataQuery.js'
+import { useProjectAssignmentsQuery } from '../../../hooks/project/useProjectAssignmentsQuery.js'
 import { useSortableData } from '../../../hooks/common/useSortableData.js'
 import {
   EMPLOYEE_BLOOD_GROUP_OPTIONS,
@@ -59,7 +62,6 @@ import {
   LockOpenIcon,
   PencilIcon,
   PlusIcon,
-  SearchIcon,
   TrashIcon,
   UserPlusIcon,
   ViewIcon,
@@ -73,12 +75,16 @@ import { employeeService } from '../../../api/services/employee.service.js'
 import {
   PERMISSION_ACTIONS,
   PERMISSION_MODULES,
+  dedupePermissionModules,
   filterAccessibleTabs,
   hasAnyModulePermission,
   hasModulePermission,
   hasModuleVisibility,
-  resolveAccessibleTab
+  isAdminBypassUser,
+  resolveAccessibleTab,
+  toCanonicalPermissionModuleName
 } from '../../../utils/permissions.js'
+import { filterCollectionByQuery } from '../../../utils/search.js'
 
 const TAB_ITEMS = [
   { key: 'metadata', label: 'Metadata Entries', helper: 'Backend-driven master data' },
@@ -89,10 +95,15 @@ const TAB_ITEMS = [
 ]
 
 const EMPLOYEE_VIEW_TABS = [
-  { key: 'info', label: 'Info', helper: 'Identity and status snapshot' },
-  { key: 'basic', label: 'Basic Details', helper: 'Organization mapping details' },
-  { key: 'additional', label: 'Additional Details', helper: 'Personal profile and skills' },
-  { key: 'documents', label: 'Documents', helper: 'Uploaded files and download links' }
+  { key: 'basic', label: 'Basic Details', helper: 'Admin-managed identity and organization details' },
+  { key: 'additional', label: 'Additional Details', helper: 'Employee-managed profile details' }
+]
+
+const EMPLOYEE_PREVIEW_TABS = [
+  { key: 'basic-info', label: 'Basic Info', helper: 'Identity, contact, role, and status' },
+  { key: 'basic-details', label: 'Basic Details', helper: 'Organization and reporting details' },
+  { key: 'additional-details', label: 'Additional Details', helper: 'Personal profile and history' },
+  { key: 'documents-uploaded', label: 'Documents Uploaded', helper: 'Uploaded files and downloads' }
 ]
 
 const METADATA_SECTIONS = [
@@ -115,69 +126,58 @@ const ACCESS_LEVEL_OPTIONS = [
 
 const ROLE_ACCESS_EXPANDED_GROUPS_CACHE_KEY = 'one-gms:role-access-expanded-groups:v1'
 const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
-const ROLE_MODULE_ALIAS_MAP = {
-  'Holiday Calandar': 'Holiday Calender',
-  'Assign Shifts': 'Assign Shift',
-  'Attendance Punch Logs': 'Attendance Punch Log',
-  'Leave Requests': 'Leave Request',
-  'Assign Leaves': 'Assign Leave',
-  'Leave Type Entries': 'Leave Type',
-  'Leave Balance': 'Assign Leave',
-  'Employee Leave Balance': 'Assign Leave',
-  'Employees Leave Balance': 'Assign Leave',
-  'Metadata Entries': 'Employee Metadata',
-  'Employees Entries': 'Employee',
-  'Employee Request': 'Employee Requests',
-  'Employees Request': 'Employee Requests',
-  'Profile': 'Profile Picture',
-  'Profile Image': 'Profile Picture',
-  'Profile Photo': 'Profile Picture',
-  'Employees Skills': 'Employee Skills',
-  'Employees Documents': 'Employee Documents',
-  'Family Details': 'Employee Family Details',
-  'Employee Family Detail': 'Employee Family Details',
-  'Employees Family Details': 'Employee Family Details'
-}
-const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Employee', 'Attendance', 'Leave', 'Other']
+const BILLABLE_ASSIGNMENT_STATUSES = new Set(['assigned', 'active'])
+const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['released', 'hold', 'terminated', 'inactive', 'completed'])
+const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Profile Management', 'Employees Management', 'Attendance Management', 'Leave Management', 'Other']
 const ROLE_MODULE_VISUAL_CONFIG = [
   {
     title: 'Administrative',
     modules: [
-      { key: 'Roles', label: 'Roles' },
-      { key: 'Profile Picture', label: 'Profile' }
+      { key: 'Roles', label: 'Manage Roles' },
+      { key: 'Employee Metadata', label: 'Metadata Entries' }
+    ]
+  },
+    {
+      title: 'Profile Management',
+      modules: [
+        { key: 'Profile Update', label: 'Profile Update', hidden: true },
+        { key: 'My Skills', label: 'My Skills' },
+        { key: 'Employee Skills', label: 'Employee Skills' },
+        { key: 'My Documents', label: 'My Documents' },
+      { key: 'Employee Documents', label: 'Employee Documents' },
+      { key: 'My Family Details', label: 'My Family Details' },
+      { key: "Employee's Family Details", label: "Employee's Family Details" },
+      { key: 'My Work Experience', label: 'My Work Experience' },
+      { key: 'Employee Work Experience', label: 'Employee Work Experience' }
     ]
   },
   {
-    title: 'Employee',
+    title: 'Employees Management',
     modules: [
-      { key: 'Employee Metadata', label: 'Metadata Entries' },
-      { key: 'Employee', label: 'Employees Entries' },
-      // Reserved for future backend module support.
-      { key: 'Employee Mapping', label: 'Employee Mapping', hidden: true },
-      { key: 'Employee Requests', label: 'Employee Status' },
-      { key: 'Employee Skills', label: 'Employees Skills' },
-      { key: 'Employee Documents', label: 'Employees Documents' },
-      { key: 'Employee Family Details', label: 'Family Details' }
+      { key: 'Employees Management', label: 'Employee Entries' },
+      { key: 'User Status', label: 'Employee Status' }
     ]
   },
   {
-    title: 'Attendance',
+    title: 'Attendance Management',
     modules: [
+      { key: 'Attendance Overview', label: 'All Employees Attendance Logs' },
+      { key: 'My Attendance Preview', label: 'Mark Attendance' },
+      { key: 'Manage Regularization', label: 'Manage Regularization Requests' },
       { key: 'Shift Roster', label: 'Shift Roster' },
-      { key: 'Assign Shift', label: 'Assign Shifts' },
-      { key: 'Attendance', label: 'Attendance Entries' },
-      { key: 'Attendance Punch Log', label: 'Attendance Punch Logs' },
-      { key: 'Attendance Regularization', label: 'Attendance Regularization' },
-      { key: 'Attendance Regularization Logs', label: 'Attendance Regularization Logs' }
+      { key: 'Assign Shift', label: 'Assign Shift' },
+      { key: 'My Shift', label: 'My Shift' }
     ]
   },
   {
-    title: 'Leave',
+    title: 'Leave Management',
     modules: [
-      { key: 'Holiday Calender', label: 'Holiday Calandar' },
-      { key: 'Leave Type', label: 'Leave Type Entries' },
-      { key: 'Assign Leave', label: 'Assign Leave' },
-      { key: 'Leave Request', label: 'Leave Requests' }
+      { key: 'Holiday Calendar', label: 'Holiday Calendar' },
+      { key: 'Leave type', label: 'Create Leaves' },
+      { key: 'Assign Leave', label: 'Leave Allocations' },
+      { key: 'My Leave Balance', label: 'My Leave Balances' },
+      { key: 'Leave Request', label: 'Apply Leave Requests' },
+      { key: 'Manage Leave', label: 'Manage Leave Requests' }
     ]
   }
 ]
@@ -211,20 +211,8 @@ function isSystemAdminRoleName(roleName) {
   return String(roleName || '').trim().toLowerCase() === SYSTEM_ADMIN_ROLE_NAME.toLowerCase()
 }
 
-function sanitizeRoleModuleName(moduleName) {
-  const normalizedValue = String(moduleName || '')
-    .replace(/^\s*[\[({<]+/, '')
-    .replace(/[\])}>]+\s*$/, '')
-    .replace(/^['"`]+|['"`,;:]+$/g, '')
-    .trim()
-
-  return /[A-Za-z0-9]/.test(normalizedValue) ? normalizedValue : ''
-}
-
 function toCanonicalRoleModuleName(moduleName) {
-  const sanitizedModuleName = sanitizeRoleModuleName(moduleName)
-  if (!sanitizedModuleName) return ''
-  return ROLE_MODULE_ALIAS_MAP[sanitizedModuleName] || sanitizedModuleName
+  return toCanonicalPermissionModuleName(moduleName)
 }
 
 function getRoleModuleDisplayName(moduleName) {
@@ -285,9 +273,7 @@ function buildRoleAccessMeta(access = {}) {
 }
 
 function dedupeRoleModules(modules = []) {
-  return Array.from(new Set((Array.isArray(modules) ? modules : [])
-    .map(toCanonicalRoleModuleName)
-    .filter(Boolean)))
+  return dedupePermissionModules(modules)
 }
 
 function getRoleModuleGroupName(moduleName) {
@@ -297,10 +283,11 @@ function getRoleModuleGroupName(moduleName) {
   const configuredGroup = ROLE_MODULE_VISUAL_META.groupNameByKey[canonicalModuleName]
   if (configuredGroup) return configuredGroup
 
-  if (canonicalModuleName === 'Roles' || canonicalModuleName === 'Profile Picture') return 'Administrative'
-  if (canonicalModuleName.startsWith('Employee')) return 'Employee'
-  if (canonicalModuleName.startsWith('Attendance') || canonicalModuleName === 'Shift Roster' || canonicalModuleName === 'Assign Shift') return 'Attendance'
-  if (canonicalModuleName === 'Holiday Calender' || canonicalModuleName === 'Leave Request' || canonicalModuleName === 'Leave Type' || canonicalModuleName === 'Assign Leave') return 'Leave'
+  if (['Roles', 'Employee Metadata'].includes(canonicalModuleName)) return 'Administrative'
+  if (['Profile Update', 'My Skills', 'Employee Skills', 'My Documents', 'Employee Documents', "Employee's Family Details", 'My Family Details', 'Employee Work Experience', 'My Work Experience'].includes(canonicalModuleName)) return 'Profile Management'
+  if (['Employees Management', 'User Status'].includes(canonicalModuleName)) return 'Employees Management'
+  if (['Attendance Overview', 'My Attendance Preview', 'Manage Regularization', 'Shift Roster', 'Assign Shift', 'My Shift'].includes(canonicalModuleName)) return 'Attendance Management'
+  if (['Holiday Calendar', 'Assign Leave', 'My Leave Balance', 'Leave Request', 'Manage Leave', 'Leave type'].includes(canonicalModuleName)) return 'Leave Management'
   return 'Other'
 }
 
@@ -492,6 +479,31 @@ function formatTenure(joinDate) {
   return `${years} yr ${months} mo`
 }
 
+function calculateExperienceMonths(startDate, endDate = '', isCurrent = false) {
+  const start = startDate ? new Date(startDate) : null
+  const end = isCurrent || !endDate ? new Date() : new Date(endDate)
+  if (!start || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0
+
+  let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth())
+  if (end.getDate() >= start.getDate()) months += 1
+  return Math.max(months, 1)
+}
+
+function formatExperienceDuration(startDate, endDate = '', isCurrent = false) {
+  const totalMonths = calculateExperienceMonths(startDate, endDate, isCurrent)
+  if (!totalMonths) return '—'
+
+  const years = Math.floor(totalMonths / 12)
+  const months = totalMonths % 12
+  if (!years) return `${months} mo`
+  if (!months) return `${years} yr`
+  return `${years} yr ${months} mo`
+}
+
+function getEmployeeProfileQueryKey(employeeUid) {
+  return ['employees', 'profile', String(employeeUid || '')]
+}
+
 function createEmptyEmployeeDraft() {
   const defaultPhoneCountry = getDefaultPhoneCountryOption()
   return {
@@ -571,6 +583,35 @@ function buildSelectOptions(values = [], placeholderLabel = 'All', placeholderVa
       return { value: entry, label: entry, description: `${entry} records` }
     })
   ]
+}
+
+function normalizeAssignmentStatus(status) {
+  return String(status || '').trim().toLowerCase()
+}
+
+function formatAssignmentStatus(status) {
+  const normalized = normalizeAssignmentStatus(status)
+  if (!normalized) return ''
+  return normalized
+    .split(/\s+/)
+    .map((part) => (part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : ''))
+    .join(' ')
+}
+
+function resolveBillingStatus(assignmentStatuses = []) {
+  const normalizedStatuses = Array.from(new Set((Array.isArray(assignmentStatuses) ? assignmentStatuses : [])
+    .map(normalizeAssignmentStatus)
+    .filter(Boolean)))
+
+  if (normalizedStatuses.some((status) => BILLABLE_ASSIGNMENT_STATUSES.has(status))) {
+    return 'Billable'
+  }
+
+  if (normalizedStatuses.length && normalizedStatuses.every((status) => NON_BILLABLE_ASSIGNMENT_STATUSES.has(status))) {
+    return 'Non Billable'
+  }
+
+  return 'Non Billable'
 }
 
 function mergeOptionValues(seedOptions = [], records = []) {
@@ -840,17 +881,21 @@ function CellStack({ title, subtitle, meta = null, className = '' }) {
 }
 
 function ActionButton({ icon, label, variant = 'view', onClick, disabled = false }) {
+  const safeLabel = String(label || '')
+  const labelChars = Math.min(Math.max(safeLabel.length, 4), 26)
+
   return (
     <button
       type="button"
       className={`employee-action-btn employee-action-btn-${variant}`}
       onClick={onClick}
-      aria-label={label}
-      title={label}
+      aria-label={safeLabel}
+      title={safeLabel}
       disabled={disabled}
+      style={{ '--action-label-chars': labelChars }}
     >
-      {icon}
-      <span>{label}</span>
+      {icon ? <span className="employee-action-btn__icon" aria-hidden="true">{icon}</span> : null}
+      <span className="employee-action-btn__label">{safeLabel}</span>
     </button>
   )
 }
@@ -1037,6 +1082,147 @@ function EmployeeFormFields({
   )
 }
 
+function EmployeeAdditionalDetailsPanel({ employee, profile }) {
+  const skills = profile?.skills || []
+  const workExperiences = profile?.workExperiences || []
+  const familyDetails = profile?.familyDetails || []
+
+  return (
+    <div className="d-flex flex-column gap-3">
+      <div className="row g-2">
+        <div className="col-12 col-md-6"><strong>Gender:</strong> {employee?.gender || '—'}</div>
+        <div className="col-12 col-md-6"><strong>Date of Birth:</strong> {formatDate(employee?.dateOfBirth)}</div>
+        <div className="col-12 col-md-6"><strong>Age:</strong> {formatEmployeeAge(employee?.dateOfBirth)}</div>
+        <div className="col-12 col-md-6"><strong>Blood Group:</strong> {employee?.bloodGroup || '—'}</div>
+        <div className="col-12 col-md-6"><strong>Emergency Contact:</strong> {employee?.emergencyContact || '—'}</div>
+        <div className="col-12"><strong>Address:</strong> {employee?.address || '—'}</div>
+      </div>
+
+      <div className="profile-form-divider" />
+
+      <div>
+        <div className="fw-semibold mb-2">Skills</div>
+        <div className="text-muted small">
+          {skills.length ? skills.map((entry) => entry.skill).join(', ') : 'No skills added yet.'}
+        </div>
+      </div>
+
+      <div className="profile-form-divider" />
+
+      <div className="d-flex flex-column gap-2">
+        <div className="fw-semibold">Work Experience</div>
+        {workExperiences.length ? workExperiences.map((experience) => (
+          <div key={experience.uid} className="profile-doc-item">
+            <span className="profile-doc-item-title">{experience.companyName || 'Company'}</span>
+            <span className="text-muted small">
+              {[experience.jobTitle || '', experience.employmentType || '', experience.location || ''].filter(Boolean).join(' • ') || 'Work experience entry'}
+            </span>
+            <span className="text-muted small">
+              {[
+                `${formatDate(experience.startDate)} - ${experience.isCurrent ? 'Present' : formatDate(experience.endDate)}`,
+                formatExperienceDuration(experience.startDate, experience.endDate, experience.isCurrent)
+              ].filter(Boolean).join(' • ')}
+            </span>
+            {(experience.responsibilities || experience.reasonForLeaving || experience.remarks) ? (
+              <span className="text-muted small">
+                {[experience.responsibilities || '', experience.reasonForLeaving || '', experience.remarks || ''].filter(Boolean).join(' • ')}
+              </span>
+            ) : null}
+          </div>
+        )) : <div className="text-muted small">No work experience added yet.</div>}
+      </div>
+
+      <div className="profile-form-divider" />
+
+      <div className="d-flex flex-column gap-2">
+        <div className="fw-semibold">Family Details</div>
+        {familyDetails.length ? familyDetails.map((detail) => (
+          <div key={detail.uid} className="profile-doc-item">
+            <span className="profile-doc-item-title">{[detail.relation, detail.fullName].filter(Boolean).join(': ') || 'Family detail'}</span>
+            <span className="text-muted small">
+              {[detail.phone || '', detail.occupation || '', detail.isDependent ? 'Dependent' : '', detail.dateOfBirth ? formatDate(detail.dateOfBirth) : ''].filter(Boolean).join(' • ') || 'No extra details'}
+            </span>
+            {(detail.address || detail.remarks) ? (
+              <span className="text-muted small">{[detail.address || '', detail.remarks || ''].filter(Boolean).join(' • ')}</span>
+            ) : null}
+          </div>
+        )) : <div className="text-muted small">No family details added yet.</div>}
+      </div>
+    </div>
+  )
+}
+
+function EmployeePreviewBasicInfoPanel({ employee, profile }) {
+  return (
+    <div className="row g-3 align-items-start">
+      <div className="col-12 col-md-4">
+        <div className="profile-photo-preview">
+          {profile?.profileImageUrl
+            ? <img src={profile.profileImageUrl} alt={employee?.fullName || 'Employee'} />
+            : <span>{String(employee?.fullName || 'E').charAt(0).toUpperCase()}</span>}
+        </div>
+      </div>
+      <div className="col-12 col-md-8">
+        <div className="row g-2">
+          <div className="col-12 col-md-6"><strong>Employee Code:</strong> {employee?.employeeCode || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Name:</strong> {employee?.fullName || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Email:</strong> {employee?.email || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Mobile:</strong> {employee?.phone || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Role:</strong> {employee?.roleName || '—'}</div>
+          <div className="col-12 col-md-6"><strong>Status:</strong> <EmployeeBadge value={employee?.status || '—'} type="status" /></div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmployeePreviewBasicDetailsPanel({ employee }) {
+  return (
+    <div className="row g-2">
+      <div className="col-12 col-md-6"><strong>Department:</strong> {employee?.department || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Position:</strong> {employee?.position || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Date of Joining:</strong> {formatDate(employee?.joinDate)}</div>
+      <div className="col-12 col-md-6"><strong>Work Location:</strong> {employee?.workLocation || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Employee Type:</strong> {employee?.employeeType || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Billing Status:</strong> <EmployeeBadge value={employee?.billingStatus || 'Non Billable'} type="billingStatus" /></div>
+      <div className="col-12"><strong>Assignment Statuses:</strong> {employee?.assignmentStatusSummary || 'No assignment'}</div>
+      <div className="col-12 col-md-6"><strong>Manager:</strong> {employee?.managerName || '—'}</div>
+      <div className="col-12 col-md-6"><strong>HR:</strong> {employee?.hrEmployeeName || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Lead:</strong> {employee?.teamLeadName || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Coordinator:</strong> {employee?.coordinatorName || '—'}</div>
+    </div>
+  )
+}
+
+function EmployeePreviewDocumentsPanel({ documents = [] }) {
+  return (
+    <div className="d-flex flex-column gap-2">
+      {documents.length ? documents.map((document) => (
+        <div key={document.uid} className="profile-doc-item profile-doc-item-modern">
+          <div className="d-flex flex-wrap align-items-start justify-content-between gap-2">
+            <div className="d-flex flex-column gap-1">
+              <span className="profile-doc-item-title">{document.name || 'Document'}</span>
+              <span className="text-muted small">
+                {document.documentType || 'OTHER'} • {document.uploadDateLabel || '—'}
+              </span>
+            </div>
+            <a
+              href={document.fileUrl || '#'}
+              target="_blank"
+              rel="noreferrer"
+              download={document.name || 'employee-document'}
+              className="btn btn-sm btn-outline-secondary btn-icon-inline"
+            >
+              <DownloadIcon />
+              <span>Download</span>
+            </a>
+          </div>
+        </div>
+      )) : <div className="text-muted small">No documents uploaded for this employee.</div>}
+    </div>
+  )
+}
+
 function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, roleCard = false, roleModules = [] }) {
   const { items: sortedEntries, sortConfig: metadataSortConfig, requestSort: requestMetadataSort } = useSortableData(entries, {
     initialKey: 'label',
@@ -1175,7 +1361,7 @@ function MetadataEntryModal({ open, title, draft, errors = {}, touched = {}, onC
   )
 }
 
-function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit, moduleGroups, modulesLoading = false, allModules = [], isSaving = false, isSystemAdminRole = false }) {
+function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit, moduleGroups, modulesLoading = false, allModules = [], isSaving = false, isSystemAdminRole = false, backendModulesUnavailable = false }) {
   const [expandedGroups, setExpandedGroups] = useState(() => resolveExpandedGroupKeys(moduleGroups, readCachedExpandedGroupKeys()))
   const contentRef = useRef(null)
   const shouldNormalizeScrollRef = useRef(false)
@@ -1282,7 +1468,7 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
       footer={(
         <>
           <button type="button" className="btn btn-light" onClick={onClose} disabled={isSaving}>Cancel</button>
-          {!isSystemAdminRole ? <button type="button" className="btn btn-primary" onClick={onSubmit} disabled={isSaving}>{isSaving ? 'Saving…' : 'Save'}</button> : null}
+          {!isSystemAdminRole ? <button type="button" className="btn btn-primary" onClick={onSubmit} disabled={isSaving || backendModulesUnavailable}>{isSaving ? 'Saving…' : 'Save'}</button> : null}
         </>
       )}
     >
@@ -1302,6 +1488,11 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
             <div className="text-muted small">Expand a main module, select the required access on its sub-modules or tabs, and the frontend will save only the short codes <strong>C</strong>, <strong>R</strong>, <strong>U</strong>, and <strong>D</strong> to the backend.</div>
             {isSystemAdminRole ? (
               <div className="role-access-state-banner">This system role is backend-managed. Full access is shown for reference, and editing is locked here.</div>
+            ) : null}
+            {backendModulesUnavailable ? (
+              <div className="role-access-state-banner">
+                Backend role modules are currently unavailable. Role access cannot be saved until the running backend returns a valid module list.
+              </div>
             ) : null}
           </div>
         </div>
@@ -1436,20 +1627,22 @@ export default function EmployeesManagement() {
   const exportMenuId = 'employeesExportMenu'
   const { showStatus, showConfirm, runWithLoader } = useModal()
   const { user } = useAuth()
+  const isAdminUser = isAdminBypassUser(user)
   const canViewMetadata = hasModuleVisibility(user, [...PERMISSION_MODULES.roles, ...PERMISSION_MODULES.employeeMetadata])
   const canViewEntries = hasModuleVisibility(user, PERMISSION_MODULES.employeeDirectory)
-  const canViewRequests = hasModuleVisibility(user, PERMISSION_MODULES.employeeRequests)
+  const canViewRequests = hasModuleVisibility(user, PERMISSION_MODULES.employeeStatus)
   const canCreateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.create)
   const canUpdateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
   const canDeleteEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.delete)
-  const canManageEmployeeRequests = hasModulePermission(user, PERMISSION_MODULES.employeeRequests, PERMISSION_ACTIONS.update)
-  const canReadRoles = hasModuleVisibility(user, PERMISSION_MODULES.roles)
-  const canReadEmployeeMetadata = hasModuleVisibility(user, PERMISSION_MODULES.employeeMetadata)
+  const canManageEmployeeRequests = hasModulePermission(user, PERMISSION_MODULES.employeeStatus, PERMISSION_ACTIONS.create)
+  const canReadRoles = hasModulePermission(user, PERMISSION_MODULES.roles, PERMISSION_ACTIONS.read)
+  const canReadEmployeeMetadata = hasModulePermission(user, PERMISSION_MODULES.employeeMetadata, PERMISSION_ACTIONS.read)
   const defaultTab = canViewEntries ? 'entries' : (canViewMetadata ? 'metadata' : 'requests')
   const { data: employeesData = [], isLoading, isError, error, refetch, isFetching } = useEmployeesQuery(canViewEntries)
   const { data: employeeLookup = [] } = useEmployeeLookupQuery(canViewEntries || canViewRequests)
   const { data: metadataEntries = [] } = useEmployeeMetadataQuery(canViewMetadata || canViewEntries)
   const { data: roles = [] } = useRoleDirectoryQuery(canViewMetadata || canViewEntries)
+  const projectAssignmentsQuery = useProjectAssignmentsQuery(canViewEntries)
   const { data: roleModules = [], isFetching: roleModulesFetching } = useRoleModulesQuery(canViewMetadata)
   const { addEmployee, bulkAddEmployees, updateEmployee, deleteEmployee } = useEmployeeDirectoryActions()
   const {
@@ -1463,7 +1656,7 @@ export default function EmployeesManagement() {
     enabled: canViewRequests,
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: 'always'
   })
 
   const requestedTab = searchParams.get('tab')
@@ -1475,6 +1668,13 @@ export default function EmployeesManagement() {
   const [positionFilter, setPositionFilter] = useState('All')
   const [roleFilter, setRoleFilter] = useState('All')
   const [employeeTypeFilter, setEmployeeTypeFilter] = useState('All')
+  const [genderFilter, setGenderFilter] = useState('All')
+  const [bloodGroupFilter, setBloodGroupFilter] = useState('All')
+  const [billingStatusFilter, setBillingStatusFilter] = useState('All')
+  const [managerFilter, setManagerFilter] = useState('All')
+  const [hrFilter, setHrFilter] = useState('All')
+  const [teamLeadFilter, setTeamLeadFilter] = useState('All')
+  const [coordinatorFilter, setCoordinatorFilter] = useState('All')
   const [joinDateRange, setJoinDateRange] = useState({ start: '', end: '' })
   const [mappingSearch, setMappingSearch] = useState('')
 
@@ -1485,10 +1685,13 @@ export default function EmployeesManagement() {
   const [selectedEmployee, setSelectedEmployee] = useState(null)
   const [employeeDraft, setEmployeeDraft] = useState(() => createEmptyEmployeeDraft())
   const [employeeFormTouched, setEmployeeFormTouched] = useState({})
+  const [employeeFormTab, setEmployeeFormTab] = useState('basic')
+  const [employeeFormProfile, setEmployeeFormProfile] = useState(null)
+  const [employeeFormProfileLoading, setEmployeeFormProfileLoading] = useState(false)
   const [previewEmployee, setPreviewEmployee] = useState(null)
   const [previewEmployeeProfile, setPreviewEmployeeProfile] = useState(null)
   const [previewEmployeeProfileLoading, setPreviewEmployeeProfileLoading] = useState(false)
-  const [previewEmployeeTab, setPreviewEmployeeTab] = useState('info')
+  const [previewEmployeeTab, setPreviewEmployeeTab] = useState('basic-info')
 
   const [metadataModal, setMetadataModal] = useState(null)
   const [metadataDraft, setMetadataDraft] = useState({ category: '', value: '', label: '', description: '', isActive: true, sortOrder: 0 })
@@ -1501,11 +1704,14 @@ export default function EmployeesManagement() {
   const [mappingEmployee, setMappingEmployee] = useState(null)
   const [mappingDraft, setMappingDraft] = useState(createMappingDraft(null))
 
-  const canManageMetadataSection = (category, action) => (
-    category === 'roles'
-      ? hasModulePermission(user, PERMISSION_MODULES.roles, action)
-      : hasModulePermission(user, PERMISSION_MODULES.employeeMetadata, action)
-  )
+  const canManageMetadataSection = (category, action) => {
+    if (category === 'roles') {
+      if (action === PERMISSION_ACTIONS.read) return canReadRoles
+      return isAdminUser && hasModulePermission(user, PERMISSION_MODULES.roles, action)
+    }
+
+    return hasModulePermission(user, PERMISSION_MODULES.employeeMetadata, action)
+  }
 
   const metadataByCategory = useMemo(() => {
     return metadataEntries.reduce((accumulator, entry) => {
@@ -1516,6 +1722,7 @@ export default function EmployeesManagement() {
     }, {})
   }, [metadataEntries])
 
+  const backendRoleModulesUnavailable = canViewMetadata && !roleModulesFetching && Array.isArray(roleModules) && roleModules.length === 0
   const rolePermissionModules = useMemo(() => dedupeRoleModules([
     ...roleModules,
     ...roles.flatMap((role) => Object.keys(normalizeRoleAccess(role.access)))
@@ -1543,9 +1750,38 @@ export default function EmployeesManagement() {
   const employeeFormErrors = useMemo(() => buildEmployeeFormErrors(employeeDraft, employeeFormMode), [employeeDraft, employeeFormMode])
   const metadataErrors = useMemo(() => buildMetadataFormErrors(metadataDraft), [metadataDraft])
   const roleErrors = useMemo(() => buildRoleFormErrors(roleDraft), [roleDraft])
+  const getCachedEmployeeProfile = useCallback((employeeUid) => {
+    if (!employeeUid) return null
+    return queryClient.getQueryData(getEmployeeProfileQueryKey(employeeUid)) || null
+  }, [queryClient])
+  const fetchEmployeeProfile = useCallback((employeeUid) => {
+    if (!employeeUid) return Promise.resolve(null)
+    return queryClient.fetchQuery({
+      queryKey: getEmployeeProfileQueryKey(employeeUid),
+      queryFn: () => employeeService.getEmployeeProfile(employeeUid),
+      staleTime: 30 * 1000,
+      gcTime: 10 * 60 * 1000
+    })
+  }, [queryClient])
 
   const roleDirectory = useMemo(() => new Map(roles.map((role) => [String(role.uid), role.roleName])), [roles])
   const employeeNameDirectory = useMemo(() => new Map(employeeLookup.map((employee) => [String(employee.uid), employee.fullName])), [employeeLookup])
+  const projectAssignments = useMemo(() => (Array.isArray(projectAssignmentsQuery.data?.items) ? projectAssignmentsQuery.data.items : []), [projectAssignmentsQuery.data?.items])
+  const assignmentStatusesByEmployeeUid = useMemo(() => {
+    const lookup = new Map()
+
+    projectAssignments.forEach((assignment) => {
+      const employeeUid = String(assignment?.employeeUid || '').trim()
+      const normalizedStatus = normalizeAssignmentStatus(assignment?.status)
+      if (!employeeUid || !normalizedStatus) return
+
+      const bucket = lookup.get(employeeUid) || new Set()
+      bucket.add(normalizedStatus)
+      lookup.set(employeeUid, bucket)
+    })
+
+    return new Map(Array.from(lookup.entries()).map(([employeeUid, statusSet]) => [employeeUid, Array.from(statusSet)]))
+  }, [projectAssignments])
 
   const employees = useMemo(() => employeesData.map((employee) => ({
     ...employee,
@@ -1553,8 +1789,11 @@ export default function EmployeesManagement() {
     managerName: employeeNameDirectory.get(String(employee.managerEmployeeUid || '')) || '',
     hrEmployeeName: employeeNameDirectory.get(String(employee.hrEmployeeUid || '')) || '',
     teamLeadName: employeeNameDirectory.get(String(employee.teamLeadEmployeeUid || '')) || '',
-    coordinatorName: employeeNameDirectory.get(String(employee.coordinatorEmployeeUid || '')) || ''
-  })), [employeesData, roleDirectory, employeeNameDirectory])
+    coordinatorName: employeeNameDirectory.get(String(employee.coordinatorEmployeeUid || '')) || '',
+    assignmentStatuses: assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || [],
+    assignmentStatusSummary: (assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || []).map(formatAssignmentStatus).join(', ') || 'No assignment',
+    billingStatus: resolveBillingStatus(assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || [])
+  })), [assignmentStatusesByEmployeeUid, employeesData, roleDirectory, employeeNameDirectory])
   const employeeDirectoryByUid = useMemo(() => new Map(employees.map((employee) => [String(employee.uid), employee])), [employees])
 
   const positionValues = useMemo(() => mergeOptionValues(
@@ -1599,6 +1838,16 @@ export default function EmployeesManagement() {
   const statusFilterOptions = useMemo(() => buildSelectOptions(statusValues), [statusValues])
   const workLocationFilterOptions = useMemo(() => buildSelectOptions(workLocationValues), [workLocationValues])
   const employeeTypeFilterOptions = useMemo(() => buildSelectOptions(employeeTypeValues), [employeeTypeValues])
+  const genderFilterOptions = useMemo(() => buildSelectOptions(genderValues), [genderValues])
+  const bloodGroupFilterOptions = useMemo(() => buildSelectOptions(bloodGroupValues), [bloodGroupValues])
+  const billingStatusFilterOptions = useMemo(() => buildSelectOptions([
+    { value: 'Billable', label: 'Billable', description: 'Project assignment status is assigned or active.' },
+    { value: 'Non Billable', label: 'Non Billable', description: 'Project assignment status is released, hold, terminated, inactive, or completed.' }
+  ], 'All billing'), [])
+  const managerFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.managerName)), 'All managers'), [employees])
+  const hrFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.hrEmployeeName)), 'All HRs'), [employees])
+  const teamLeadFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.teamLeadName)), 'All team leads'), [employees])
+  const coordinatorFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.coordinatorName)), 'All coordinators'), [employees])
 
   const positionFormOptions = useMemo(() => positionValues.map((value) => ({ value, label: value })), [positionValues])
   const departmentFormOptions = useMemo(() => departmentValues.map((value) => ({ value, label: value })), [departmentValues])
@@ -1612,18 +1861,39 @@ export default function EmployeesManagement() {
     label: option.dialCode,
     description: `${option.label} - ${formatPhoneLengthRule(option.dialCode)}`
   })), [])
+  const employeeFormTabs = useMemo(
+    () => employeeFormMode === 'edit'
+      ? EMPLOYEE_VIEW_TABS
+      : EMPLOYEE_VIEW_TABS.filter((tab) => tab.key === 'basic'),
+    [employeeFormMode]
+  )
+  const deferredSearch = useDeferredValue(search)
+  const deferredMappingSearch = useDeferredValue(mappingSearch)
 
-  const filteredEmployees = useMemo(() => employees.filter((employee) => {
-    const matchesSearch = !search || [
-      employee.employeeCode,
-      employee.fullName,
-      employee.roleName,
-      employee.position,
-      employee.department,
-      employee.email,
-      employee.phone,
-      employee.emergencyContact
-    ].join(' ').toLowerCase().includes(search.toLowerCase())
+  const filteredEmployees = useMemo(() => filterCollectionByQuery(employees, deferredSearch, [
+    'employeeCode',
+    'fullName',
+    'roleName',
+    'position',
+    'department',
+    'email',
+    'phone',
+    'status',
+    'dateOfBirth',
+    'gender',
+    'bloodGroup',
+    'address',
+    'emergencyContact',
+    'workLocation',
+    'employeeType',
+    'managerName',
+    'hrEmployeeName',
+    'teamLeadName',
+    'coordinatorName',
+    'assignmentStatusSummary',
+    'billingStatus'
+  ]).filter((employee) => {
+    const matchesSearch = true
 
     const matchesStatus = statusFilter === 'All' || employee.status === statusFilter
     const matchesWorkLocation = workLocationFilter === 'All' || employee.workLocation === workLocationFilter
@@ -1631,10 +1901,48 @@ export default function EmployeesManagement() {
     const matchesPosition = positionFilter === 'All' || employee.position === positionFilter
     const matchesRole = roleFilter === 'All' || String(employee.roleType || '') === String(roleFilter)
     const matchesEmployeeType = employeeTypeFilter === 'All' || employee.employeeType === employeeTypeFilter
+    const matchesGender = genderFilter === 'All' || employee.gender === genderFilter
+    const matchesBloodGroup = bloodGroupFilter === 'All' || employee.bloodGroup === bloodGroupFilter
+    const matchesBillingStatus = billingStatusFilter === 'All' || employee.billingStatus === billingStatusFilter
+    const matchesManager = managerFilter === 'All' || employee.managerName === managerFilter
+    const matchesHr = hrFilter === 'All' || employee.hrEmployeeName === hrFilter
+    const matchesTeamLead = teamLeadFilter === 'All' || employee.teamLeadName === teamLeadFilter
+    const matchesCoordinator = coordinatorFilter === 'All' || employee.coordinatorName === coordinatorFilter
     const matchesJoinDate = isJoinDateInRange(employee.joinDate, joinDateRange)
 
-    return matchesSearch && matchesStatus && matchesWorkLocation && matchesDepartment && matchesPosition && matchesRole && matchesEmployeeType && matchesJoinDate
-  }), [employees, search, statusFilter, workLocationFilter, departmentFilter, positionFilter, roleFilter, employeeTypeFilter, joinDateRange])
+    return matchesSearch
+      && matchesStatus
+      && matchesWorkLocation
+      && matchesDepartment
+      && matchesPosition
+      && matchesRole
+      && matchesEmployeeType
+      && matchesGender
+      && matchesBloodGroup
+      && matchesBillingStatus
+      && matchesManager
+      && matchesHr
+      && matchesTeamLead
+      && matchesCoordinator
+      && matchesJoinDate
+  }), [
+    billingStatusFilter,
+    bloodGroupFilter,
+    coordinatorFilter,
+    deferredSearch,
+    departmentFilter,
+    employeeTypeFilter,
+    employees,
+    genderFilter,
+    hrFilter,
+    joinDateRange,
+    managerFilter,
+    positionFilter,
+    roleFilter,
+    statusFilter,
+    teamLeadFilter,
+    workLocationFilter
+  ])
 
   const { items: sortedEmployees, sortConfig: employeeSortConfig, requestSort: requestEmployeeSort } = useSortableData(filteredEmployees, {
     initialKey: 'employee',
@@ -1645,7 +1953,8 @@ export default function EmployeesManagement() {
       contact: (employee) => `${employee.email || ''} ${employee.phone || ''}`.trim(),
       positionDepartment: (employee) => `${employee.position || ''} ${employee.department || ''}`.trim(),
       statusJoinDate: (employee) => `${employee.status || ''} ${employee.joinDate || ''}`.trim(),
-      locationType: (employee) => `${employee.workLocation || ''} ${employee.employeeType || ''}`.trim()
+      locationType: (employee) => `${employee.workLocation || ''} ${employee.employeeType || ''}`.trim(),
+      billingStatus: (employee) => `${employee.billingStatus || ''} ${employee.assignmentStatusSummary || ''}`.trim()
     }
   })
   const { items: sortedProfileRequests, sortConfig: profileRequestSortConfig, requestSort: requestProfileRequestSort } = useSortableData(profileRequests, {
@@ -1662,18 +1971,15 @@ export default function EmployeesManagement() {
     }
   })
 
-  const mappingRows = useMemo(() => employees.filter((employee) => {
-    const haystack = [
-      employee.employeeCode,
-      employee.fullName,
-      employee.roleName,
-      employee.managerName,
-      employee.hrEmployeeName,
-      employee.teamLeadName,
-      employee.coordinatorName
-    ].join(' ').toLowerCase()
-    return !mappingSearch || haystack.includes(mappingSearch.toLowerCase())
-  }), [employees, mappingSearch])
+  const mappingRows = useMemo(() => filterCollectionByQuery(employees, deferredMappingSearch, [
+    'employeeCode',
+    'fullName',
+    'roleName',
+    'managerName',
+    'hrEmployeeName',
+    'teamLeadName',
+    'coordinatorName'
+  ]), [deferredMappingSearch, employees])
 
   const metrics = useMemo(() => {
     const active = employees.filter((employee) => employee.status === 'Active').length
@@ -1717,19 +2023,27 @@ export default function EmployeesManagement() {
     async function loadPreviewProfile() {
       if (!previewEmployee?.uid) {
         setPreviewEmployeeProfile(null)
-        setPreviewEmployeeTab('info')
+        setPreviewEmployeeProfileLoading(false)
+        setPreviewEmployeeTab('basic-info')
         return
       }
 
-      setPreviewEmployeeTab('info')
+      const cachedProfile = getCachedEmployeeProfile(previewEmployee.uid)
+      if (cachedProfile) {
+        setPreviewEmployeeProfile(cachedProfile)
+      } else {
+        setPreviewEmployeeProfile(null)
+      }
+
+      setPreviewEmployeeTab('basic-info')
       setPreviewEmployeeProfileLoading(true)
       try {
-        const profile = await employeeService.getEmployeeProfile(previewEmployee.uid)
+        const profile = await fetchEmployeeProfile(previewEmployee.uid)
         if (!isMounted) return
         setPreviewEmployeeProfile(profile)
       } catch (error) {
         if (!isMounted) return
-        setPreviewEmployeeProfile(null)
+        if (!cachedProfile) setPreviewEmployeeProfile(null)
         showStatus({
           type: 'error',
           title: 'Employee profile load failed',
@@ -1742,7 +2056,48 @@ export default function EmployeesManagement() {
 
     loadPreviewProfile()
     return () => { isMounted = false }
-  }, [previewEmployee, showStatus])
+  }, [fetchEmployeeProfile, getCachedEmployeeProfile, previewEmployee, showStatus])
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadEmployeeFormProfile() {
+      if (!isEmployeeFormOpen || employeeFormMode !== 'edit' || !selectedEmployee?.uid) {
+        setEmployeeFormProfile(null)
+        setEmployeeFormProfileLoading(false)
+        setEmployeeFormTab('basic')
+        return
+      }
+
+      const cachedProfile = getCachedEmployeeProfile(selectedEmployee.uid)
+      if (cachedProfile) {
+        setEmployeeFormProfile(cachedProfile)
+      } else {
+        setEmployeeFormProfile(null)
+      }
+
+      setEmployeeFormTab('basic')
+      setEmployeeFormProfileLoading(true)
+      try {
+        const profile = await fetchEmployeeProfile(selectedEmployee.uid)
+        if (!isMounted) return
+        setEmployeeFormProfile(profile)
+      } catch (error) {
+        if (!isMounted) return
+        if (!cachedProfile) setEmployeeFormProfile(null)
+        showStatus({
+          type: 'error',
+          title: 'Employee details load failed',
+          message: error?.response?.data?.detail || error?.message || 'Could not load employee additional details.'
+        })
+      } finally {
+        if (isMounted) setEmployeeFormProfileLoading(false)
+      }
+    }
+
+    loadEmployeeFormProfile()
+    return () => { isMounted = false }
+  }, [employeeFormMode, fetchEmployeeProfile, getCachedEmployeeProfile, isEmployeeFormOpen, selectedEmployee, showStatus])
 
   function resetDirectoryFilters() {
     setSearch('')
@@ -1752,6 +2107,13 @@ export default function EmployeesManagement() {
     setPositionFilter('All')
     setRoleFilter('All')
     setEmployeeTypeFilter('All')
+    setGenderFilter('All')
+    setBloodGroupFilter('All')
+    setBillingStatusFilter('All')
+    setManagerFilter('All')
+    setHrFilter('All')
+    setTeamLeadFilter('All')
+    setCoordinatorFilter('All')
     setJoinDateRange({ start: '', end: '' })
   }
 
@@ -1764,6 +2126,8 @@ export default function EmployeesManagement() {
     setSelectedEmployee(null)
     setEmployeeDraft(createEmptyEmployeeDraft())
     setEmployeeFormTouched({})
+    setEmployeeFormTab('basic')
+    setEmployeeFormProfile(null)
     setIsEmployeeFormOpen(true)
   }
 
@@ -1772,10 +2136,17 @@ export default function EmployeesManagement() {
       showStatus({ type: 'error', title: 'Employee access blocked', message: 'Your role does not have permission to update employee records.' })
       return
     }
+
+    const cachedProfile = (previewEmployee?.uid && String(previewEmployee.uid) === String(employee?.uid))
+      ? (previewEmployeeProfile || getCachedEmployeeProfile(employee?.uid))
+      : getCachedEmployeeProfile(employee?.uid)
+
     setEmployeeFormMode('edit')
     setSelectedEmployee(employee)
     setEmployeeDraft(buildEmployeeDraft(employee))
     setEmployeeFormTouched({})
+    setEmployeeFormTab('basic')
+    setEmployeeFormProfile(cachedProfile || null)
     setIsEmployeeFormOpen(true)
   }
 
@@ -1865,9 +2236,13 @@ export default function EmployeesManagement() {
           : `${payload.fullName} was updated successfully.`
       })
 
+      await queryClient.invalidateQueries({ queryKey: ['employees', 'profile'], exact: false })
+
       setIsEmployeeFormOpen(false)
       setEmployeeDraft(createEmptyEmployeeDraft())
       setEmployeeFormTouched({})
+      setEmployeeFormTab('basic')
+      setEmployeeFormProfile(null)
       setSelectedEmployee(null)
     } catch (actionError) {
       showStatus({ type: 'error', title: 'Employee save failed', message: actionError?.response?.data?.detail || actionError?.message || 'The employee request could not be completed.' })
@@ -2011,6 +2386,15 @@ export default function EmployeesManagement() {
         return
       }
 
+      if (backendRoleModulesUnavailable) {
+        showStatus({
+          type: 'error',
+          title: 'Backend modules unavailable',
+          message: 'The running backend returned no valid role modules, so the role matrix cannot be saved right now.'
+        })
+        return
+      }
+
       setRoleTouched((current) => ({ ...current, ...markFieldsTouched(['roleName']) }))
 
       if (hasValidationErrors(roleErrors, ['roleName'])) {
@@ -2032,16 +2416,23 @@ export default function EmployeesManagement() {
 
       setIsRoleSaving(true)
       try {
-        if (metadataModal.mode === 'create') {
-          await metadataService.createRole(sanitizedRolePayload)
-        } else {
-          await metadataService.updateRole(targetRoleUid, sanitizedRolePayload)
-        }
+        await runWithLoader(async () => {
+          if (metadataModal.mode === 'create') {
+            await metadataService.createRole(sanitizedRolePayload)
+          } else {
+            await metadataService.updateRole(targetRoleUid, sanitizedRolePayload)
+          }
 
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['employees', 'roles'] }),
-          queryClient.invalidateQueries({ queryKey: ['employees', 'role-modules'] })
-        ])
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['employees', 'roles'] }),
+            queryClient.invalidateQueries({ queryKey: ['employees', 'role-modules', 'v2'] })
+          ])
+        }, {
+          title: metadataModal.mode === 'create' ? 'Creating role' : 'Updating role',
+          message: 'Saving the role matrix and syncing permission modules.',
+          minVisibleMs: 700,
+          delayMs: 0
+        })
 
         showStatus({ type: 'success', title: metadataModal.mode === 'create' ? 'Role created' : 'Role updated', message: `${sanitizedRolePayload.roleName} is now available for employee mapping.` })
         setMetadataModal(null)
@@ -2255,7 +2646,7 @@ export default function EmployeesManagement() {
   if (isLoading) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
+        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
         <div className="card border-0 shadow-sm glass employee-directory-shell"><div className="card-body py-5 text-center"><div className="global-loader-spinner mb-3"><span /><span /></div><div className="fw-semibold mb-1">Loading employee management</div>
       {/* Mapping tab is under development and will be available in a future release. */}
       {/* <div className="text-muted small">Pulling directory, metadata, and mapping catalogs from the backend.</div></div></div> */}
@@ -2267,7 +2658,7 @@ export default function EmployeesManagement() {
   if (isError) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
+        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
         <div className="card border-0 shadow-sm glass employee-directory-shell">
           <div className="card-body py-5 text-center">
             <div className="fw-semibold mb-2">Employee management could not be loaded.</div>
@@ -2284,7 +2675,7 @@ export default function EmployeesManagement() {
     //   <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
     // <PageHeader title="Employee Management" tagline="Administer metadata, employee records, mapping structure, and linked auth signup from one operational console." />
     <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-      <PageHeader title="Employees Management" tagline="Administer metadata, employee records, and linked auth signup from one operational console." />
+      <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from one operational console." />
 
       <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />
 
@@ -2346,13 +2737,7 @@ export default function EmployeesManagement() {
           <div className="card border-0 shadow-sm glass employee-directory-shell">
             <div className="card-body d-flex flex-column gap-3">
               <div className="employee-toolbar employee-toolbar-top">
-                <div className="employee-toolbar-search employee-search-field">
-                  <label className="form-label small text-muted">Search</label>
-                  <div className="input-group employee-search-group">
-                    <span className="input-group-text"><SearchIcon /></span>
-                    <input className="form-control" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by code, employee, role, department, email, or phone" />
-                  </div>
-                </div>
+                <AppSearchField className="employee-toolbar-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by any table value, including billing status and reporting details" />
 
                 <div className="employee-toolbar-actions">
                   {canCreateEmployees ? (
@@ -2388,6 +2773,10 @@ export default function EmployeesManagement() {
                   <AppSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions} placeholder="All" />
                 </div>
                 <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Billing Status</label>
+                  <AppSelect value={billingStatusFilter} onChange={setBillingStatusFilter} options={billingStatusFilterOptions} placeholder="All billing" />
+                </div>
+                <div className="employee-filter-field">
                   <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Work Location</label>
                   <AppSelect value={workLocationFilter} onChange={setWorkLocationFilter} options={workLocationFilterOptions} placeholder="All" />
                 </div>
@@ -2407,6 +2796,30 @@ export default function EmployeesManagement() {
                   <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Employee Type</label>
                   <AppSelect value={employeeTypeFilter} onChange={setEmployeeTypeFilter} options={employeeTypeFilterOptions} placeholder="All" />
                 </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Gender</label>
+                  <AppSelect value={genderFilter} onChange={setGenderFilter} options={genderFilterOptions} placeholder="All" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Blood Group</label>
+                  <AppSelect value={bloodGroupFilter} onChange={setBloodGroupFilter} options={bloodGroupFilterOptions} placeholder="All" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Manager</label>
+                  <AppSelect value={managerFilter} onChange={setManagerFilter} options={managerFilterOptions} placeholder="All managers" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> HR</label>
+                  <AppSelect value={hrFilter} onChange={setHrFilter} options={hrFilterOptions} placeholder="All HRs" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Team Lead</label>
+                  <AppSelect value={teamLeadFilter} onChange={setTeamLeadFilter} options={teamLeadFilterOptions} placeholder="All team leads" />
+                </div>
+                <div className="employee-filter-field">
+                  <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Coordinator</label>
+                  <AppSelect value={coordinatorFilter} onChange={setCoordinatorFilter} options={coordinatorFilterOptions} placeholder="All coordinators" />
+                </div>
                 <div className="employee-filter-field employee-filter-field-range">
                   <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Join Date</label>
                   <AppDateRangeField value={joinDateRange} onChange={setJoinDateRange} className="employee-range-field" placeholder="[Select range]" />
@@ -2419,6 +2832,12 @@ export default function EmployeesManagement() {
                 </div>
               </div>
 
+              {projectAssignmentsQuery.isError ? (
+                <div className="alert alert-warning py-2 mb-0">
+                  Billing status is currently unavailable because project assignment records could not be loaded.
+                </div>
+              ) : null}
+
               <PaginatedTable rows={sortedEmployees}>
                 {({ rows: paginatedRows }) => (
                   <table className="table align-middle mb-0 employee-table employee-table-dense">
@@ -2429,6 +2848,7 @@ export default function EmployeesManagement() {
                       <col className="employee-col-role" />
                       <col className="employee-col-status" />
                       <col className="employee-col-join" />
+                      <col className="employee-col-billing" />
                       <col className="employee-col-actions" />
                     </colgroup>
                     <thead>
@@ -2439,6 +2859,7 @@ export default function EmployeesManagement() {
                         <th><SortableHeader label="Position (Dept)" sortKey="positionDepartment" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
                         <th><SortableHeader label="Status (DOJ)" sortKey="statusJoinDate" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
                         <th><SortableHeader label="Work Location (Type)" sortKey="locationType" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
+                        <th><SortableHeader label="Billing Status" sortKey="billingStatus" sortConfig={employeeSortConfig} onSort={requestEmployeeSort} className="employee-header-wrap" /></th>
                         <th className="text-center">Actions</th>
                       </tr>
                     </thead>
@@ -2463,6 +2884,13 @@ export default function EmployeesManagement() {
                           <td className="employee-cell-wrap">
                             <CellStack title={<EmployeeBadge value={employee.workLocation || '—'} type="workLocation" />} subtitle={<EmployeeBadge value={employee.employeeType || '—'} type="employeeType" />} className="employee-cell-wrap" />
                           </td>
+                          <td className="employee-cell-wrap">
+                            <CellStack
+                              title={<EmployeeBadge value={employee.billingStatus || 'Non Billable'} type="billingStatus" />}
+                              subtitle={employee.assignmentStatusSummary || 'No assignment'}
+                              className="employee-cell-wrap"
+                            />
+                          </td>
                           <td className="employee-actions-cell">
                             <div className="employee-action-cluster">
                               <ActionButton icon={<ViewIcon />} label="View" variant="view" onClick={() => setPreviewEmployee(employee)} />
@@ -2473,7 +2901,7 @@ export default function EmployeesManagement() {
                         </tr>
                       )) : (
                         <tr>
-                          <td colSpan="7">
+                          <td colSpan="8">
                             <div className="employee-empty-state text-center py-4">
                               <div className="fw-semibold mb-1">No employees matched the current filters.</div>
                               <div className="text-muted small">Reset the search terms or filter criteria to widen the directory view.</div>
@@ -2628,35 +3056,67 @@ export default function EmployeesManagement() {
       <ModalFrame
         open={isEmployeeFormOpen}
         title={employeeFormMode === 'create' ? 'Add Employee' : 'Edit Employee'}
-        onClose={() => { setIsEmployeeFormOpen(false); setEmployeeFormTouched({}) }}
+        onClose={() => {
+          setIsEmployeeFormOpen(false)
+          setEmployeeFormTouched({})
+          setEmployeeFormTab('basic')
+          setEmployeeFormProfile(null)
+        }}
         size="lg"
         footer={(
           <>
             <button type="button" className="btn btn-light" onClick={() => { setEmployeeDraft(employeeFormMode === 'edit' && selectedEmployee ? buildEmployeeDraft(selectedEmployee) : createEmptyEmployeeDraft()); setEmployeeFormTouched({}) }}>Reset</button>
             <button type="button" className="btn btn-primary" onClick={handleSaveEmployee}>{employeeFormMode === 'create' ? 'Add' : 'Save'}</button>
-            <button type="button" className="btn btn-outline-secondary" onClick={() => { setIsEmployeeFormOpen(false); setEmployeeFormTouched({}) }}>Cancel</button>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => {
+              setIsEmployeeFormOpen(false)
+              setEmployeeFormTouched({})
+              setEmployeeFormTab('basic')
+              setEmployeeFormProfile(null)
+            }}
+            >
+              Cancel
+            </button>
           </>
         )}
       >
-        <form ref={formRef}>
-          <EmployeeFormFields
-            draft={employeeDraft}
-            onChange={handleEmployeeDraftChange}
-            onBlur={handleEmployeeFieldBlur}
-            formMode={employeeFormMode}
-            errors={employeeFormErrors}
-            touched={employeeFormTouched}
-            roleOptions={roleOptions}
-            positionOptions={positionFormOptions}
-            departmentOptions={departmentFormOptions}
-            statusOptions={statusFormOptions}
-            employeeTypeOptions={employeeTypeFormOptions}
-            workLocationOptions={workLocationFormOptions}
-            bloodGroupOptions={bloodGroupFormOptions}
-            genderOptions={genderFormOptions}
-            phoneCountryOptions={phoneCountryFormOptions}
-          />
-        </form>
+        <div className="d-flex flex-column gap-3">
+          {employeeFormMode === 'edit' ? <AttendanceTabs activeTab={employeeFormTab} onChange={setEmployeeFormTab} tabs={employeeFormTabs} /> : null}
+
+          {employeeFormTab === 'basic' ? (
+            <form ref={formRef}>
+              <EmployeeFormFields
+                draft={employeeDraft}
+                onChange={handleEmployeeDraftChange}
+                onBlur={handleEmployeeFieldBlur}
+                formMode={employeeFormMode}
+                errors={employeeFormErrors}
+                touched={employeeFormTouched}
+                roleOptions={roleOptions}
+                positionOptions={positionFormOptions}
+                departmentOptions={departmentFormOptions}
+                statusOptions={statusFormOptions}
+                employeeTypeOptions={employeeTypeFormOptions}
+                workLocationOptions={workLocationFormOptions}
+                bloodGroupOptions={bloodGroupFormOptions}
+                genderOptions={genderFormOptions}
+                phoneCountryOptions={phoneCountryFormOptions}
+              />
+            </form>
+          ) : null}
+
+          {employeeFormMode === 'edit' && employeeFormTab === 'additional' ? (
+            employeeFormProfile ? (
+              <div className="employee-overview-box">
+                <EmployeeAdditionalDetailsEditor employee={selectedEmployee} profile={employeeFormProfile} />
+                {employeeFormProfileLoading ? <div className="text-muted small mt-3">Refreshing employee additional details…</div> : null}
+              </div>
+            ) : employeeFormProfileLoading ? (
+              <div className="text-muted small">Loading employee additional details…</div>
+            ) : (
+              <div className="text-muted small">Additional details are not available for this employee yet.</div>
+            )
+          ) : null}
+        </div>
       </ModalFrame>
 
       <ModalFrame
@@ -2694,112 +3154,43 @@ export default function EmployeesManagement() {
         onClose={() => {
           setPreviewEmployee(null)
           setPreviewEmployeeProfile(null)
-          setPreviewEmployeeTab('info')
+          setPreviewEmployeeTab('basic-info')
         }}
         size="lg"
         footer={(
           <>
-            <button type="button" className="btn btn-outline-secondary" onClick={() => setPreviewEmployee(null)}>Close</button>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => { setPreviewEmployee(null); setPreviewEmployeeProfile(null); setPreviewEmployeeTab('basic-info') }}>Close</button>
             {previewEmployee && canUpdateEmployees ? <button type="button" className="btn btn-primary btn-icon-inline" onClick={() => { const current = previewEmployee; setPreviewEmployee(null); openEditEmployee(current) }}><PencilIcon /><span>Edit</span></button> : null}
           </>
         )}
       >
         {previewEmployee ? (
           <div className="d-flex flex-column gap-3">
-            <AttendanceTabs activeTab={previewEmployeeTab} onChange={setPreviewEmployeeTab} tabs={EMPLOYEE_VIEW_TABS} />
+            <AttendanceTabs
+              activeTab={previewEmployeeTab}
+              onChange={setPreviewEmployeeTab}
+              tabs={EMPLOYEE_PREVIEW_TABS}
+            />
 
-            {previewEmployeeProfileLoading ? (
-              <div className="text-muted small">Loading employee details…</div>
-            ) : (
-              <div className="employee-overview-box">
-                {previewEmployeeTab === 'info' ? (
-                  <div className="row g-3 align-items-start">
-                    <div className="col-12 col-md-4">
-                      <div className="profile-photo-preview">
-                        {previewEmployeeProfile?.profileImageUrl
-                          ? <img src={previewEmployeeProfile.profileImageUrl} alt={previewEmployee.fullName || 'Employee'} />
-                          : <span>{String(previewEmployee.fullName || 'E').charAt(0).toUpperCase()}</span>}
-                      </div>
-                    </div>
-                    <div className="col-12 col-md-8">
-                      <div className="row g-2">
-                        <div className="col-12 col-md-6"><strong>Employee Code:</strong> {previewEmployee.employeeCode || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Name:</strong> {previewEmployee.fullName || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Email:</strong> {previewEmployee.email || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Mobile:</strong> {previewEmployee.phone || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Role:</strong> {previewEmployee.roleName || '—'}</div>
-                        <div className="col-12 col-md-6"><strong>Status:</strong> <EmployeeBadge value={previewEmployee.status || '—'} type="status" /></div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {previewEmployeeTab === 'basic' ? (
-                  <div className="row g-2">
-                    <div className="col-12 col-md-6"><strong>Department:</strong> {previewEmployee.department || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>Position:</strong> {previewEmployee.position || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>Date of Joining:</strong> {formatDate(previewEmployee.joinDate)}</div>
-                    <div className="col-12 col-md-6"><strong>Work Location:</strong> {previewEmployee.workLocation || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>Employee Type:</strong> {previewEmployee.employeeType || '—'}</div>
-                    <div className="col-12 col-md-6">
-                      <strong>Skills:</strong>{' '}
-                      {previewEmployeeProfile?.skills?.length
-                        ? previewEmployeeProfile.skills.map((entry) => entry.skill).join(', ')
-                        : '—'}
-                    </div>
-                    <div className="col-12 col-md-6"><strong>Manager:</strong> {previewEmployee.managerName || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>HR:</strong> {previewEmployee.hrEmployeeName || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>Lead:</strong> {previewEmployee.teamLeadName || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>Coordinator:</strong> {previewEmployee.coordinatorName || '—'}</div>
-                  </div>
-                ) : null}
-
-                {previewEmployeeTab === 'additional' ? (
-                  <div className="row g-2">
-                    <div className="col-12 col-md-6"><strong>Gender:</strong> {previewEmployee.gender || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>Caste:</strong> {previewEmployee.caste || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>Date of Birth:</strong> {formatDate(previewEmployee.dateOfBirth)}</div>
-                    <div className="col-12 col-md-6"><strong>Age:</strong> {formatEmployeeAge(previewEmployee.dateOfBirth)}</div>
-                    <div className="col-12 col-md-6"><strong>Blood Group:</strong> {previewEmployee.bloodGroup || '—'}</div>
-                    <div className="col-12 col-md-6"><strong>Emergency Contact:</strong> {previewEmployee.emergencyContact || '—'}</div>
-                    <div className="col-12"><strong>Address:</strong> {previewEmployee.address || '—'}</div>
-                    <div className="col-12">
-                      <strong>Family Details:</strong>{' '}
-                      {previewEmployeeProfile?.familyDetails?.length ? (
-                        previewEmployeeProfile.familyDetails
-                          .map((detail) => {
-                            const base = [detail.relation, detail.fullName].filter(Boolean).join(': ')
-                            const extras = [
-                              detail.phone || '',
-                              detail.occupation || '',
-                              detail.isDependent ? 'Dependent' : '',
-                              detail.dateOfBirth ? formatDate(detail.dateOfBirth) : ''
-                            ].filter(Boolean)
-                            return extras.length ? `${base} (${extras.join(', ')})` : base
-                          })
-                          .filter(Boolean)
-                          .join(' • ')
-                      ) : '—'}
-                    </div>
-                  </div>
-                ) : null}
-
-                {previewEmployeeTab === 'documents' ? (
-                  <div className="d-flex flex-column gap-2">
-                    {previewEmployeeProfile?.documents?.length ? previewEmployeeProfile.documents.map((document) => (
-                      <a key={document.uid} href={document.fileUrl || '#'} target="_blank" rel="noreferrer" download={document.name || 'employee-document'} className="profile-doc-item">
-                        <span className="fw-semibold">{document.name || 'Document'}</span>
-                        <span className="text-muted small">
-                          {document.documentType || 'OTHER'} • {document.uploadDateLabel || '—'}
-                        </span>
-                      </a>
-                    )) : (
-                      <div className="text-muted small">No documents uploaded for this employee.</div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            )}
+            <div className="employee-overview-box">
+              {previewEmployeeTab === 'basic-info' ? <EmployeePreviewBasicInfoPanel employee={previewEmployee} profile={previewEmployeeProfile} /> : null}
+              {previewEmployeeTab === 'basic-details' ? <EmployeePreviewBasicDetailsPanel employee={previewEmployee} /> : null}
+              {previewEmployeeTab === 'additional-details' ? (
+                previewEmployeeProfile ? (
+                  <EmployeeAdditionalDetailsPanel employee={previewEmployee} profile={previewEmployeeProfile} />
+                ) : (
+                  <div className="text-muted small">{previewEmployeeProfileLoading ? 'Loading additional details…' : 'Additional details are not available for this employee yet.'}</div>
+                )
+              ) : null}
+              {previewEmployeeTab === 'documents-uploaded' ? (
+                previewEmployeeProfile ? (
+                  <EmployeePreviewDocumentsPanel documents={previewEmployeeProfile.documents || []} />
+                ) : (
+                  <div className="text-muted small">{previewEmployeeProfileLoading ? 'Loading uploaded documents…' : 'No uploaded documents are available for this employee yet.'}</div>
+                )
+              ) : null}
+              {previewEmployeeProfileLoading ? <div className="text-muted small mt-3">Refreshing employee details…</div> : null}
+            </div>
           </div>
         ) : null}
       </ModalFrame>
@@ -2831,6 +3222,7 @@ export default function EmployeesManagement() {
         allModules={rolePermissionModules}
         isSaving={isRoleSaving}
         isSystemAdminRole={isEditingSystemAdminRole}
+        backendModulesUnavailable={backendRoleModulesUnavailable}
       />
 
       <MappingModal

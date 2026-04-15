@@ -8,7 +8,7 @@ from src.db.main import get_session
 from src.errors import InvalidCredentials, InvalidToken, UserAlreadyExists, UserNotFound
 from src.mail import create_message, mail
 from src.db.models import Role
-from .dependencies import RefreshTokenBearer, get_current_user, AdminOnly, RoleChecker
+from .dependencies import RefreshTokenBearer, get_current_user, AdminOnly, RoleChecker,PermissionChecker
 from .schemas import (EmailModel,PasswordResetConfirmModel,PasswordResetRequestModel,UserCreateModel,
     UserLoginModel, ChangePasswordModel, UserUnlockResponse, UserUnlockRequest,UserLockStatusRead)
 from .service import UserService
@@ -21,6 +21,7 @@ from src.sendgrid_mail import SendGridMail
 API = Config.APIKEY
 from_email = Config.FROM
 
+admin_module = "User Status"
 
 auth_router = APIRouter()
 user_service = UserService()
@@ -203,7 +204,7 @@ async def change_password(password_data: ChangePasswordModel, current_user=Depen
 
 
 ## For lock unlock user's credential.
-@auth_router.post("/unlock-user", response_model=UserUnlockResponse, status_code=status.HTTP_200_OK, dependencies=[Depends(AdminOnly)])
+@auth_router.post("/unlock-user", response_model=UserUnlockResponse, status_code=status.HTTP_200_OK, dependencies=[Depends(PermissionChecker(admin_module, "c"))])
 async def unlock_user_account(payload: UserUnlockRequest, session: AsyncSession = Depends(get_session)):
     user = await user_service.get_user_by_email(str(payload.email).strip().lower(), session)
     if not user:
@@ -214,11 +215,11 @@ async def unlock_user_account(payload: UserUnlockRequest, session: AsyncSession 
     return UserUnlockResponse(message="User account unlocked successfully.",email=user.email,is_locked=user.is_locked,unlocked_at=user.unlocked_at)
 
 
-@auth_router.get("/locked-users",response_model=List[UserLockStatusRead],status_code=status.HTTP_200_OK,dependencies=[Depends(AdminOnly)])
+@auth_router.get("/locked-users",response_model=List[UserLockStatusRead],status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def list_locked_users(session: AsyncSession = Depends(get_session)):
     return await user_service.get_locked_users(session=session)
 
 
-@auth_router.get("/unlocked-users",response_model=List[UserLockStatusRead],status_code=status.HTTP_200_OK,dependencies=[Depends(AdminOnly)])
+@auth_router.get("/unlocked-users",response_model=List[UserLockStatusRead],status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def list_unlocked_users(session: AsyncSession = Depends(get_session)):
     return await user_service.get_unlocked_users(session=session)

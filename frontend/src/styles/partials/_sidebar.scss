@@ -161,6 +161,11 @@
   justify-content: center;
 }
 
+.sidebar-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .sidebar-divider {
   height: 5px;
   // background: rgba(var(--bs-border-color-rgb), 0.65);

@@ -8,8 +8,9 @@ import GlobalLoaderContent from '../../components/common/GlobalLoaderContent.jsx
 const ModalContext = createContext(null)
 const DEFAULT_AUTO_LOADER = {
   title: 'Loading workspace',
-  message: 'Fetching the latest data. Please stay on this screen.'
+  message: 'We are still fetching live data for this page.'
 }
+const AUTO_LOADER_DELAY_MS = 2400
 
 function shouldShowBlockingQueryLoader(query) {
   if (!query || query.state?.fetchStatus !== 'fetching') return false
@@ -27,7 +28,6 @@ export function ModalProvider({ children }) {
   const timerRef = useRef(null)
   const confirmResolverRef = useRef(null)
   const autoLoaderTimerRef = useRef(null)
-
   const blockingFetchCount = useIsFetching({
     predicate: shouldShowBlockingQueryLoader
   })
@@ -112,7 +112,11 @@ export function ModalProvider({ children }) {
     const showTimer = window.setTimeout(() => {
       shownAt = Date.now()
       didShowLoader = true
-      showLoader(config)
+      setLoaderModal({
+        source: 'manual',
+        title: config.title || 'Please wait',
+        message: config.message || 'We are processing your request.',
+      })
     }, delayMs)
 
     try {
@@ -126,22 +130,34 @@ export function ModalProvider({ children }) {
         if (remaining > 0) {
           await wait(remaining)
         }
-        hideLoader()
+        setLoaderModal((current) => (current?.source === 'manual' ? null : current))
       }
     }
-  }, [hideLoader, showLoader])
+  }, [])
 
   useEffect(() => {
-    if (loaderModal?.source === 'manual') return undefined
+    if (loaderModal?.source === 'manual') {
+      if (autoLoaderTimerRef.current) {
+        window.clearTimeout(autoLoaderTimerRef.current)
+        autoLoaderTimerRef.current = null
+      }
+
+      return undefined
+    }
 
     const hasAutoActivity = (blockingFetchCount + blockingMutationCount) > 0
 
     if (hasAutoActivity) {
-      if (!autoLoaderTimerRef.current && !loaderModal) {
+      if (!autoLoaderTimerRef.current && loaderModal?.source !== 'auto') {
         autoLoaderTimerRef.current = window.setTimeout(() => {
           autoLoaderTimerRef.current = null
-          setLoaderModal((current) => current ?? { source: 'auto', ...DEFAULT_AUTO_LOADER })
-        }, 700)
+          setLoaderModal({
+            source: 'auto',
+            title: DEFAULT_AUTO_LOADER.title,
+            message: DEFAULT_AUTO_LOADER.message,
+            size: 'sm'
+          })
+        }, AUTO_LOADER_DELAY_MS)
       }
     } else {
       if (autoLoaderTimerRef.current) {
@@ -153,7 +169,7 @@ export function ModalProvider({ children }) {
     }
 
     return undefined
-  }, [blockingFetchCount, blockingMutationCount, loaderModal])
+  }, [blockingFetchCount, blockingMutationCount, loaderModal?.source])
 
   useEffect(() => () => {
     clearStatusTimer()

@@ -6,10 +6,10 @@ const HOLIDAY_SCOPE_META = {
   company: { label: 'Company holiday', tone: 'company', color: '#d97706' },
   restricted: { label: 'Restricted holiday', tone: 'restricted', color: '#ea580c' },
   birthday: { label: 'Birthday', tone: 'birthday', color: '#db2777' },
-  work_anniversary: { label: 'Work anniversary', tone: 'work-anniversary', color: '#059669' },
+  work_anniversary: { label: 'Anniversary', tone: 'work-anniversary', color: '#059669' },
   meeting: { label: 'Meeting', tone: 'meeting', color: '#0891b2' },
   task: { label: 'Task', tone: 'task', color: '#475569' },
-  custom: { label: 'Custom event', tone: 'custom', color: '#0284c7' }
+  custom: { label: 'Custom Event', tone: 'custom', color: '#0284c7' }
 }
 
 function parseHolidayMeta(rawDescription = '') {
@@ -173,7 +173,17 @@ export function normalizeLeaveRequest(record) {
     status: record.status || 'Pending',
     approverEmployeeUid: record.approver_employee_uid ? String(record.approver_employee_uid) : (record.approverEmployeeUid ? String(record.approverEmployeeUid) : ''),
     reviewerNote: record.reviewer_note || record.reviewerNote || '',
-    reviewedAt: record.reviewed_at || record.reviewedAt || null
+    reviewedAt: record.reviewed_at || record.reviewedAt || null,
+    cancellationStatus: record.cancellation_status || record.cancellationStatus || 'NoneRequested',
+    cancellationReason: record.cancellation_reason || record.cancellationReason || '',
+    cancellationRequestedAt: record.cancellation_requested_at || record.cancellationRequestedAt || null,
+    cancellationReviewerNote: record.cancellation_reviewer_note || record.cancellationReviewerNote || '',
+    cancellationReviewedAt: record.cancellation_reviewed_at || record.cancellationReviewedAt || null,
+    cancellationApproverEmployeeUid: record.cancellation_approver_employee_uid
+      ? String(record.cancellation_approver_employee_uid)
+      : (record.cancellationApproverEmployeeUid ? String(record.cancellationApproverEmployeeUid) : ''),
+    createdAt: record.created_at || record.createdAt || null,
+    updatedAt: record.updated_at || record.updatedAt || null
   }
 }
 
@@ -255,9 +265,10 @@ export function getLeaveRequestSummary(requests = []) {
     summary.total += 1
     if (status === 'approved') summary.approved += 1
     else if (status === 'rejected') summary.rejected += 1
+    else if (status === 'cancelled') summary.cancelled += 1
     else summary.pending += 1
     return summary
-  }, { total: 0, approved: 0, rejected: 0, pending: 0 })
+  }, { total: 0, approved: 0, rejected: 0, cancelled: 0, pending: 0 })
 }
 
 export function getLeaveBalanceSummary(balances = []) {

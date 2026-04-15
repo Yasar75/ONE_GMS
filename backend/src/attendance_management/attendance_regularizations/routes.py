@@ -14,7 +14,8 @@ from .service import attendance_regularization_service
 attendance_regularization_router = APIRouter()
 access_token_bearer = AccessTokenBearer()
 role_checker = Depends(RoleChecker(["admin", "hr"]))
-module = "Attendance"
+
+admin_module= "Manage Regularization"
 
 @attendance_regularization_router.post("/",response_model=AttendanceRegularizationRead,status_code=status.HTTP_201_CREATED)
 async def create_regularization(data: AttendanceRegularizationCreate,session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
@@ -29,18 +30,18 @@ async def list_my_regularizations(session: AsyncSession = Depends(get_session),t
     return await attendance_regularization_service.list_my_regularizations(session, email)
 
 
-@attendance_regularization_router.get("/employees-pending",response_model=List[AttendanceRegularizationRead],status_code=status.HTTP_200_OK,dependencies=[role_checker])
+@attendance_regularization_router.get("/employees-pending",response_model=List[AttendanceRegularizationRead],status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def list_employee_pending_regularizations(session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
     return await attendance_regularization_service.list_all_pending_regularizations(session)
 
 
-@attendance_regularization_router.post("/{regularization_uid}/approve",response_model=AttendanceRegularizationRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "c"))])
+@attendance_regularization_router.post("/{regularization_uid}/approve",response_model=AttendanceRegularizationRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "c"))])
 async def approve_regularization(regularization_uid: uuid.UUID,data: AttendanceRegularizationDecision,session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
     email = token_details.get("user", {}).get("email")
     return await attendance_regularization_service.approve_regularization(session, regularization_uid, email, data)
 
 
-@attendance_regularization_router.post("/{regularization_uid}/reject",response_model=AttendanceRegularizationRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(module, "c"))])
+@attendance_regularization_router.post("/{regularization_uid}/reject",response_model=AttendanceRegularizationRead,status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "c"))])
 async def reject_regularization(regularization_uid: uuid.UUID,data: AttendanceRegularizationDecision,session: AsyncSession = Depends(get_session),token_details: dict = Depends(access_token_bearer)):
     email = token_details.get("user", {}).get("email")
     return await attendance_regularization_service.reject_regularization(session, regularization_uid, email, data)

@@ -11,8 +11,10 @@ from sqlmodel import Field, SQLModel
 
 class AttendanceStatus(str, Enum):
     Present = "Present"
+    HalfDay = "HalfDay"
     Absent = "Absent"
     Leave = "Leave"
+    WO = "WO"
     PendingRegularization = "PendingRegularization"
 
 
