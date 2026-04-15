@@ -66,6 +66,7 @@ class EmployeeCreate(BaseModel):
     gender: Optional[str] = " "
     caste: Optional[str] = " "
     emergency_contact: Optional[str] = " "
+    billing_status: str = "Non-Billable"
     blood_group: Optional[str] = " "
     employee_type: Optional[EmployeeType] = " "
     work_location: Optional[str] = " "
