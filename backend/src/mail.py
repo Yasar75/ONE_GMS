@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
@@ -7,12 +8,11 @@ from src.config import Config
 # 1. Define the base directory
 BASE_DIR = Path(__file__).resolve().parent
 
-# 2. Define the templates path
+# 2. Prefer the bundled templates folder. If it is missing, fall back
+# to a writable temp directory because Vercel deploys /var/task read-only.
 TEMPLATE_FOLDER = BASE_DIR / "templates"
-
-# 3. FIX: Check if the *templates* folder exists, not just the base dir
-# If it doesn't exist, create it so Pydantic doesn't crash
 if not TEMPLATE_FOLDER.exists():
+    TEMPLATE_FOLDER = Path(tempfile.gettempdir()) / "one_gms_mail_templates"
     TEMPLATE_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # 4. Configure FastMail with proper settings
