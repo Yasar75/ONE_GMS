@@ -1,3 +1,7 @@
+[project]
+name = "one-gms-backend"
+version = "0.1.0"
+
 [tool.black]
 line-length = 100
 
