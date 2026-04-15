@@ -1,5 +1,12 @@
 import asyncio
+import logging
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from fastapi import FastAPI
+from sqlalchemy.orm import sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.routes import auth_router
 from src.config import Config
@@ -35,10 +42,7 @@ from src.project_management.project_task.routes import project_task_router
 from src.sendgrid_mail.routes import sendgrid_router
 from src.middleware import register_middleware
 
-from sqlalchemy.orm import sessionmaker
-from sqlmodel.ext.asyncio.session import AsyncSession
-from datetime import datetime
-from zoneinfo import ZoneInfo
+logger = logging.getLogger(__name__)
 
 version = "v1"
 
@@ -55,18 +59,36 @@ attendance_scheduler_task = None
 async def startup_event() -> None:
     global attendance_scheduler_task
 
-    await init_db()
+    try:
+        await init_db()
+        logger.info("Database initialized successfully.")
+    except Exception:
+        logger.exception("init_db failed during startup.")
 
-    # run today's auto sync once on startup
-    SessionLocal = sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
-    async with SessionLocal() as session:
-        await attendance_service.sync_daily_attendance(
-            session=session,
-            target_date=datetime.now(ZoneInfo(Config.TIME_ZONE)).date(),
+    try:
+        session_local = sessionmaker(
+            bind=async_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
         )
+        async with session_local() as session:
+            await attendance_service.sync_daily_attendance(
+                session=session,
+                target_date=datetime.now(ZoneInfo(Config.TIME_ZONE)).date(),
+            )
+        logger.info("Daily attendance sync completed.")
+    except Exception:
+        logger.exception("Daily attendance sync failed during startup.")
 
-    # start daily background scheduler
-    attendance_scheduler_task = asyncio.create_task(attendance_scheduler_loop())
+    if os.getenv("VERCEL") == "1":
+        logger.info("Running on Vercel. Skipping background scheduler.")
+        return
+
+    try:
+        attendance_scheduler_task = asyncio.create_task(attendance_scheduler_loop())
+        logger.info("Attendance scheduler started.")
+    except Exception:
+        logger.exception("Failed to start attendance scheduler.")
 
 
 @app.on_event("shutdown")
