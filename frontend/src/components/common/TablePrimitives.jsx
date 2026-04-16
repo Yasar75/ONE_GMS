@@ -61,9 +61,9 @@ export function TableActionCluster({ children, className = '', style = {} }) {
     return Math.max(longest, clampedLength)
   }, 4)
 
-  const collapsedButtonWidthRem = 2.78
-  const actionGapRem = 0.45
-  const expansionExtraRem = (maxLabelChars * 0.6) + 1.6
+  const collapsedButtonWidthRem = 2.72
+  const actionGapRem = 0.42
+  const expansionExtraRem = (maxLabelChars * 0.52) + 0.82
   const reservedClusterWidthRem = (actionCount * collapsedButtonWidthRem) + ((actionCount - 1) * actionGapRem) + expansionExtraRem
 
   return (

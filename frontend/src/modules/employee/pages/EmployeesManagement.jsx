@@ -15,29 +15,31 @@ import { useEmployeesQuery } from '../../../hooks/employees/useEmployeesQuery.js
 import { useEmployeeLookupQuery } from '../../../hooks/employees/useEmployeeLookupQuery.js'
 import { useEmployeeDirectoryActions } from '../../../hooks/employees/useEmployeeDirectoryActions.js'
 import { useEmployeeMetadataQuery, useRoleDirectoryQuery, useRoleModulesQuery } from '../../../hooks/employees/useEmployeeMetadataQuery.js'
+import { usePhoneCountryOptionsQuery } from '../../../hooks/employees/usePhoneCountryOptionsQuery.js'
 import { useProjectAssignmentsQuery } from '../../../hooks/project/useProjectAssignmentsQuery.js'
 import { useSortableData } from '../../../hooks/common/useSortableData.js'
 import {
-  EMPLOYEE_BLOOD_GROUP_OPTIONS,
-  EMPLOYEE_GENDER_OPTIONS,
-  EMPLOYEE_DEPARTMENT_OPTIONS,
-  EMPLOYEE_POSITION_OPTIONS,
-  EMPLOYEE_STATUS_OPTIONS,
-  EMPLOYEE_TYPE_OPTIONS,
-  EMPLOYEE_WORK_LOCATION_OPTIONS,
-  PHONE_COUNTRY_OPTIONS,
+  buildDepartmentScopedPositionOptions,
   buildEmployeePayload,
+  buildEmployeeMetadataCatalog,
+  buildMetadataOptions,
+  buildPhoneCountrySelectOptions,
   buildPhoneValue,
   downloadEmployeeImportTemplateCsv,
   downloadEmployeeImportTemplateExcel,
   downloadEmployeesAsCsv,
   downloadEmployeesAsExcel,
+  findMetadataEntryByInput,
+  findPhoneCountryOptionByInput,
   formatPhoneLengthRule,
   formatDate,
   formatEmployeeAge,
   getDefaultPhoneCountryOption,
   getEmployeeAge,
+  getMetadataDisplayLabel,
+  getPhoneCountryOptions,
   getPhoneCountryLengthRule,
+  isPositionMappedToDepartment,
   isIsoDateInput,
   normalizeDateInput,
   parseStoredPhoneValue
@@ -62,10 +64,10 @@ import {
   LockOpenIcon,
   PencilIcon,
   PlusIcon,
+  RotateCcwIcon,
   TrashIcon,
   UserPlusIcon,
-  ViewIcon,
-  XIcon
+  ViewIcon
 } from '../../../components/common/AppIcons.jsx'
 import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
@@ -108,11 +110,10 @@ const EMPLOYEE_PREVIEW_TABS = [
 const METADATA_SECTIONS = [
   { key: 'roles', title: 'Roles', description: 'Auth roles used for login signup and employee assignment.' },
   { key: 'department', title: 'Department', description: 'Business units used in employee records.' },
-  { key: 'position', title: 'Position', description: 'Job positions available for employee records.' },
+  { key: 'position', title: 'Position', description: 'Job positions mapped to departments for employee records.' },
   { key: 'status', title: 'Status', description: 'Employment lifecycle statuses.' },
   { key: 'work_location', title: 'Work Location', description: 'Onsite, remote, hybrid, and future location modes.' },
   { key: 'employee_type', title: 'Employee Type', description: 'Engagement model such as full time or contract.' },
-  // { key: 'gender', title: 'Gender', description: 'Gender values available in employee records.' },
   { key: 'blood_group', title: 'Blood Group', description: 'Blood group values available for employee records.' }
 ]
 
@@ -247,6 +248,19 @@ function getEmployeeRoleMeta(roleName) {
     isManagement,
     isMappingExempt: isAdmin || isHr || isManagement
   }
+}
+
+function isGenericEmployeeRole(roleName = '') {
+  return normalizeEmployeeRoleName(roleName) === 'employee'
+}
+
+function isEmployeeMapped(employee = {}) {
+  return Boolean(
+    employee?.managerEmployeeUid
+    || employee?.hrEmployeeUid
+    || employee?.teamLeadEmployeeUid
+    || employee?.coordinatorEmployeeUid
+  )
 }
 
 function toCanonicalRoleModuleName(moduleName) {
@@ -446,6 +460,7 @@ function buildEmployeeFormErrors(draft, formMode) {
       })
       : '',
     email: getEmailValidationMessage(draft.email, { required: true }),
+    clientEmail: draft.clientEmail ? getEmailValidationMessage(draft.clientEmail, { label: 'Client email' }) : '',
     firstName: getRequiredFieldMessage(draft.firstName, 'First name'),
     lastName: getRequiredFieldMessage(draft.lastName, 'Last name'),
     roleType: getRequiredFieldMessage(draft.roleType, 'Role'),
@@ -484,7 +499,9 @@ function buildEmployeeFormErrors(draft, formMode) {
 function buildMetadataFormErrors(draft) {
   return {
     label: getRequiredFieldMessage(draft.label, 'Label'),
-    value: getRequiredFieldMessage(draft.value, 'Value')
+    departmentUid: draft.category === 'position'
+      ? getRequiredFieldMessage(draft.departmentUid, 'Department')
+      : ''
   }
 }
 
@@ -548,23 +565,24 @@ function createEmptyEmployeeDraft() {
     employeeCode: '',
     firstName: '',
     lastName: '',
-    position: '',
-    department: '',
-    roleType: '',
     email: '',
+    clientEmail: '',
     phoneCountryCode: defaultPhoneCountry.dialCode,
     phoneLocal: '',
+    roleType: '',
+    department: '',
+    position: '',
     joinDate: '',
     status: '',
+    employeeType: '',
+    workLocation: '',
     dateOfBirth: '',
     gender: '',
     caste: '',
-    address: '',
     emergencyContactCountryCode: defaultPhoneCountry.dialCode,
     emergencyContactLocal: '',
     bloodGroup: '',
-    employeeType: '',
-    workLocation: ''
+    address: ''
   }
 }
 
@@ -578,23 +596,24 @@ function buildEmployeeDraft(employee) {
     employeeCode: employee.employeeCode || employee.id || '',
     firstName: employee.firstName || '',
     lastName: employee.lastName || '',
-    position: employee.position || '',
-    department: employee.department || '',
-    roleType: employee.roleType || '',
     email: employee.email || '',
+    clientEmail: employee.clientEmail || '',
     phoneCountryCode: phone.countryDialCode || fallback.phoneCountryCode,
     phoneLocal: phone.localNumber || '',
+    roleType: employee.roleType || '',
+    department: employee.department || '',
+    position: employee.position || '',
     joinDate: employee.joinDate || '',
     status: employee.status || '',
+    employeeType: employee.employeeType || '',
+    workLocation: employee.workLocation || '',
     dateOfBirth: employee.dateOfBirth || '',
     gender: employee.gender || '',
     caste: employee.caste || '',
-    address: employee.address || '',
     emergencyContactCountryCode: emergencyContact.countryDialCode || fallback.emergencyContactCountryCode,
     emergencyContactLocal: emergencyContact.localNumber || '',
     bloodGroup: employee.bloodGroup || '',
-    employeeType: employee.employeeType || '',
-    workLocation: employee.workLocation || ''
+    address: employee.address || ''
   }
 }
 
@@ -779,23 +798,98 @@ function pickCsvValue(row, aliases) {
   return String(selectedValue ?? '')
 }
 
-function buildImportPayloads(rows = [], employees = [], roleDirectory = new Map()) {
+function resolveImportedPhoneValue({ rawNumber = '', rawCountryCode = '', fieldLabel = 'Phone' } = {}) {
+  const numberValue = String(rawNumber || '').trim()
+  const countryCodeValue = String(rawCountryCode || '').trim()
+  if (!numberValue) return { value: '', error: '' }
+
+  const normalizedNumberValue = numberValue.replace(/[^\d+]/g, '')
+  const hasExplicitDialCode = /^\+/.test(normalizedNumberValue)
+  const selectedCountry = countryCodeValue ? findPhoneCountryOptionByInput(countryCodeValue) : null
+  if (countryCodeValue && !selectedCountry) {
+    return { value: '', error: `${fieldLabel} country code "${countryCodeValue}" is invalid.` }
+  }
+
+  if (hasExplicitDialCode) {
+    const detectedCountry = [...getPhoneCountryOptions()]
+      .sort((left, right) => right.dialCode.length - left.dialCode.length)
+      .find((option) => normalizedNumberValue.startsWith(option.dialCode))
+
+    if (!detectedCountry) {
+      return { value: '', error: `${fieldLabel} country code could not be recognized.` }
+    }
+
+    if (selectedCountry && selectedCountry.dialCode !== detectedCountry.dialCode) {
+      return {
+        value: '',
+        error: `${fieldLabel} country code "${countryCodeValue}" does not match the prefix used in ${fieldLabel.toLowerCase()}.`
+      }
+    }
+
+    const parsedPhone = {
+      countryDialCode: detectedCountry.dialCode,
+      localNumber: normalizedNumberValue.slice(detectedCountry.dialCode.length).replace(/\D/g, '')
+    }
+    const rule = getPhoneCountryLengthRule(detectedCountry.dialCode)
+    const validationError = getPhoneValidationMessage(parsedPhone.localNumber, {
+      required: true,
+      label: fieldLabel,
+      min: rule.minLength,
+      max: rule.maxLength,
+      countryLabel: detectedCountry.label,
+      countryDialCode: detectedCountry.dialCode
+    })
+    if (validationError) return { value: '', error: validationError }
+
+    return { value: buildPhoneValue(detectedCountry.dialCode, parsedPhone.localNumber), error: '' }
+  }
+
+  if (!selectedCountry) {
+    return {
+      value: '',
+      error: `${fieldLabel} must include a +country prefix or provide a Country Code value in the import file.`
+    }
+  }
+
+  const localNumber = numberValue.replace(/\D/g, '')
+  const rule = getPhoneCountryLengthRule(selectedCountry.dialCode)
+  const validationError = getPhoneValidationMessage(localNumber, {
+    required: true,
+    label: fieldLabel,
+    min: rule.minLength,
+    max: rule.maxLength,
+    countryLabel: rule.label,
+    countryDialCode: rule.dialCode
+  })
+  if (validationError) return { value: '', error: validationError }
+
+  return { value: buildPhoneValue(selectedCountry.dialCode, localNumber), error: '' }
+}
+
+function buildImportPayloads(rows = [], employees = [], roleDirectory = new Map(), metadataCatalog = {}) {
   const existingCodes = new Set(employees.map((employee) => String(employee.employeeCode || employee.id || '').trim().toUpperCase()).filter(Boolean))
   const pendingCodes = new Set()
   const payloads = []
   const errors = []
+  const roleLookup = new Map(
+    [...roleDirectory.entries()]
+      .filter(([, roleName]) => String(roleName || '').trim())
+      .map(([roleUid, roleName]) => [String(roleName || '').trim().toLowerCase(), [roleUid, roleName]])
+  )
 
   rows.forEach((row, index) => {
     const rowNumber = index + 2
     const employeeCode = pickCsvValue(row, ['Employee Code']).trim().toUpperCase()
     const firstName = pickCsvValue(row, ['First Name']).trim()
     const lastName = pickCsvValue(row, ['Last Name']).trim()
-    const email = pickCsvValue(row, ['Email']).trim()
+    const email = pickCsvValue(row, ['Email', 'Personal Email']).trim()
+    const clientEmail = pickCsvValue(row, ['Client Email']).trim()
     const phone = pickCsvValue(row, ['Phone']).trim()
+    const phoneCountryCode = pickCsvValue(row, ['Country Code', 'Phone Country Code', 'Mobile Country Code']).trim()
     const roleInput = pickCsvValue(row, ['Role']).trim()
     const position = pickCsvValue(row, ['Position']).trim()
     const department = pickCsvValue(row, ['Department']).trim()
-    const status = pickCsvValue(row, ['Status']).trim() || 'Active'
+    const status = pickCsvValue(row, ['Status']).trim()
     const workLocation = pickCsvValue(row, ['Work Location']).trim()
     const joinDateInput = pickCsvValue(row, ['Join Date']).trim()
     const dateOfBirthInput = pickCsvValue(row, ['Date Of Birth']).trim()
@@ -805,6 +899,7 @@ function buildImportPayloads(rows = [], employees = [], roleDirectory = new Map(
     const gender = pickCsvValue(row, ['Gender']).trim()
     const caste = pickCsvValue(row, ['Caste']).trim()
     const emergencyContact = pickCsvValue(row, ['Emergency Contact']).trim()
+    const emergencyContactCountryCode = pickCsvValue(row, ['Emergency Contact Country Code']).trim()
     const bloodGroup = pickCsvValue(row, ['Blood Group']).trim()
     const address = pickCsvValue(row, ['Address']).trim()
 
@@ -837,6 +932,20 @@ function buildImportPayloads(rows = [], employees = [], roleDirectory = new Map(
       return
     }
 
+    const emailError = getEmailValidationMessage(email, { required: true })
+    if (emailError) {
+      errors.push(`Row ${rowNumber}: ${emailError}`)
+      return
+    }
+
+    if (clientEmail) {
+      const clientEmailError = getEmailValidationMessage(clientEmail, { label: 'Client email' })
+      if (clientEmailError) {
+        errors.push(`Row ${rowNumber}: ${clientEmailError}`)
+        return
+      }
+    }
+
     if (existingCodes.has(employeeCode) || pendingCodes.has(employeeCode)) {
       errors.push(`Row ${rowNumber}: employee code ${employeeCode} already exists.`)
       return
@@ -847,16 +956,80 @@ function buildImportPayloads(rows = [], employees = [], roleDirectory = new Map(
       return
     }
 
-    const roleMatch = [...roleDirectory.entries()].find(([, roleName]) => String(roleName).toLowerCase() === roleInput.toLowerCase())
+    const roleMatch = roleLookup.get(roleInput.toLowerCase())
     if (!roleMatch) {
       errors.push(`Row ${rowNumber}: role ${roleInput} was not found in metadata entries.`)
       return
     }
 
-    const phoneParts = parseStoredPhoneValue(phone)
-    const emergencyParts = parseStoredPhoneValue(emergencyContact)
-    const preparedPhone = buildPhoneValue(phoneParts.countryDialCode, phoneParts.localNumber)
-    const preparedEmergency = buildPhoneValue(emergencyParts.countryDialCode, emergencyParts.localNumber)
+    const departmentEntry = findMetadataEntryByInput(metadataCatalog, 'department', department)
+    if (!departmentEntry) {
+      errors.push(`Row ${rowNumber}: department ${department} was not found in metadata entries.`)
+      return
+    }
+
+    const positionEntry = findMetadataEntryByInput(metadataCatalog, 'position', position)
+    if (!positionEntry) {
+      errors.push(`Row ${rowNumber}: position ${position} was not found in metadata entries.`)
+      return
+    }
+
+    if (!positionEntry.departmentUid) {
+      errors.push(`Row ${rowNumber}: position ${positionEntry.label || position} is not mapped to any department in metadata entries.`)
+      return
+    }
+
+    if (String(positionEntry.departmentUid) !== String(departmentEntry.uid)) {
+      errors.push(`Row ${rowNumber}: position ${positionEntry.label || position} does not belong to department ${departmentEntry.label || department}.`)
+      return
+    }
+
+    const statusEntry = findMetadataEntryByInput(metadataCatalog, 'status', status)
+    if (!statusEntry) {
+      errors.push(`Row ${rowNumber}: status ${status} was not found in metadata entries.`)
+      return
+    }
+
+    const workLocationEntry = workLocation ? findMetadataEntryByInput(metadataCatalog, 'work_location', workLocation) : null
+    if (workLocation && !workLocationEntry) {
+      errors.push(`Row ${rowNumber}: work location ${workLocation} was not found in metadata entries.`)
+      return
+    }
+
+    const employeeTypeEntry = employeeType ? findMetadataEntryByInput(metadataCatalog, 'employee_type', employeeType) : null
+    if (employeeType && !employeeTypeEntry) {
+      errors.push(`Row ${rowNumber}: employee type ${employeeType} was not found in metadata entries.`)
+      return
+    }
+
+    const bloodGroupEntry = bloodGroup ? findMetadataEntryByInput(metadataCatalog, 'blood_group', bloodGroup) : null
+    if (bloodGroup && !bloodGroupEntry) {
+      errors.push(`Row ${rowNumber}: blood group ${bloodGroup} was not found in metadata entries.`)
+      return
+    }
+
+    const preparedPhoneResult = resolveImportedPhoneValue({
+      rawNumber: phone,
+      rawCountryCode: phoneCountryCode,
+      fieldLabel: 'Phone'
+    })
+    if (preparedPhoneResult.error) {
+      errors.push(`Row ${rowNumber}: ${preparedPhoneResult.error}`)
+      return
+    }
+
+    const preparedEmergencyResult = resolveImportedPhoneValue({
+      rawNumber: emergencyContact,
+      rawCountryCode: emergencyContactCountryCode,
+      fieldLabel: 'Emergency Contact'
+    })
+    if (preparedEmergencyResult.error) {
+      errors.push(`Row ${rowNumber}: ${preparedEmergencyResult.error}`)
+      return
+    }
+
+    const preparedPhone = preparedPhoneResult.value
+    const preparedEmergency = preparedEmergencyResult.value
 
     if (preparedPhone && preparedEmergency && preparedPhone === preparedEmergency) {
       errors.push(`Row ${rowNumber}: mobile number and emergency contact cannot be the same.`)
@@ -869,18 +1042,19 @@ function buildImportPayloads(rows = [], employees = [], roleDirectory = new Map(
       firstName,
       lastName,
       email,
+      clientEmail,
       roleType: roleMatch[0],
       roleName: roleMatch[1],
-      position,
-      department,
-      status,
-      workLocation,
+      position: positionEntry.value,
+      department: departmentEntry.value,
+      status: statusEntry.value,
+      workLocation: workLocationEntry?.value || '',
       joinDate,
       dateOfBirth,
-      employeeType,
+      employeeType: employeeTypeEntry?.value || '',
       gender,
       caste,
-      bloodGroup,
+      bloodGroup: bloodGroupEntry?.value || '',
       address,
       phone: preparedPhone,
       emergencyContact: preparedEmergency
@@ -905,7 +1079,26 @@ function DirectoryMetricCard({ title, value, helper, tone }) {
 
 function EmployeeBadge({ value, type = 'status' }) {
   const safeValue = String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  return <span className={`employee-badge ${type} ${safeValue}`}>{value || '—'}</span>
+  const roleStyle = type === 'role' ? getGeneratedRoleBadgeStyle(value) : undefined
+  return <span className={`employee-badge ${type} ${safeValue}`.trim()} style={roleStyle}>{value || '—'}</span>
+}
+
+function getGeneratedRoleBadgeStyle(value) {
+  const normalized = String(value || '').trim()
+  if (!normalized || normalizeEmployeeRoleName(normalized) === 'unassigned') return undefined
+
+  let hash = 0
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash = ((hash << 5) - hash) + normalized.charCodeAt(index)
+    hash |= 0
+  }
+
+  const hue = Math.abs(hash) % 360
+  return {
+    color: `hsl(${hue} 72% 28%)`,
+    background: `hsla(${hue}, 82%, 48%, 0.14)`,
+    borderColor: `hsla(${hue}, 82%, 40%, 0.24)`
+  }
 }
 
 function CellStack({ title, subtitle, meta = null, className = '' }) {
@@ -982,8 +1175,6 @@ function EmployeeFormFields({
   statusOptions,
   employeeTypeOptions,
   workLocationOptions,
-  bloodGroupOptions,
-  genderOptions,
   phoneCountryOptions
 }) {
   const dobBounds = getDateOfBirthBounds()
@@ -1003,10 +1194,11 @@ function EmployeeFormFields({
       </div>
 
       <div className="col-12 col-md-6">
-        <label className="form-label">Email*</label>
-        <input className={`form-control${showError('email') ? ' is-invalid' : ''}`} type="email" name="email" value={draft.email} onChange={onChange} onBlur={onBlur} required />
-        {showError('email') ? <div className="invalid-feedback d-block">{errors.email}</div> : null}
+        <label className="form-label">Role*</label>
+        <AppSelect name="roleType" value={draft.roleType} onChange={onChange} onBlur={onBlur} options={roleOptions} placeholder="Select role" invalid={Boolean(showError('roleType'))} />
+        {showError('roleType') ? <div className="invalid-feedback d-block">{errors.roleType}</div> : null}
       </div>
+
 
       <div className="col-12 col-md-6">
         <label className="form-label">First Name*</label>
@@ -1021,25 +1213,19 @@ function EmployeeFormFields({
       </div>
 
       <div className="col-12 col-md-6">
-        <label className="form-label">Role*</label>
-        <AppSelect name="roleType" value={draft.roleType} onChange={onChange} onBlur={onBlur} options={roleOptions} placeholder="Select role" invalid={Boolean(showError('roleType'))} />
-        {showError('roleType') ? <div className="invalid-feedback d-block">{errors.roleType}</div> : null}
+        <label className="form-label">Personal Email*</label>
+        <input className={`form-control${showError('email') ? ' is-invalid' : ''}`} type="email" name="email" value={draft.email} onChange={onChange} onBlur={onBlur} required />
+        {showError('email') ? <div className="invalid-feedback d-block">{errors.email}</div> : null}
       </div>
 
       <div className="col-12 col-md-6">
-        <label className="form-label">Position*</label>
-        <AppSelect name="position" value={draft.position} onChange={onChange} onBlur={onBlur} options={positionOptions} placeholder="Select position" invalid={Boolean(showError('position'))} />
-        {showError('position') ? <div className="invalid-feedback d-block">{errors.position}</div> : null}
+        <label className="form-label">Client Email</label>
+        <input className={`form-control${showError('clientEmail') ? ' is-invalid' : ''}`} type="email" name="clientEmail" value={draft.clientEmail} onChange={onChange} onBlur={onBlur} />
+        {showError('clientEmail') ? <div className="invalid-feedback d-block">{errors.clientEmail}</div> : null}
       </div>
 
       <div className="col-12 col-md-6">
-        <label className="form-label">Department*</label>
-        <AppSelect name="department" value={draft.department} onChange={onChange} onBlur={onBlur} options={departmentOptions} placeholder="Select department" invalid={Boolean(showError('department'))} />
-        {showError('department') ? <div className="invalid-feedback d-block">{errors.department}</div> : null}
-      </div>
-
-      <div className="col-12 col-md-6">
-        <label className="form-label">Mobile Number*</label>
+        <label className="form-label">Mobile*</label>
         <div className="phone-input-shell">
           <AppSelect name="phoneCountryCode" value={draft.phoneCountryCode} onChange={onChange} onBlur={onBlur} options={phoneCountryOptions} placeholder="Code" className="phone-country-select" />
           <input className={`form-control${showError('phoneLocal') ? ' is-invalid' : ''}`} name="phoneLocal" value={draft.phoneLocal} onChange={onChange} onBlur={onBlur} inputMode="numeric" placeholder="Enter mobile number" minLength={mobileRule.minLength} maxLength={mobileRule.maxLength} pattern={`[0-9]{${mobileRule.minLength},${mobileRule.maxLength}}`} required />
@@ -1049,42 +1235,42 @@ function EmployeeFormFields({
       </div>
 
       <div className="col-12 col-md-6">
+        <label className="form-label">Department*</label>
+        <AppSelect name="department" value={draft.department} onChange={onChange} onBlur={onBlur} options={departmentOptions} placeholder="Select department" invalid={Boolean(showError('department'))} />
+        {showError('department') ? <div className="invalid-feedback d-block">{errors.department}</div> : null}
+      </div>
+
+      <div className="col-12 col-md-6">
+        <label className="form-label">Position*</label>
+        <AppSelect
+          name="position"
+          value={draft.position}
+          onChange={onChange}
+          onBlur={onBlur}
+          options={positionOptions}
+          placeholder={draft.department ? 'Select position' : 'Select department first'}
+          invalid={Boolean(showError('position'))}
+          disabled={!draft.department}
+        />
+        {!draft.department ? <div className="form-text">Choose a department first to load the mapped positions.</div> : null}
+        {showError('position') ? <div className="invalid-feedback d-block">{errors.position}</div> : null}
+      </div>
+
+      <div className="col-12 col-md-6">
         <label className="form-label">Join Date*</label>
         <input className={`form-control${showError('joinDate') ? ' is-invalid' : ''}`} type="date" name="joinDate" value={draft.joinDate} onChange={onChange} onBlur={onBlur} required />
         {showError('joinDate') ? <div className="invalid-feedback d-block">{errors.joinDate}</div> : null}
       </div>
 
       <div className="col-12 col-md-6">
-        <label className="form-label">Status*</label>
-        <AppSelect name="status" value={draft.status} onChange={onChange} onBlur={onBlur} options={statusOptions} placeholder="Select status" invalid={Boolean(showError('status'))} />
-        {showError('status') ? <div className="invalid-feedback d-block">{errors.status}</div> : null}
-      </div>
-
-      <div className="col-12 col-md-6">
-        <label className="form-label">Date of Birth</label>
-        <input className={`form-control${showError('dateOfBirth') ? ' is-invalid' : ''}`} type="date" name="dateOfBirth" value={draft.dateOfBirth} onChange={onChange} onBlur={onBlur} min={dobBounds.min} max={dobBounds.max} />
-        <div className="form-text">Allowed age band: 21 to 65 years.</div>
-        {showError('dateOfBirth') ? <div className="invalid-feedback d-block">{errors.dateOfBirth}</div> : null}
-      </div>
-
-      <div className="col-12 col-md-3">
-        <label className="form-label">Age</label>
-        <input className="form-control" value={ageLabel} disabled placeholder="Calculated from date of birth" />
-      </div>
-
-      <div className="col-12 col-md-3">
         <label className="form-label">Tenure in Organization</label>
         <input className="form-control" value={tenureLabel} disabled placeholder="Calculated from join date" />
       </div>
 
       <div className="col-12 col-md-6">
-        <label className="form-label">Gender</label>
-        <AppSelect name="gender" value={draft.gender} onChange={onChange} onBlur={onBlur} options={genderOptions} placeholder="Select gender" />
-      </div>
-
-      <div className="col-12 col-md-6">
-        <label className="form-label">Caste</label>
-        <input className="form-control" name="caste" value={draft.caste} onChange={onChange} onBlur={onBlur} maxLength="120" placeholder="Enter caste manually" />
+        <label className="form-label">Status*</label>
+        <AppSelect name="status" value={draft.status} onChange={onChange} onBlur={onBlur} options={statusOptions} placeholder="Select status" invalid={Boolean(showError('status'))} />
+        {showError('status') ? <div className="invalid-feedback d-block">{errors.status}</div> : null}
       </div>
 
       <div className="col-12 col-md-6">
@@ -1098,8 +1284,25 @@ function EmployeeFormFields({
       </div>
 
       <div className="col-12 col-md-6">
-        <label className="form-label">Blood Group</label>
-        <AppSelect name="bloodGroup" value={draft.bloodGroup} onChange={onChange} onBlur={onBlur} options={bloodGroupOptions} placeholder="Select blood group" />
+        <label className="form-label">Date of Birth</label>
+        <input className={`form-control${showError('dateOfBirth') ? ' is-invalid' : ''}`} type="date" name="dateOfBirth" value={draft.dateOfBirth} onChange={onChange} onBlur={onBlur} min={dobBounds.min} max={dobBounds.max} />
+        <div className="form-text">Allowed age band: 21 to 65 years.</div>
+        {showError('dateOfBirth') ? <div className="invalid-feedback d-block">{errors.dateOfBirth}</div> : null}
+      </div>
+
+      <div className="col-12 col-md-6">
+        <label className="form-label">Age</label>
+        <input className="form-control" value={ageLabel} disabled placeholder="Calculated from date of birth" />
+      </div>
+
+      <div className="col-12 col-md-6">
+        <label className="form-label">Gender</label>
+        <input className="form-control" name="gender" value={draft.gender} onChange={onChange} onBlur={onBlur} maxLength="120" placeholder="Enter gender manually" />
+      </div>
+
+      <div className="col-12 col-md-6">
+        <label className="form-label">Caste</label>
+        <input className="form-control" name="caste" value={draft.caste} onChange={onChange} onBlur={onBlur} maxLength="120" placeholder="Enter caste manually" />
       </div>
 
       <div className="col-12 col-md-6">
@@ -1128,10 +1331,10 @@ function EmployeeAdditionalDetailsPanel({ employee, profile }) {
   return (
     <div className="d-flex flex-column gap-3">
       <div className="row g-2">
-        <div className="col-12 col-md-6"><strong>Gender:</strong> {employee?.gender || '—'}</div>
+        <div className="col-12 col-md-6"><strong>Gender:</strong> {employee?.genderLabel || employee?.gender || '—'}</div>
         <div className="col-12 col-md-6"><strong>Date of Birth:</strong> {formatDate(employee?.dateOfBirth)}</div>
         <div className="col-12 col-md-6"><strong>Age:</strong> {formatEmployeeAge(employee?.dateOfBirth)}</div>
-        <div className="col-12 col-md-6"><strong>Blood Group:</strong> {employee?.bloodGroup || '—'}</div>
+        <div className="col-12 col-md-6"><strong>Blood Group:</strong> {employee?.bloodGroupLabel || employee?.bloodGroup || '—'}</div>
         <div className="col-12 col-md-6"><strong>Emergency Contact:</strong> {employee?.emergencyContact || '—'}</div>
         <div className="col-12"><strong>Address:</strong> {employee?.address || '—'}</div>
       </div>
@@ -1217,11 +1420,11 @@ function EmployeePreviewBasicInfoPanel({ employee, profile }) {
 function EmployeePreviewBasicDetailsPanel({ employee }) {
   return (
     <div className="row g-2">
-      <div className="col-12 col-md-6"><strong>Department:</strong> {employee?.department || '—'}</div>
-      <div className="col-12 col-md-6"><strong>Position:</strong> {employee?.position || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Department:</strong> {employee?.departmentLabel || employee?.department || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Position:</strong> {employee?.positionLabel || employee?.position || '—'}</div>
       <div className="col-12 col-md-6"><strong>Date of Joining:</strong> {formatDate(employee?.joinDate)}</div>
-      <div className="col-12 col-md-6"><strong>Work Location:</strong> {employee?.workLocation || '—'}</div>
-      <div className="col-12 col-md-6"><strong>Employee Type:</strong> {employee?.employeeType || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Work Location:</strong> {employee?.workLocationLabel || employee?.workLocation || '—'}</div>
+      <div className="col-12 col-md-6"><strong>Employee Type:</strong> {employee?.employeeTypeLabel || employee?.employeeType || '—'}</div>
       <div className="col-12 col-md-6"><strong>Billing Status:</strong> <EmployeeBadge value={employee?.billingStatus || 'Non Billable'} type="billingStatus" /></div>
       <div className="col-12"><strong>Assignment Statuses:</strong> {employee?.assignmentStatusSummary || 'No assignment'}</div>
       <div className="col-12 col-md-6"><strong>Manager:</strong> {employee?.managerName || '—'}</div>
@@ -1269,7 +1472,7 @@ function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, ro
       label: (entry) => roleCard ? (entry.roleName || '') : (entry.label || ''),
       value: (entry) => roleCard
         ? getRoleAccessSummary(getEffectiveRoleAccess(entry.access, entry.roleName, roleModules))
-        : (entry.value || ''),
+        : (entry.description || ''),
       description: (entry) => entry.description || '',
       status: (entry) => (entry.isActive === false ? 'Inactive' : 'Active')
     }
@@ -1297,8 +1500,7 @@ function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, ro
               <thead>
                 <tr>
                   <th><SortableHeader label={roleCard ? 'Role' : 'Label'} sortKey="label" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
-                  <th><SortableHeader label={roleCard ? 'Access Summary' : 'Value'} sortKey="value" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
-                  <th><SortableHeader label="Description" sortKey="description" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
+                  <th><SortableHeader label={roleCard ? 'Access Summary' : 'Description'} sortKey="value" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
                   <th><SortableHeader label="Status" sortKey="status" sortConfig={metadataSortConfig} onSort={requestMetadataSort} /></th>
                   <th className="text-center">Actions</th>
                 </tr>
@@ -1312,7 +1514,9 @@ function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, ro
                       <td className="employee-cell-wrap">
                         <CellStack
                           title={roleCard ? entry.roleName : entry.label}
-                          subtitle={roleCard ? `${accessMeta.moduleCount} module${accessMeta.moduleCount === 1 ? '' : 's'} configured • ${accessMeta.permissionCount} permission${accessMeta.permissionCount === 1 ? '' : 's'}` : null}
+                          subtitle={roleCard
+                            ? `${accessMeta.moduleCount} module${accessMeta.moduleCount === 1 ? '' : 's'} configured • ${accessMeta.permissionCount} permission${accessMeta.permissionCount === 1 ? '' : 's'}`
+                            : (entry.departmentLabel ? `Department: ${entry.departmentLabel}` : null)}
                         />
                       </td>
                       <td className="employee-cell-wrap">
@@ -1321,9 +1525,8 @@ function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, ro
                             <div className="fw-semibold small">{getRoleAccessSummary(effectiveAccess)}</div>
                             {isSystemAdminRoleName(entry.roleName) ? <div className="metadata-role-flag">Backend-managed full access</div> : null}
                           </div>
-                        ) : (entry.value || '—')}
+                        ) : (entry.description || '—')}
                       </td>
-                      <td className="employee-cell-wrap">{entry.description || '—'}</td>
                       <td><EmployeeBadge value={entry.isActive === false ? 'Inactive' : 'Active'} type="status" /></td>
                       <td className="employee-actions-cell">
                         {onEdit || onDelete ? (
@@ -1337,7 +1540,7 @@ function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, ro
                   )
                 }) : (
                   <tr>
-                    <td colSpan="5">
+                    <td colSpan="4">
                       <div className="employee-empty-state text-center py-4">
                         <div className="fw-semibold mb-1">No entries available.</div>
                         <div className="text-muted small">Create the first entry to make this catalog available in employee forms.</div>
@@ -1354,7 +1557,9 @@ function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, ro
   )
 }
 
-function MetadataEntryModal({ open, title, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit }) {
+function MetadataEntryModal({ open, title, draft, errors = {}, touched = {}, onChange, onBlur, onClose, onSubmit, departmentOptions = [] }) {
+  const isPositionCategory = draft.category === 'position'
+
   return (
     <ModalFrame
       open={open}
@@ -1369,20 +1574,30 @@ function MetadataEntryModal({ open, title, draft, errors = {}, touched = {}, onC
       )}
     >
       <div className="row g-3">
-        <div className="col-12 col-md-6">
+        <div className="col-12">
           <label className="form-label">Label*</label>
           <input className={`form-control${touched.label && errors.label ? ' is-invalid' : ''}`} name="label" value={draft.label} onChange={onChange} onBlur={onBlur} maxLength="120" />
           {touched.label && errors.label ? <div className="invalid-feedback d-block">{errors.label}</div> : null}
         </div>
-        <div className="col-12 col-md-6">
-          <label className="form-label">Value*</label>
-          <input className={`form-control${touched.value && errors.value ? ' is-invalid' : ''}`} name="value" value={draft.value} onChange={onChange} onBlur={onBlur} maxLength="120" />
-          <div className="form-text">Use backend-safe values like FullTime, Remote, Active, or Engineering.</div>
-          {touched.value && errors.value ? <div className="invalid-feedback d-block">{errors.value}</div> : null}
-        </div>
+        {isPositionCategory ? (
+          <div className="col-12">
+            <label className="form-label">Department*</label>
+            <AppSelect
+              name="departmentUid"
+              value={draft.departmentUid}
+              onChange={onChange}
+              onBlur={onBlur}
+              options={departmentOptions}
+              placeholder="Select department"
+              invalid={Boolean(touched.departmentUid && errors.departmentUid)}
+            />
+            {touched.departmentUid && errors.departmentUid ? <div className="invalid-feedback d-block">{errors.departmentUid}</div> : null}
+          </div>
+        ) : null}
         <div className="col-12">
           <label className="form-label">Description</label>
-          <textarea className="form-control" rows="3" name="description" value={draft.description} onChange={onChange} onBlur={onBlur} />
+          <textarea className="form-control" rows="3" name="description" value={draft.description} onChange={onChange} onBlur={onBlur} maxLength={isPositionCategory ? 150 : 255} />
+          {isPositionCategory ? <div className="form-text">Position notes are stored together with the department mapping, so keep the note concise.</div> : null}
         </div>
         <div className="col-12 col-md-6">
           <label className="form-label">Sort Order</label>
@@ -1502,7 +1717,7 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
       open={open}
       title={title}
       onClose={onClose}
-      size="lg"
+      size="xl"
       footer={(
         <>
           <button type="button" className="btn btn-light" onClick={onClose} disabled={isSaving}>Cancel</button>
@@ -1616,77 +1831,106 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
 
 function MappingModal({
   open,
+  mode,
   employee,
   draft,
   onChange,
   onClose,
   onSubmit,
   options,
-  scopeDepartment,
+  selectedDepartment,
+  selectedRole,
+  selectedEmployeeUid,
   departmentOptions,
-  onScopeDepartmentChange,
-  assignmentsRequired
+  roleOptions,
+  employeeOptions,
+  onDepartmentChange,
+  onRoleChange,
+  onEmployeeChange
 }) {
   return (
     <ModalFrame
       open={open}
-      title={employee ? `Map Reporting Structure • ${employee.fullName}` : 'Map Reporting Structure'}
+      title={employee ? `Map Reporting Structure • ${employee.fullName}` : 'Add Mapping'}
       onClose={onClose}
-      size="lg"
+      size="xxl"
       footer={(
         <>
           <button type="button" className="btn btn-light" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary" onClick={onSubmit}>Save Mapping</button>
+          <button type="button" className="btn btn-primary" onClick={onSubmit}>{mode === 'select' ? 'Continue' : 'Save Mapping'}</button>
         </>
       )}
     >
-      {employee ? (
-        <div className="row g-3">
-          <div className="col-12">
-            <div className="attendance-note-card">
-              <div className="fw-semibold">{employee.fullName}</div>
-              <div className="small text-muted">{employee.employeeCode} • {employee.roleName || 'No role assigned'} • {employee.department || 'No department'}</div>
-              <div className="small text-muted mt-1">
-                {!assignmentsRequired
-                  ? `${employee.roleName || 'This role'} is a management role. Reporting assignments are optional and will be cleared.`
-                  : scopeDepartment
-                  ? `Only ${scopeDepartment} department users are listed in the mapping dropdowns.`
-                  : 'Select a department first to scope mapping dropdowns. Keep "All departments" to show everyone.'}
-              </div>
+      <div className="row g-3">
+        <div className="col-12">
+          <div className="attendance-note-card">
+            <div className="fw-semibold">{employee ? employee.fullName : 'Select the employee to map'}</div>
+            <div className="small text-muted">
+              {employee
+                ? `${employee.employeeCode} • ${employee.roleName || 'No role assigned'} • ${employee.departmentLabel || employee.department || 'No department'}`
+                : 'Start with department, optionally narrow by role, then choose the employee record to map.'}
+            </div>
+            <div className="small text-muted mt-1">
+              {selectedDepartment
+                ? `Reporting assignment dropdowns are scoped to the ${selectedDepartment} department.`
+                : 'Choose a department first to scope the employee and reporting assignment lists.'}
             </div>
           </div>
-          <div className="col-12 col-md-6">
-            <label className="form-label">Department</label>
-            <AppSelect
-              value={scopeDepartment}
-              onChange={onScopeDepartmentChange}
-              options={departmentOptions}
-              placeholder="Select department"
-              disabled={!assignmentsRequired}
-            />
-          </div>
-          {assignmentsRequired ? (
-            <>
-              <div className="col-12 col-md-6">
-                <label className="form-label">Manager</label>
-                <AppSelect name="managerEmployeeUid" value={draft.managerEmployeeUid} onChange={onChange} options={options.manager} placeholder="Select manager" />
-              </div>
-              <div className="col-12 col-md-6">
-                <label className="form-label">HR</label>
-                <AppSelect name="hrEmployeeUid" value={draft.hrEmployeeUid} onChange={onChange} options={options.hr} placeholder="Select HR" />
-              </div>
-              <div className="col-12 col-md-6">
-                <label className="form-label">Team Lead</label>
-                <AppSelect name="teamLeadEmployeeUid" value={draft.teamLeadEmployeeUid} onChange={onChange} options={options.teamLead} placeholder="Select team lead" />
-              </div>
-              <div className="col-12 col-md-6">
-                <label className="form-label">Coordinator</label>
-                <AppSelect name="coordinatorEmployeeUid" value={draft.coordinatorEmployeeUid} onChange={onChange} options={options.coordinator} placeholder="Select coordinator" />
-              </div>
-            </>
-          ) : null}
         </div>
-      ) : null}
+        <div className="col-12 col-md-4">
+          <label className="form-label">Department</label>
+          <AppSelect
+            value={selectedDepartment}
+            onChange={onDepartmentChange}
+            options={departmentOptions}
+            placeholder="Select department"
+          />
+        </div>
+        <div className="col-12 col-md-4">
+          <label className="form-label">Role</label>
+          <AppSelect
+            value={selectedRole}
+            onChange={onRoleChange}
+            options={roleOptions}
+            placeholder="All non-employee roles"
+            disabled={!selectedDepartment}
+          />
+        </div>
+        <div className="col-12 col-md-4">
+          <label className="form-label">Employee</label>
+          <AppSelect
+            value={selectedEmployeeUid}
+            onChange={onEmployeeChange}
+            options={employeeOptions}
+            placeholder="Select employee"
+            disabled={!selectedDepartment}
+          />
+        </div>
+        {mode === 'edit' && employee ? (
+          <>
+            <div className="col-12 col-md-6">
+              <label className="form-label">Manager</label>
+              <AppSelect name="managerEmployeeUid" value={draft.managerEmployeeUid} onChange={onChange} options={options.manager} placeholder="Select manager" />
+            </div>
+            <div className="col-12 col-md-6">
+              <label className="form-label">HR</label>
+              <AppSelect name="hrEmployeeUid" value={draft.hrEmployeeUid} onChange={onChange} options={options.hr} placeholder="Select HR" />
+            </div>
+            <div className="col-12 col-md-6">
+              <label className="form-label">Team Lead</label>
+              <AppSelect name="teamLeadEmployeeUid" value={draft.teamLeadEmployeeUid} onChange={onChange} options={options.teamLead} placeholder="Select team lead" />
+            </div>
+            <div className="col-12 col-md-6">
+              <label className="form-label">Coordinator</label>
+              <AppSelect name="coordinatorEmployeeUid" value={draft.coordinatorEmployeeUid} onChange={onChange} options={options.coordinator} placeholder="Select coordinator" />
+            </div>
+          </>
+        ) : (
+          <div className="col-12">
+            <div className="text-muted small">Choose an employee to load and edit their reporting assignments.</div>
+          </div>
+        )}
+      </div>
     </ModalFrame>
   )
 }
@@ -1716,6 +1960,7 @@ export default function EmployeesManagement() {
   const { data: roles = [] } = useRoleDirectoryQuery(canViewMetadata || canViewEntries)
   const projectAssignmentsQuery = useProjectAssignmentsQuery(canViewEntries)
   const { data: roleModules = [], isFetching: roleModulesFetching } = useRoleModulesQuery(canViewMetadata)
+  const { data: phoneCountryOptionsData = [] } = usePhoneCountryOptionsQuery(canViewEntries || canViewMetadata || canViewRequests)
   const { addEmployee, bulkAddEmployees, updateEmployee, deleteEmployee } = useEmployeeDirectoryActions()
   const {
     data: profileRequests = [],
@@ -1751,11 +1996,7 @@ export default function EmployeesManagement() {
   const [mappingSearch, setMappingSearch] = useState('')
   const [mappingDepartmentFilter, setMappingDepartmentFilter] = useState('All')
   const [mappingRoleFilter, setMappingRoleFilter] = useState('All')
-  const [mappingPositionFilter, setMappingPositionFilter] = useState('All')
-  const [mappingManagerFilter, setMappingManagerFilter] = useState('All')
-  const [mappingHrFilter, setMappingHrFilter] = useState('All')
-  const [mappingTeamLeadFilter, setMappingTeamLeadFilter] = useState('All')
-  const [mappingCoordinatorFilter, setMappingCoordinatorFilter] = useState('All')
+  const [mappingEmployeeFilter, setMappingEmployeeFilter] = useState('All')
 
   const [isEmployeeFormOpen, setIsEmployeeFormOpen] = useState(false)
   const [isImportOpen, setIsImportOpen] = useState(false)
@@ -1773,14 +2014,17 @@ export default function EmployeesManagement() {
   const [previewEmployeeTab, setPreviewEmployeeTab] = useState('basic-info')
 
   const [metadataModal, setMetadataModal] = useState(null)
-  const [metadataDraft, setMetadataDraft] = useState({ category: '', value: '', label: '', description: '', isActive: true, sortOrder: 0 })
+  const [metadataDraft, setMetadataDraft] = useState({ category: '', label: '', description: '', departmentUid: '', isActive: true, sortOrder: 0 })
   const [metadataTouched, setMetadataTouched] = useState({})
   const [roleDraft, setRoleDraft] = useState(() => createEmptyRoleDraft())
   const [roleTouched, setRoleTouched] = useState({})
   const [isRoleSaving, setIsRoleSaving] = useState(false)
 
   const [mappingModalOpen, setMappingModalOpen] = useState(false)
+  const [mappingModalMode, setMappingModalMode] = useState('select')
   const [mappingEmployee, setMappingEmployee] = useState(null)
+  const [mappingSelectedEmployeeUid, setMappingSelectedEmployeeUid] = useState('')
+  const [mappingSelectedRole, setMappingSelectedRole] = useState('')
   const [mappingDraft, setMappingDraft] = useState(createMappingDraft(null))
   const [mappingScopeDepartment, setMappingScopeDepartment] = useState('')
 
@@ -1801,6 +2045,7 @@ export default function EmployeesManagement() {
       return accumulator
     }, {})
   }, [metadataEntries])
+  const metadataCatalog = useMemo(() => buildEmployeeMetadataCatalog(metadataEntries), [metadataEntries])
 
   const backendRoleModulesUnavailable = canViewMetadata && !roleModulesFetching && Array.isArray(roleModules) && roleModules.length === 0
   const rolePermissionModules = useMemo(() => dedupeRoleModules([
@@ -1867,6 +2112,13 @@ export default function EmployeesManagement() {
   const employees = useMemo(() => employeesData.map((employee) => ({
     ...employee,
     roleName: roleDirectory.get(String(employee.roleType || '')) || employee.roleName || '',
+    departmentLabel: getMetadataDisplayLabel(metadataCatalog, 'department', employee.department),
+    positionLabel: getMetadataDisplayLabel(metadataCatalog, 'position', employee.position),
+    statusLabel: getMetadataDisplayLabel(metadataCatalog, 'status', employee.status),
+    workLocationLabel: getMetadataDisplayLabel(metadataCatalog, 'work_location', employee.workLocation),
+    employeeTypeLabel: getMetadataDisplayLabel(metadataCatalog, 'employee_type', employee.employeeType),
+    bloodGroupLabel: getMetadataDisplayLabel(metadataCatalog, 'blood_group', employee.bloodGroup),
+    genderLabel: getMetadataDisplayLabel(metadataCatalog, 'gender', employee.gender),
     managerName: employeeNameDirectory.get(String(employee.managerEmployeeUid || '')) || '',
     hrEmployeeName: employeeNameDirectory.get(String(employee.hrEmployeeUid || '')) || '',
     teamLeadName: employeeNameDirectory.get(String(employee.teamLeadEmployeeUid || '')) || '',
@@ -1874,54 +2126,45 @@ export default function EmployeesManagement() {
     assignmentStatuses: assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || [],
     assignmentStatusSummary: (assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || []).map(formatAssignmentStatus).join(', ') || 'No assignment',
     billingStatus: resolveBillingStatus(assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || [])
-  })), [assignmentStatusesByEmployeeUid, employeesData, roleDirectory, employeeNameDirectory])
+  })), [assignmentStatusesByEmployeeUid, employeesData, roleDirectory, metadataCatalog, employeeNameDirectory])
   const employeeDirectoryByUid = useMemo(() => new Map(employees.map((employee) => [String(employee.uid), employee])), [employees])
+  const mappedEmployees = useMemo(() => employees.filter((employee) => isEmployeeMapped(employee)), [employees])
 
-  const positionValues = useMemo(() => mergeOptionValues(
-    EMPLOYEE_POSITION_OPTIONS,
-    [...(metadataByCategory.position || []).filter((entry) => entry.isActive).map((entry) => entry.value), ...employees.map((employee) => employee.position)]
-  ), [employees, metadataByCategory.position])
-
-  const departmentValues = useMemo(() => mergeOptionValues(
-    EMPLOYEE_DEPARTMENT_OPTIONS,
-    [...(metadataByCategory.department || []).filter((entry) => entry.isActive).map((entry) => entry.value), ...employees.map((employee) => employee.department)]
-  ), [employees, metadataByCategory.department])
-
-  const statusValues = useMemo(() => mergeOptionValues(
-    EMPLOYEE_STATUS_OPTIONS,
-    [...(metadataByCategory.status || []).filter((entry) => entry.isActive).map((entry) => entry.value), ...employees.map((employee) => employee.status)]
-  ), [employees, metadataByCategory.status])
-
-  const workLocationValues = useMemo(() => mergeOptionValues(
-    EMPLOYEE_WORK_LOCATION_OPTIONS,
-    [...(metadataByCategory.work_location || []).filter((entry) => entry.isActive).map((entry) => entry.value), ...employees.map((employee) => employee.workLocation)]
-  ), [employees, metadataByCategory.work_location])
-
-  const employeeTypeValues = useMemo(() => mergeOptionValues(
-    EMPLOYEE_TYPE_OPTIONS,
-    [...(metadataByCategory.employee_type || []).filter((entry) => entry.isActive).map((entry) => entry.value), ...employees.map((employee) => employee.employeeType)]
-  ), [employees, metadataByCategory.employee_type])
-
-  const bloodGroupValues = useMemo(() => mergeOptionValues(
-    EMPLOYEE_BLOOD_GROUP_OPTIONS,
-    [...(metadataByCategory.blood_group || []).filter((entry) => entry.isActive).map((entry) => entry.value), ...employees.map((employee) => employee.bloodGroup)]
-  ), [employees, metadataByCategory.blood_group])
-
-  const genderValues = useMemo(() => mergeOptionValues(
-    EMPLOYEE_GENDER_OPTIONS,
-    [...(metadataByCategory.gender || []).filter((entry) => entry.isActive).map((entry) => entry.value), ...employees.map((employee) => employee.gender)]
-  ), [employees, metadataByCategory.gender])
+  const departmentValues = useMemo(
+    () => metadataCatalog.departmentEntries.map((entry) => entry.value),
+    [metadataCatalog.departmentEntries]
+  )
 
   const roleOptions = useMemo(() => roles.map((role) => ({ value: role.uid, label: role.roleName, description: role.description || 'Auth role' })), [roles])
   const roleFilterOptions = useMemo(() => buildSelectOptions(roles.map((role) => ({ value: role.uid, label: role.roleName, description: role.description || 'Role filter' })), 'All roles'), [roles])
-  const positionFilterOptions = useMemo(() => buildSelectOptions(positionValues), [positionValues])
-  const departmentFilterOptions = useMemo(() => buildSelectOptions(departmentValues), [departmentValues])
-  const mappingDepartmentFilterOptions = useMemo(() => buildSelectOptions(departmentValues, 'All departments'), [departmentValues])
-  const statusFilterOptions = useMemo(() => buildSelectOptions(statusValues), [statusValues])
-  const workLocationFilterOptions = useMemo(() => buildSelectOptions(workLocationValues), [workLocationValues])
-  const employeeTypeFilterOptions = useMemo(() => buildSelectOptions(employeeTypeValues), [employeeTypeValues])
-  const genderFilterOptions = useMemo(() => buildSelectOptions(genderValues), [genderValues])
-  const bloodGroupFilterOptions = useMemo(() => buildSelectOptions(bloodGroupValues), [bloodGroupValues])
+  const departmentMetadataOptions = useMemo(
+    () => buildMetadataOptions(metadataCatalog.departmentEntries),
+    [metadataCatalog.departmentEntries]
+  )
+  const metadataDepartmentOptions = useMemo(
+    () => metadataCatalog.departmentEntries.map((entry) => ({
+      value: entry.uid,
+      label: entry.label || entry.value || '',
+      description: entry.description || ''
+    })),
+    [metadataCatalog.departmentEntries]
+  )
+  const scopedPositionFilterOptions = useMemo(
+    () => (
+      departmentFilter === 'All'
+        ? buildMetadataOptions(metadataCatalog.positionEntries, positionFilter === 'All' ? '' : positionFilter)
+        : buildDepartmentScopedPositionOptions(metadataCatalog, departmentFilter, positionFilter === 'All' ? '' : positionFilter)
+    ),
+    [departmentFilter, metadataCatalog, positionFilter]
+  )
+  const positionFilterOptions = useMemo(() => buildSelectOptions(scopedPositionFilterOptions, 'All positions'), [scopedPositionFilterOptions])
+  const departmentFilterOptions = useMemo(() => buildSelectOptions(departmentMetadataOptions), [departmentMetadataOptions])
+  const mappingDepartmentFilterOptions = useMemo(() => buildSelectOptions(departmentMetadataOptions, 'All departments'), [departmentMetadataOptions])
+  const statusFilterOptions = useMemo(() => buildSelectOptions(buildMetadataOptions(metadataCatalog.byCategory.status || [])), [metadataCatalog.byCategory.status])
+  const workLocationFilterOptions = useMemo(() => buildSelectOptions(buildMetadataOptions(metadataCatalog.byCategory.work_location || [])), [metadataCatalog.byCategory.work_location])
+  const employeeTypeFilterOptions = useMemo(() => buildSelectOptions(buildMetadataOptions(metadataCatalog.byCategory.employee_type || [])), [metadataCatalog.byCategory.employee_type])
+  const genderFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.gender)), 'All genders'), [employees])
+  const bloodGroupFilterOptions = useMemo(() => buildSelectOptions(buildMetadataOptions(metadataCatalog.byCategory.blood_group || [])), [metadataCatalog.byCategory.blood_group])
   const billingStatusFilterOptions = useMemo(() => buildSelectOptions([
     { value: 'Billable', label: 'Billable', description: 'Project assignment status is assigned or active.' },
     { value: 'Non Billable', label: 'Non Billable', description: 'Project assignment status is released, hold, terminated, inactive, or completed.' }
@@ -1931,19 +2174,19 @@ export default function EmployeesManagement() {
   const teamLeadFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.teamLeadName)), 'All team leads'), [employees])
   const coordinatorFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], employees.map((employee) => employee.coordinatorName)), 'All coordinators'), [employees])
 
-  const positionFormOptions = useMemo(() => positionValues.map((value) => ({ value, label: value })), [positionValues])
-  const departmentFormOptions = useMemo(() => departmentValues.map((value) => ({ value, label: value })), [departmentValues])
-  const mappingModalDepartmentOptions = useMemo(() => buildSelectOptions(departmentValues, 'All departments', ''), [departmentValues])
-  const statusFormOptions = useMemo(() => statusValues.map((value) => ({ value, label: value })), [statusValues])
-  const workLocationFormOptions = useMemo(() => workLocationValues.map((value) => ({ value, label: value })), [workLocationValues])
-  const employeeTypeFormOptions = useMemo(() => employeeTypeValues.map((value) => ({ value, label: value })), [employeeTypeValues])
-  const bloodGroupFormOptions = useMemo(() => bloodGroupValues.map((value) => ({ value, label: value })), [bloodGroupValues])
-  const genderFormOptions = useMemo(() => genderValues.map((value) => ({ value, label: value })), [genderValues])
-  const phoneCountryFormOptions = useMemo(() => PHONE_COUNTRY_OPTIONS.map((option) => ({
-    value: option.dialCode,
-    label: option.dialCode,
-    description: `${option.label} - ${formatPhoneLengthRule(option.dialCode)}`
-  })), [])
+  const positionFormOptions = useMemo(
+    () => buildDepartmentScopedPositionOptions(metadataCatalog, employeeDraft.department, employeeDraft.position),
+    [employeeDraft.department, employeeDraft.position, metadataCatalog]
+  )
+  const departmentFormOptions = useMemo(
+    () => buildMetadataOptions(metadataCatalog.departmentEntries, employeeDraft.department),
+    [employeeDraft.department, metadataCatalog.departmentEntries]
+  )
+  const mappingModalDepartmentOptions = useMemo(() => buildSelectOptions(departmentMetadataOptions, 'Select department', ''), [departmentMetadataOptions])
+  const statusFormOptions = useMemo(() => buildMetadataOptions(metadataCatalog.byCategory.status || [], employeeDraft.status), [employeeDraft.status, metadataCatalog.byCategory.status])
+  const workLocationFormOptions = useMemo(() => buildMetadataOptions(metadataCatalog.byCategory.work_location || [], employeeDraft.workLocation), [employeeDraft.workLocation, metadataCatalog.byCategory.work_location])
+  const employeeTypeFormOptions = useMemo(() => buildMetadataOptions(metadataCatalog.byCategory.employee_type || [], employeeDraft.employeeType), [employeeDraft.employeeType, metadataCatalog.byCategory.employee_type])
+  const phoneCountryFormOptions = useMemo(() => buildPhoneCountrySelectOptions(phoneCountryOptionsData), [phoneCountryOptionsData])
   const employeeFormTabs = useMemo(
     () => employeeFormMode === 'edit'
       ? EMPLOYEE_VIEW_TABS
@@ -1953,43 +2196,151 @@ export default function EmployeesManagement() {
   const deferredSearch = useDeferredValue(search)
   const deferredMappingSearch = useDeferredValue(mappingSearch)
 
-  const mappableEmployees = useMemo(() => (
-    employees.filter((employee) => {
-      const roleMeta = getEmployeeRoleMeta(employee.roleName)
-      return !roleMeta.isMappingExempt && hasAnyRoleKeyword(employee.roleName, ROLE_KEYWORDS.employee)
-    })
-  ), [employees])
-
   const mappingDepartmentScopedEmployees = useMemo(() => (
-    mappableEmployees.filter((employee) => (
+    mappedEmployees.filter((employee) => (
       mappingDepartmentFilter === 'All'
       || employee.department === mappingDepartmentFilter
     ))
-  ), [mappableEmployees, mappingDepartmentFilter])
+  ), [mappedEmployees, mappingDepartmentFilter])
 
-  const mappingRoleFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], mappingDepartmentScopedEmployees.map((employee) => employee.roleName)), 'All roles'), [mappingDepartmentScopedEmployees])
-  const mappingPositionFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], mappingDepartmentScopedEmployees.map((employee) => employee.position)), 'All positions'), [mappingDepartmentScopedEmployees])
-  const mappingManagerFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], mappingDepartmentScopedEmployees.map((employee) => employee.managerName)), 'All managers'), [mappingDepartmentScopedEmployees])
-  const mappingHrFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], mappingDepartmentScopedEmployees.map((employee) => employee.hrEmployeeName)), 'All HRs'), [mappingDepartmentScopedEmployees])
-  const mappingTeamLeadFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], mappingDepartmentScopedEmployees.map((employee) => employee.teamLeadName)), 'All team leads'), [mappingDepartmentScopedEmployees])
-  const mappingCoordinatorFilterOptions = useMemo(() => buildSelectOptions(mergeOptionValues([], mappingDepartmentScopedEmployees.map((employee) => employee.coordinatorName)), 'All coordinators'), [mappingDepartmentScopedEmployees])
+  const mappingRoleFilterOptions = useMemo(() => buildSelectOptions(
+    mergeOptionValues([], mappingDepartmentScopedEmployees
+      .filter((employee) => !isGenericEmployeeRole(employee.roleName))
+      .map((employee) => employee.roleName)),
+    'All roles'
+  ), [mappingDepartmentScopedEmployees])
+  const mappingRoleScopedEmployees = useMemo(() => mappingDepartmentScopedEmployees.filter((employee) => (
+    mappingRoleFilter === 'All'
+    || employee.roleName === mappingRoleFilter
+  )), [mappingDepartmentScopedEmployees, mappingRoleFilter])
+  const mappingEmployeeFilterOptions = useMemo(() => buildSelectOptions(
+    mappingRoleScopedEmployees.map((employee) => ({
+      value: employee.uid,
+      label: employee.fullName || employee.employeeCode || 'Employee',
+      description: `${employee.employeeCode || 'No code'} • ${employee.roleName || 'No role'}`
+    })),
+    'All employees'
+  ), [mappingRoleScopedEmployees])
+
+  const mappingModalDepartmentEmployees = useMemo(() => (
+    mappingScopeDepartment
+      ? employees.filter((employee) => String(employee.department || '').trim() === String(mappingScopeDepartment || '').trim())
+      : []
+  ), [employees, mappingScopeDepartment])
+
+  const mappingModalRoleOptions = useMemo(() => {
+    const entries = new Map()
+
+    mappingModalDepartmentEmployees.forEach((employee) => {
+      const roleValue = String(employee.roleType || employee.roleName || '').trim()
+      const roleLabel = String(employee.roleName || '').trim()
+      if (!roleValue || !roleLabel || isGenericEmployeeRole(roleLabel)) return
+      if (entries.has(roleValue)) return
+
+      entries.set(roleValue, {
+        value: roleValue,
+        label: roleLabel,
+        description: `${roleLabel} employees in ${mappingScopeDepartment}`
+      })
+    })
+
+    const currentRoleValue = String(mappingSelectedRole || '').trim()
+    const currentEmployeeRoleValue = String(mappingEmployee?.roleType || mappingEmployee?.roleName || '').trim()
+    const currentEmployeeRoleLabel = String(mappingEmployee?.roleName || currentEmployeeRoleValue || '').trim()
+    if (
+      currentRoleValue
+      && currentRoleValue === currentEmployeeRoleValue
+      && currentEmployeeRoleLabel
+      && !isGenericEmployeeRole(currentEmployeeRoleLabel)
+      && !entries.has(currentRoleValue)
+    ) {
+      entries.set(currentRoleValue, {
+        value: currentRoleValue,
+        label: currentEmployeeRoleLabel,
+        description: 'Current selected role'
+      })
+    }
+
+    return Array.from(entries.values()).sort((left, right) => left.label.localeCompare(right.label))
+  }, [mappingEmployee, mappingModalDepartmentEmployees, mappingScopeDepartment, mappingSelectedRole])
+
+  const mappingModalEmployeeOptions = useMemo(() => {
+    const selectedRoleValue = String(mappingSelectedRole || '').trim()
+    const selectedEmployeeValue = String(mappingSelectedEmployeeUid || '').trim()
+    const selectedEmployee = selectedEmployeeValue ? employeeDirectoryByUid.get(selectedEmployeeValue) : null
+
+    const scopedEmployees = mappingModalDepartmentEmployees.filter((employee) => (
+      !selectedRoleValue || String(employee.roleType || employee.roleName || '').trim() === selectedRoleValue
+    ))
+
+    const optionEmployees = selectedEmployee
+      && !scopedEmployees.some((employee) => String(employee.uid || '') === selectedEmployeeValue)
+      && String(selectedEmployee.department || '').trim() === String(mappingScopeDepartment || '').trim()
+      ? [...scopedEmployees, selectedEmployee]
+      : scopedEmployees
+
+    return optionEmployees
+      .sort((left, right) => String(left.fullName || left.employeeCode || '').localeCompare(String(right.fullName || right.employeeCode || '')))
+      .map((employee) => ({
+        value: employee.uid,
+        label: employee.fullName || employee.employeeCode || 'Employee',
+        description: `${employee.employeeCode || 'No code'} • ${employee.roleName || 'No role'} • ${employee.positionLabel || employee.position || 'No position'}`
+      }))
+  }, [employeeDirectoryByUid, mappingModalDepartmentEmployees, mappingScopeDepartment, mappingSelectedEmployeeUid, mappingSelectedRole])
+
+  useEffect(() => {
+    if (positionFilter === 'All') return
+    if (positionFilterOptions.some((option) => String(option.value) === String(positionFilter))) return
+    setPositionFilter('All')
+  }, [positionFilter, positionFilterOptions])
+
+  useEffect(() => {
+    if (mappingRoleFilter === 'All') return
+    if (mappingRoleFilterOptions.some((option) => String(option.value) === String(mappingRoleFilter))) return
+    setMappingRoleFilter('All')
+  }, [mappingRoleFilter, mappingRoleFilterOptions])
+
+  useEffect(() => {
+    if (mappingEmployeeFilter === 'All') return
+    if (mappingEmployeeFilterOptions.some((option) => String(option.value) === String(mappingEmployeeFilter))) return
+    setMappingEmployeeFilter('All')
+  }, [mappingEmployeeFilter, mappingEmployeeFilterOptions])
+
+  useEffect(() => {
+    if (!mappingSelectedRole) return
+    if (mappingModalRoleOptions.some((option) => String(option.value) === String(mappingSelectedRole))) return
+    setMappingSelectedRole('')
+  }, [mappingModalRoleOptions, mappingSelectedRole])
+
+  useEffect(() => {
+    if (!mappingSelectedEmployeeUid) return
+    if (mappingModalEmployeeOptions.some((option) => String(option.value) === String(mappingSelectedEmployeeUid))) return
+    setMappingSelectedEmployeeUid('')
+  }, [mappingModalEmployeeOptions, mappingSelectedEmployeeUid])
 
   const filteredEmployees = useMemo(() => filterCollectionByQuery(employees, deferredSearch, [
     'employeeCode',
     'fullName',
     'roleName',
     'position',
+    'positionLabel',
     'department',
+    'departmentLabel',
     'email',
     'phone',
     'status',
+    'statusLabel',
     'dateOfBirth',
     'gender',
+    'genderLabel',
     'bloodGroup',
+    'bloodGroupLabel',
     'address',
     'emergencyContact',
     'workLocation',
+    'workLocationLabel',
     'employeeType',
+    'employeeTypeLabel',
     'managerName',
     'hrEmployeeName',
     'teamLeadName',
@@ -2075,12 +2426,14 @@ export default function EmployeesManagement() {
     }
   })
 
-  const mappingRows = useMemo(() => filterCollectionByQuery(mappableEmployees, deferredMappingSearch, [
+  const mappingRows = useMemo(() => filterCollectionByQuery(mappedEmployees, deferredMappingSearch, [
     'employeeCode',
     'fullName',
     'roleName',
     'department',
+    'departmentLabel',
     'position',
+    'positionLabel',
     'managerName',
     'hrEmployeeName',
     'teamLeadName',
@@ -2088,29 +2441,17 @@ export default function EmployeesManagement() {
   ]).filter((employee) => {
     const matchesDepartment = mappingDepartmentFilter === 'All' || employee.department === mappingDepartmentFilter
     const matchesRole = mappingRoleFilter === 'All' || employee.roleName === mappingRoleFilter
-    const matchesPosition = mappingPositionFilter === 'All' || employee.position === mappingPositionFilter
-    const matchesManager = mappingManagerFilter === 'All' || employee.managerName === mappingManagerFilter
-    const matchesHr = mappingHrFilter === 'All' || employee.hrEmployeeName === mappingHrFilter
-    const matchesTeamLead = mappingTeamLeadFilter === 'All' || employee.teamLeadName === mappingTeamLeadFilter
-    const matchesCoordinator = mappingCoordinatorFilter === 'All' || employee.coordinatorName === mappingCoordinatorFilter
+    const matchesEmployee = mappingEmployeeFilter === 'All' || String(employee.uid || '') === String(mappingEmployeeFilter)
 
     return matchesDepartment
       && matchesRole
-      && matchesPosition
-      && matchesManager
-      && matchesHr
-      && matchesTeamLead
-      && matchesCoordinator
+      && matchesEmployee
   }), [
     deferredMappingSearch,
-    mappableEmployees,
-    mappingCoordinatorFilter,
+    mappedEmployees,
     mappingDepartmentFilter,
-    mappingHrFilter,
-    mappingManagerFilter,
-    mappingPositionFilter,
+    mappingEmployeeFilter,
     mappingRoleFilter,
-    mappingTeamLeadFilter
   ])
 
   const metrics = useMemo(() => {
@@ -2136,19 +2477,16 @@ export default function EmployeesManagement() {
     return { locked, unlocked, pendingFirstLogin, expiredWindow }
   }, [profileRequests])
 
-  const mappingEmployeeRoleMeta = useMemo(() => getEmployeeRoleMeta(mappingEmployee?.roleName), [mappingEmployee?.roleName])
-  const mappingAssignmentsRequired = useMemo(() => !mappingEmployeeRoleMeta.isMappingExempt, [mappingEmployeeRoleMeta.isMappingExempt])
-
   const mappingScopedEmployees = useMemo(() => {
-    if (!mappingAssignmentsRequired) return []
+    if (!mappingEmployee) return []
 
     const selectedDepartment = String(mappingScopeDepartment || '').trim()
-    const sourceEmployees = selectedDepartment
-      ? employees.filter((employee) => String(employee.department || '').trim() === selectedDepartment)
-      : employees
+    if (!selectedDepartment) return []
+
+    const sourceEmployees = employees.filter((employee) => String(employee.department || '').trim() === selectedDepartment)
 
     return sourceEmployees.filter((employee) => String(employee.uid || '') !== String(mappingEmployee?.uid || ''))
-  }, [employees, mappingAssignmentsRequired, mappingEmployee, mappingScopeDepartment])
+  }, [employees, mappingEmployee, mappingScopeDepartment])
 
   const isManagerCandidate = useCallback((employee) => {
     const roleMeta = getEmployeeRoleMeta(employee?.roleName)
@@ -2172,7 +2510,7 @@ export default function EmployeesManagement() {
 
   const buildMappingOptionList = useCallback((selectedUid = '', { isCandidateEligible = () => true } = {}) => {
     const baseOptions = [{ value: '', label: 'Unassigned', description: 'Remove current mapping' }]
-    if (!mappingAssignmentsRequired) return baseOptions
+    if (!mappingEmployee) return baseOptions
 
     const selectedValue = String(selectedUid || '')
     const selectedEmployee = employees.find((employee) => String(employee.uid || '') === selectedValue)
@@ -2192,7 +2530,7 @@ export default function EmployeesManagement() {
         description: `${employee.employeeCode} • ${employee.roleName || 'No role'} • ${employee.department || 'No department'}`
       }))
     ]
-  }, [employees, mappingAssignmentsRequired, mappingEmployee, mappingScopedEmployees])
+  }, [employees, mappingEmployee, mappingScopedEmployees])
 
   const employeeMappingOptions = useMemo(() => ({
     manager: buildMappingOptionList(mappingDraft.managerEmployeeUid, { isCandidateEligible: isManagerCandidate }),
@@ -2210,6 +2548,19 @@ export default function EmployeesManagement() {
     mappingDraft.managerEmployeeUid,
     mappingDraft.teamLeadEmployeeUid
   ])
+
+  useEffect(() => {
+    const selectedEmployeeValue = String(mappingSelectedEmployeeUid || '').trim()
+    if (!selectedEmployeeValue) {
+      setMappingEmployee(null)
+      setMappingDraft(createMappingDraft(null))
+      return
+    }
+
+    const nextEmployee = employeeDirectoryByUid.get(selectedEmployeeValue) || null
+    setMappingEmployee(nextEmployee)
+    setMappingDraft(createMappingDraft(nextEmployee))
+  }, [employeeDirectoryByUid, mappingSelectedEmployeeUid])
 
   useEffect(() => {
     let isMounted = true
@@ -2315,26 +2666,22 @@ export default function EmployeesManagement() {
     setMappingSearch('')
     setMappingDepartmentFilter('All')
     setMappingRoleFilter('All')
-    setMappingPositionFilter('All')
-    setMappingManagerFilter('All')
-    setMappingHrFilter('All')
-    setMappingTeamLeadFilter('All')
-    setMappingCoordinatorFilter('All')
+    setMappingEmployeeFilter('All')
   }
 
   function handleMappingDepartmentFilterChange(nextDepartment) {
     setMappingDepartmentFilter(nextDepartment)
     setMappingRoleFilter('All')
-    setMappingPositionFilter('All')
-    setMappingManagerFilter('All')
-    setMappingHrFilter('All')
-    setMappingTeamLeadFilter('All')
-    setMappingCoordinatorFilter('All')
+    setMappingEmployeeFilter('All')
   }
 
   function closeMappingModal() {
     setMappingModalOpen(false)
+    setMappingModalMode('select')
     setMappingEmployee(null)
+    setMappingSelectedEmployeeUid('')
+    setMappingSelectedRole('')
+    setMappingDraft(createMappingDraft(null))
     setMappingScopeDepartment('')
   }
 
@@ -2387,7 +2734,12 @@ export default function EmployeesManagement() {
         value = String(value).replace(/\D/g, '').slice(0, maxLength)
       }
 
-      return { ...current, [name]: value }
+      const nextDraft = { ...current, [name]: value }
+      if (name === 'department' && !isPositionMappedToDepartment(metadataCatalog, nextDraft.position, value)) {
+        nextDraft.position = ''
+      }
+
+      return nextDraft
     })
   }
 
@@ -2511,7 +2863,7 @@ export default function EmployeesManagement() {
       return
     }
 
-    const { payloads, errors } = buildImportPayloads(rows, employees, roleDirectory)
+    const { payloads, errors } = buildImportPayloads(rows, employees, roleDirectory, metadataCatalog)
 
     if (!payloads.length) {
       showStatus({ type: 'error', title: 'Import file is not ready', message: errors[0] || 'The uploaded file did not contain valid employee rows.' })
@@ -2546,7 +2898,7 @@ export default function EmployeesManagement() {
       return
     }
     setMetadataModal({ kind: 'metadata', category, mode: 'create' })
-    setMetadataDraft({ category, value: '', label: '', description: '', isActive: true, sortOrder: 0 })
+    setMetadataDraft({ category, label: '', description: '', departmentUid: '', isActive: true, sortOrder: 0 })
     setMetadataTouched({})
   }
 
@@ -2565,9 +2917,9 @@ export default function EmployeesManagement() {
     setMetadataModal({ kind: 'metadata', category, mode: 'edit', entry })
     setMetadataDraft({
       category,
-      value: entry.value || '',
       label: entry.label || '',
       description: entry.description || '',
+      departmentUid: entry.departmentUid || '',
       isActive: entry.isActive !== false,
       sortOrder: entry.sortOrder || 0
     })
@@ -2680,11 +3032,15 @@ export default function EmployeesManagement() {
       return
     }
 
-    setMetadataTouched((current) => ({ ...current, ...markFieldsTouched(['label', 'value']) }))
+    const metadataValidationFields = metadataDraft.category === 'position'
+      ? ['label', 'departmentUid']
+      : ['label']
 
-    if (hasValidationErrors(metadataErrors, ['label', 'value'])) {
-      const firstError = ['label', 'value'].map((fieldName) => metadataErrors[fieldName]).find(Boolean)
-      showStatus({ type: 'error', title: 'Missing metadata value', message: firstError || 'Label and value are both required.' })
+    setMetadataTouched((current) => ({ ...current, ...markFieldsTouched(metadataValidationFields) }))
+
+    if (hasValidationErrors(metadataErrors, metadataValidationFields)) {
+      const firstError = metadataValidationFields.map((fieldName) => metadataErrors[fieldName]).find(Boolean)
+      showStatus({ type: 'error', title: 'Missing metadata value', message: firstError || 'Label is required.' })
       return
     }
 
@@ -2734,16 +3090,33 @@ export default function EmployeesManagement() {
     }
   }
 
+  function openCreateMapping() {
+    if (!canUpdateEmployees) {
+      showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to update employee mapping.' })
+      return
+    }
+
+    setMappingModalMode('select')
+    setMappingScopeDepartment('')
+    setMappingSelectedRole('')
+    setMappingSelectedEmployeeUid('')
+    setMappingEmployee(null)
+    setMappingDraft(createMappingDraft(null))
+    setMappingModalOpen(true)
+  }
+
   function openMappingModal(employee) {
     if (!canUpdateEmployees) {
       showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to update employee mapping.' })
       return
     }
 
-    const roleMeta = getEmployeeRoleMeta(employee?.roleName)
+    setMappingModalMode('edit')
     setMappingEmployee(employee)
-    setMappingDraft(roleMeta.isMappingExempt ? createMappingDraft(null) : createMappingDraft(employee))
-    setMappingScopeDepartment(roleMeta.isMappingExempt ? '' : String(employee?.department || '').trim())
+    setMappingSelectedEmployeeUid(String(employee?.uid || ''))
+    setMappingSelectedRole(isGenericEmployeeRole(employee?.roleName) ? '' : String(employee?.roleType || employee?.roleName || '').trim())
+    setMappingDraft(createMappingDraft(employee))
+    setMappingScopeDepartment(String(employee?.department || '').trim())
     setMappingModalOpen(true)
   }
 
@@ -2753,20 +3126,58 @@ export default function EmployeesManagement() {
   }
 
   function handleMappingScopeDepartmentChange(nextDepartment) {
-    if (!mappingAssignmentsRequired) return
     setMappingScopeDepartment(nextDepartment)
+    setMappingSelectedRole('')
+    setMappingSelectedEmployeeUid('')
+    setMappingEmployee(null)
     setMappingDraft(createMappingDraft(null))
   }
 
+  function handleMappingRoleChange(nextRole) {
+    setMappingSelectedRole(nextRole)
+    setMappingSelectedEmployeeUid('')
+    setMappingEmployee(null)
+    setMappingDraft(createMappingDraft(null))
+  }
+
+  function handleMappingEmployeeChange(eventOrValue) {
+    if (eventOrValue && typeof eventOrValue === 'object' && eventOrValue.target) {
+      handleMappingDraftChange(eventOrValue)
+      return
+    }
+
+    const nextEmployeeUid = String(eventOrValue || '').trim()
+    setMappingSelectedEmployeeUid(nextEmployeeUid)
+  }
+
   async function handleSaveMapping() {
-    if (!mappingEmployee) return
     if (!canUpdateEmployees) {
       showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to update employee mapping.' })
       return
     }
 
-    const roleMeta = getEmployeeRoleMeta(mappingEmployee.roleName)
-    const effectiveDraft = roleMeta.isMappingExempt ? createMappingDraft(null) : mappingDraft
+    const selectedDepartment = String(mappingScopeDepartment || '').trim()
+    if (!selectedDepartment) {
+      showStatus({ type: 'error', title: 'Missing department', message: 'Select the department before saving a mapping.' })
+      return
+    }
+
+    if (!mappingEmployee?.uid) {
+      showStatus({ type: 'error', title: 'Missing employee', message: 'Select the employee record to map before saving.' })
+      return
+    }
+
+    if (String(mappingEmployee.department || '').trim() !== selectedDepartment) {
+      showStatus({ type: 'error', title: 'Invalid employee', message: 'The selected employee does not belong to the chosen department.' })
+      return
+    }
+
+    if (mappingModalMode === 'select') {
+      setMappingModalMode('edit')
+      return
+    }
+
+    const effectiveDraft = mappingDraft
     const values = Object.entries(effectiveDraft)
       .filter(([, value]) => value)
       .map(([, value]) => String(value))
@@ -2776,43 +3187,38 @@ export default function EmployeesManagement() {
       return
     }
 
-    const selectedDepartment = String(mappingScopeDepartment || '').trim()
-    if (!roleMeta.isMappingExempt && selectedDepartment) {
-      const outsideDepartmentAssignments = values
-        .map((uid) => employeeDirectoryByUid.get(uid))
-        .filter((employee) => employee && String(employee.department || '').trim() !== selectedDepartment)
+    const outsideDepartmentAssignments = values
+      .map((uid) => employeeDirectoryByUid.get(uid))
+      .filter((employee) => employee && String(employee.department || '').trim() !== selectedDepartment)
 
-      if (outsideDepartmentAssignments.length) {
+    if (outsideDepartmentAssignments.length) {
+      showStatus({
+        type: 'error',
+        title: 'Invalid mapping',
+        message: `Only users from the ${selectedDepartment} department can be mapped for ${mappingEmployee.fullName}.`
+      })
+      return
+    }
+
+    const roleScopedValidationRules = [
+      { field: 'managerEmployeeUid', label: 'Manager', isCandidateEligible: isManagerCandidate },
+      { field: 'hrEmployeeUid', label: 'HR', isCandidateEligible: isHrCandidate },
+      { field: 'teamLeadEmployeeUid', label: 'Team Lead', isCandidateEligible: isTeamLeadCandidate },
+      { field: 'coordinatorEmployeeUid', label: 'Coordinator', isCandidateEligible: isCoordinatorCandidate }
+    ]
+
+    for (const rule of roleScopedValidationRules) {
+      const selectedUid = String(effectiveDraft[rule.field] || '').trim()
+      if (!selectedUid) continue
+
+      const selectedEmployee = employeeDirectoryByUid.get(selectedUid)
+      if (!selectedEmployee || !rule.isCandidateEligible(selectedEmployee)) {
         showStatus({
           type: 'error',
           title: 'Invalid mapping',
-          message: `Only users from the ${selectedDepartment} department can be mapped for ${mappingEmployee.fullName}.`
+          message: `${rule.label} must be selected from users with the proper ${rule.label} role.`
         })
         return
-      }
-    }
-
-    if (!roleMeta.isMappingExempt) {
-      const roleScopedValidationRules = [
-        { field: 'managerEmployeeUid', label: 'Manager', isCandidateEligible: isManagerCandidate },
-        { field: 'hrEmployeeUid', label: 'HR', isCandidateEligible: isHrCandidate },
-        { field: 'teamLeadEmployeeUid', label: 'Team Lead', isCandidateEligible: isTeamLeadCandidate },
-        { field: 'coordinatorEmployeeUid', label: 'Coordinator', isCandidateEligible: isCoordinatorCandidate }
-      ]
-
-      for (const rule of roleScopedValidationRules) {
-        const selectedUid = String(effectiveDraft[rule.field] || '').trim()
-        if (!selectedUid) continue
-
-        const selectedEmployee = employeeDirectoryByUid.get(selectedUid)
-        if (!selectedEmployee || !rule.isCandidateEligible(selectedEmployee)) {
-          showStatus({
-            type: 'error',
-            title: 'Invalid mapping',
-            message: `${rule.label} must be selected from users with the proper ${rule.label} role.`
-          })
-          return
-        }
       }
     }
 
@@ -2828,9 +3234,7 @@ export default function EmployeesManagement() {
       showStatus({
         type: 'success',
         title: 'Mapping updated',
-        message: roleMeta.isMappingExempt
-          ? `${mappingEmployee.fullName} has a management role, so reporting assignments were cleared as not required.`
-          : `${mappingEmployee.fullName} mapping has been updated successfully.`
+        message: `${mappingEmployee.fullName} mapping has been updated successfully.`
       })
       closeMappingModal()
     } catch (actionError) {
@@ -2902,8 +3306,12 @@ export default function EmployeesManagement() {
     if (section.key === 'roles') {
       return { ...section, entries: roles.map((role) => ({ ...role, isActive: true })) }
     }
-    return { ...section, entries: metadataByCategory[section.key] || [] }
-  }).filter((section) => (section.key === 'roles' ? canReadRoles : canReadEmployeeMetadata)), [canReadEmployeeMetadata, canReadRoles, metadataByCategory, roles])
+    const entries = (metadataByCategory[section.key] || []).map((entry) => ({
+      ...entry,
+      departmentLabel: entry.departmentUid ? (metadataCatalog.departmentLabelByUid.get(String(entry.departmentUid)) || '') : ''
+    }))
+    return { ...section, entries }
+  }).filter((section) => (section.key === 'roles' ? canReadRoles : canReadEmployeeMetadata)), [canReadEmployeeMetadata, canReadRoles, metadataByCategory, metadataCatalog, roles])
 
   useEffect(() => {
     if (requestedTab && requestedTab !== activeTab) {
@@ -3112,8 +3520,8 @@ export default function EmployeesManagement() {
                   <AppDateRangeField value={joinDateRange} onChange={setJoinDateRange} className="employee-range-field" placeholder="[Select range]" />
                 </div>
                 <div className="employee-filter-actions">
-                  <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetDirectoryFilters}>
-                    <XIcon />
+                  <button type="button" className="btn btn-outline-secondary btn-sm btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetDirectoryFilters}>
+                    <RotateCcwIcon />
                     <span>Reset</span>
                   </button>
                 </div>
@@ -3163,7 +3571,7 @@ export default function EmployeesManagement() {
                             <CellStack title={employee.email || '—'} subtitle={employee.phone || '—'} className="employee-cell-wrap" />
                           </td>
                           <td className="employee-cell-wrap">
-                            <CellStack title={employee.position || '—'} subtitle={employee.department || '—'} className="employee-cell-wrap" />
+                            <CellStack title={employee.positionLabel || employee.position || '—'} subtitle={employee.departmentLabel || employee.department || '—'} className="employee-cell-wrap" />
                           </td>
                           <td className="employee-cell-wrap">
                             <CellStack title={<EmployeeBadge value={employee.status || '—'} type="status" />} subtitle={formatDate(employee.joinDate)} className="employee-cell-wrap" />
@@ -3212,7 +3620,7 @@ export default function EmployeesManagement() {
             <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
               <div>
                 <div className="fw-semibold">Employee Mapping</div>
-                <div className="text-muted small">Choose the department first, then use dependent filters to narrow the mapping table.</div>
+                <div className="text-muted small">Only successfully mapped employees are listed here. Use Add Mapping to assign reporting records for a department employee.</div>
               </div>
               <div className="small text-muted">Records: <strong>{mappingRows.length}</strong></div>
             </div>
@@ -3224,6 +3632,14 @@ export default function EmployeesManagement() {
                 onChange={(event) => setMappingSearch(event.target.value)}
                 placeholder="Search employee, code, role, or mapped users"
               />
+              <div className="employee-toolbar-actions">
+                {canUpdateEmployees ? (
+                  <button type="button" className="btn btn-primary btn-icon-inline employee-toolbar-btn" onClick={openCreateMapping}>
+                    <PlusIcon />
+                    <span>Add Mapping</span>
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="employee-toolbar employee-toolbar-filters">
@@ -3233,35 +3649,27 @@ export default function EmployeesManagement() {
               </div>
               <div className="employee-filter-field">
                 <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Role</label>
-                <AppSelect value={mappingRoleFilter} onChange={setMappingRoleFilter} options={mappingRoleFilterOptions} placeholder="All roles" />
+                <AppSelect
+                  value={mappingRoleFilter}
+                  onChange={(nextRole) => {
+                    setMappingRoleFilter(nextRole)
+                    setMappingEmployeeFilter('All')
+                  }}
+                  options={mappingRoleFilterOptions}
+                  placeholder="All roles"
+                />
               </div>
               <div className="employee-filter-field">
-                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Position</label>
-                <AppSelect value={mappingPositionFilter} onChange={setMappingPositionFilter} options={mappingPositionFilterOptions} placeholder="All positions" />
-              </div>
-              <div className="employee-filter-field">
-                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Manager</label>
-                <AppSelect value={mappingManagerFilter} onChange={setMappingManagerFilter} options={mappingManagerFilterOptions} placeholder="All managers" />
-              </div>
-              <div className="employee-filter-field">
-                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> HR</label>
-                <AppSelect value={mappingHrFilter} onChange={setMappingHrFilter} options={mappingHrFilterOptions} placeholder="All HRs" />
-              </div>
-              <div className="employee-filter-field">
-                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Team Lead</label>
-                <AppSelect value={mappingTeamLeadFilter} onChange={setMappingTeamLeadFilter} options={mappingTeamLeadFilterOptions} placeholder="All team leads" />
-              </div>
-              <div className="employee-filter-field">
-                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Coordinator</label>
-                <AppSelect value={mappingCoordinatorFilter} onChange={setMappingCoordinatorFilter} options={mappingCoordinatorFilterOptions} placeholder="All coordinators" />
+                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Employee</label>
+                <AppSelect value={mappingEmployeeFilter} onChange={setMappingEmployeeFilter} options={mappingEmployeeFilterOptions} placeholder="All employees" />
               </div>
               <div className="employee-filter-actions">
                 <button
                   type="button"
-                  className="btn btn-outline-secondary btn-icon-inline employee-filter-reset-btn employee-toolbar-btn"
+                  className="btn btn-outline-secondary btn-sm btn-icon-inline employee-filter-reset-btn employee-toolbar-btn"
                   onClick={resetMappingFilters}
                 >
-                  <XIcon />
+                  <RotateCcwIcon />
                   <span>Reset</span>
                 </button>
               </div>
@@ -3292,7 +3700,7 @@ export default function EmployeesManagement() {
                           <CellStack title={<EmployeeBadge value={employee.roleName || 'Unassigned'} type="role" />} />
                         </td>
                         <td className="employee-cell-wrap">
-                          <CellStack title={employee.position || '—'} subtitle={employee.department || '—'} />
+                          <CellStack title={employee.positionLabel || employee.position || '—'} subtitle={employee.departmentLabel || employee.department || '—'} />
                         </td>
                         <td className="employee-cell-wrap">
                           <CellStack title={employee.managerName || 'Unassigned'} />
@@ -3309,7 +3717,7 @@ export default function EmployeesManagement() {
                         <td className="employee-actions-cell">
                           <div className="employee-action-cluster">
                             {canUpdateEmployees ? (
-                              <ActionButton icon={<PencilIcon />} label="Map" variant="edit" onClick={() => openMappingModal(employee)} />
+                              <ActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openMappingModal(employee)} />
                             ) : (
                               <div className="text-muted small">Read only</div>
                             )}
@@ -3320,8 +3728,8 @@ export default function EmployeesManagement() {
                       <tr>
                         <td colSpan="8">
                           <div className="employee-empty-state text-center py-4">
-                            <div className="fw-semibold mb-1">No employees matched the current mapping filters.</div>
-                            <div className="text-muted small">Change department or reset filters to view more mapping records.</div>
+                            <div className="fw-semibold mb-1">No mapped employees matched the current filters.</div>
+                            <div className="text-muted small">Use Add Mapping or reset the filters to widen the mapped employee list.</div>
                           </div>
                         </td>
                       </tr>
@@ -3504,8 +3912,6 @@ export default function EmployeesManagement() {
                 statusOptions={statusFormOptions}
                 employeeTypeOptions={employeeTypeFormOptions}
                 workLocationOptions={workLocationFormOptions}
-                bloodGroupOptions={bloodGroupFormOptions}
-                genderOptions={genderFormOptions}
                 phoneCountryOptions={phoneCountryFormOptions}
               />
             </form>
@@ -3543,8 +3949,8 @@ export default function EmployeesManagement() {
         <div className="d-flex flex-column gap-3">
           <div className="employee-import-note">
             <div className="fw-semibold mb-1">Bulk entry template</div>
-            <div className="text-muted small">Download the CSV or Excel template, fill one employee per row, use an existing role name from metadata, and upload the completed file here. Linked signup creation still uses the default password Welcome@123.</div>
-            <div className="text-muted small mt-2">Validation checks: required fields, unique employee code, role name must exist in metadata, date formats are auto-converted (`YYYY-MM-DD`, `DD/MM/YYYY`, `MM/DD/YYYY`, and Excel serial dates), and date of birth must keep age between 21 and 65.</div>
+            <div className="text-muted small">Download the CSV or Excel template, fill one employee per row, use existing metadata values, and upload the completed file here. Linked signup creation still uses the default password Welcome@123.</div>
+            <div className="text-muted small mt-2">Validation checks: required fields, unique employee code, role and metadata values must already exist, position must belong to the selected department, phone country codes must be provided when numbers do not include a `+` prefix, date formats are auto-converted (`YYYY-MM-DD`, `DD/MM/YYYY`, `MM/DD/YYYY`, and Excel serial dates), and date of birth must keep age between 21 and 65.</div>
           </div>
           <div className="employee-import-upload">
             <label className="form-label">Upload populated template</label>
@@ -3612,6 +4018,7 @@ export default function EmployeesManagement() {
         onBlur={handleMetadataFieldBlur}
         onClose={() => { setMetadataModal(null); setMetadataTouched({}) }}
         onSubmit={handleSaveMetadata}
+        departmentOptions={metadataDepartmentOptions}
       />
 
       <RoleEntryModal
@@ -3634,16 +4041,22 @@ export default function EmployeesManagement() {
 
       <MappingModal
         open={mappingModalOpen}
+        mode={mappingModalMode}
         employee={mappingEmployee}
         draft={mappingDraft}
         onChange={handleMappingDraftChange}
         onClose={closeMappingModal}
         onSubmit={handleSaveMapping}
         options={employeeMappingOptions}
-        scopeDepartment={mappingScopeDepartment}
+        selectedDepartment={mappingScopeDepartment}
+        selectedRole={mappingSelectedRole}
+        selectedEmployeeUid={mappingSelectedEmployeeUid}
         departmentOptions={mappingModalDepartmentOptions}
-        onScopeDepartmentChange={handleMappingScopeDepartmentChange}
-        assignmentsRequired={mappingAssignmentsRequired}
+        roleOptions={mappingModalRoleOptions}
+        employeeOptions={mappingModalEmployeeOptions}
+        onDepartmentChange={handleMappingScopeDepartmentChange}
+        onRoleChange={handleMappingRoleChange}
+        onEmployeeChange={handleMappingEmployeeChange}
       />
     </div>
   )

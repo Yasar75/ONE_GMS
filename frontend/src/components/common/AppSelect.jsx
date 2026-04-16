@@ -1,18 +1,39 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckIcon, ChevronDownIcon } from './AppIcons.jsx'
 
+function normalizeSearchValue(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
 function normalizeOptions(options) {
-  return (options || []).map((option) => {
+  return (options || []).map((option, index) => {
     if (typeof option === 'string' || typeof option === 'number') {
-      return { value: option, label: String(option) }
+      const stringValue = String(option)
+      return {
+        value: option,
+        label: stringValue,
+        optionKey: `primitive-${stringValue}-${index}`,
+        searchText: normalizeSearchValue(stringValue)
+      }
     }
 
+    const value = option?.value ?? ''
+    const label = option?.label ?? String(value)
+    const description = option?.description || ''
+    const keywords = option?.keywords || option?.searchKeywords || option?.searchText || ''
+
     return {
-      value: option?.value ?? '',
-      label: option?.label ?? String(option?.value ?? ''),
-      description: option?.description || '',
+      value,
+      label,
+      description,
       disabled: Boolean(option?.disabled),
-      tone: option?.tone || ''
+      tone: option?.tone || '',
+      optionKey: String(option?.key || option?.id || `${value}-${label}-${description}-${index}`),
+      searchText: normalizeSearchValue([label, description, value, keywords].filter(Boolean).join(' '))
     }
   })
 }
@@ -42,19 +63,15 @@ export default function AppSelect({
   const searchInputRef = useRef(null)
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const [menuPlacement, setMenuPlacement] = useState('bottom')
 
   const normalizedOptions = useMemo(() => normalizeOptions(options), [options])
   const filteredOptions = useMemo(() => {
-    const query = String(searchTerm || '').trim().toLowerCase()
+    const query = normalizeSearchValue(searchTerm)
     if (!query) return normalizedOptions
 
-    return normalizedOptions.filter((option) => (
-      [option.label, option.description, option.value]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(query)
-    ))
+    const queryTokens = query.split(/\s+/).filter(Boolean)
+    return normalizedOptions.filter((option) => queryTokens.every((token) => option.searchText.includes(token)))
   }, [normalizedOptions, searchTerm])
   const selectedValues = useMemo(() => {
     if (!multiple) return [String(value ?? '')]
@@ -89,6 +106,21 @@ export default function AppSelect({
       window.setTimeout(() => searchInputRef.current?.focus(), 0)
     }
 
+    const syncMenuPlacement = () => {
+      const triggerRect = buttonRef.current?.getBoundingClientRect()
+      if (!triggerRect) return
+
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0
+      const spaceBelow = viewportHeight - triggerRect.bottom
+      const spaceAbove = triggerRect.top
+      const estimatedMenuHeight = Math.min(searchable && normalizedOptions.length ? 360 : 280, Math.max(normalizedOptions.length * 48, 160))
+
+      setMenuPlacement(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow ? 'top' : 'bottom')
+    }
+
+    syncMenuPlacement()
+    window.setTimeout(syncMenuPlacement, 0)
+
     function handlePointerDown(event) {
       if (!rootRef.current?.contains(event.target)) {
         setIsOpen(false)
@@ -102,14 +134,18 @@ export default function AppSelect({
       }
     }
 
+    window.addEventListener('resize', syncMenuPlacement)
+    window.addEventListener('scroll', syncMenuPlacement, true)
     document.addEventListener('mousedown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
 
     return () => {
+      window.removeEventListener('resize', syncMenuPlacement)
+      window.removeEventListener('scroll', syncMenuPlacement, true)
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen])
+  }, [isOpen, normalizedOptions.length, searchable])
 
   const emitValue = (nextValue) => {
     if (typeof onChange !== 'function') return
@@ -190,17 +226,22 @@ export default function AppSelect({
       </button>
 
       {isOpen ? (
-        <div className={`app-select-menu app-select-menu-${align} ${menuClassName}`.trim()} role="listbox" aria-multiselectable={multiple}>
+        <div className={`app-select-menu app-select-menu-${align} app-select-menu-placement-${menuPlacement} ${menuClassName}`.trim()} role="listbox" aria-multiselectable={multiple}>
           {searchable && normalizedOptions.length ? (
-            <div className="app-select-search-shell">
+            <div className="app-select-search-shell" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
               <input
                 ref={searchInputRef}
-                type="search"
+                type="text"
                 className="form-control app-select-search-input"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 placeholder={searchPlaceholder}
+                autoComplete="off"
+                spellCheck={false}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
+                  event.stopPropagation()
                   if (event.key === 'Escape') {
                     setIsOpen(false)
                     buttonRef.current?.focus()
@@ -216,7 +257,7 @@ export default function AppSelect({
 
             return (
               <button
-                key={`${name || 'select'}-${String(option.value)}`}
+                key={`${name || 'select'}-${option.optionKey}`}
                 type="button"
                 className={`app-select-option ${isSelected ? 'is-selected' : ''} ${option.tone ? `tone-${option.tone}` : ''}`.trim()}
                 onClick={() => {

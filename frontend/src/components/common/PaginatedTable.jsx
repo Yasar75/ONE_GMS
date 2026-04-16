@@ -57,6 +57,8 @@ export default function PaginatedTable({
   const [rowsPerPage, setRowsPerPage] = useState(resolvedDefaultRowsPerPage)
   const [currentPage, setCurrentPage] = useState(1)
   const [isRowsMenuOpen, setIsRowsMenuOpen] = useState(false)
+  const [rowsMenuPlacement, setRowsMenuPlacement] = useState('top')
+  const [rowsMenuMaxHeight, setRowsMenuMaxHeight] = useState(220)
 
   useEffect(() => {
     setRowsPerPage((current) => (normalizedRowsPerPageOptions.includes(current) ? current : resolvedDefaultRowsPerPage))
@@ -72,6 +74,22 @@ export default function PaginatedTable({
   useEffect(() => {
     if (!isRowsMenuOpen) return undefined
 
+    function syncRowsMenuPlacement() {
+      const triggerRect = rowsMenuRef.current?.getBoundingClientRect()
+      if (!triggerRect) return
+
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0
+      const spaceBelow = Math.max(viewportHeight - triggerRect.bottom - 16, 120)
+      const spaceAbove = Math.max(triggerRect.top - 16, 120)
+      const prefersBottom = spaceBelow >= 184 || spaceBelow >= spaceAbove
+
+      setRowsMenuPlacement(prefersBottom ? 'bottom' : 'top')
+      setRowsMenuMaxHeight(Math.max(Math.min(prefersBottom ? spaceBelow : spaceAbove, 220), 120))
+    }
+
+    syncRowsMenuPlacement()
+    window.setTimeout(syncRowsMenuPlacement, 0)
+
     function handlePointerDown(event) {
       if (!rowsMenuRef.current?.contains(event.target)) {
         setIsRowsMenuOpen(false)
@@ -84,10 +102,14 @@ export default function PaginatedTable({
       }
     }
 
+    window.addEventListener('resize', syncRowsMenuPlacement)
+    window.addEventListener('scroll', syncRowsMenuPlacement, true)
     document.addEventListener('mousedown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
 
     return () => {
+      window.removeEventListener('resize', syncRowsMenuPlacement)
+      window.removeEventListener('scroll', syncRowsMenuPlacement, true)
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
@@ -134,7 +156,7 @@ export default function PaginatedTable({
             </button>
 
             {isRowsMenuOpen ? (
-              <div className="table-pagination-select-menu" role="listbox" aria-label="Rows per page">
+              <div className={`table-pagination-select-menu table-pagination-select-menu-${rowsMenuPlacement}`.trim()} role="listbox" aria-label="Rows per page" style={{ maxHeight: `${rowsMenuMaxHeight}px` }}>
                 {normalizedRowsPerPageOptions.map((option) => {
                   const isSelected = option === rowsPerPage
                   return (

@@ -10,21 +10,21 @@ import { useToast } from '../../../app/providers/ToastProvider.jsx'
 import { employeeService } from '../../../api/services/employee.service.js'
 import { authService } from '../../../api/services/auth.service.js'
 import { useEmployeeMetadataQuery, useRoleDirectoryQuery } from '../../../hooks/employees/useEmployeeMetadataQuery.js'
+import { usePhoneCountryOptionsQuery } from '../../../hooks/employees/usePhoneCountryOptionsQuery.js'
 import { storage } from '../../../utils/storage.js'
 import { AUTH_STORAGE_KEYS, DEFAULT_EMPLOYEE_PASSWORD, isProfileSetupRequired } from '../../../utils/auth.js'
 import {
-  EMPLOYEE_BLOOD_GROUP_OPTIONS,
-  EMPLOYEE_GENDER_OPTIONS,
-  EMPLOYEE_STATUS_OPTIONS,
-  EMPLOYEE_TYPE_OPTIONS,
-  EMPLOYEE_WORK_LOCATION_OPTIONS,
-  PHONE_COUNTRY_OPTIONS,
+  buildDepartmentScopedPositionOptions,
+  buildEmployeeMetadataCatalog,
+  buildMetadataOptions,
+  buildPhoneCountrySelectOptions,
   buildPhoneValue,
   formatPhoneLengthRule,
   formatDate,
   formatEmployeeAge,
   getDefaultPhoneCountryOption,
   getPhoneCountryLengthRule,
+  isPositionMappedToDepartment,
   parseStoredPhoneValue
 } from '../../../utils/employee.js'
 import {
@@ -820,42 +820,30 @@ export default function ProfilePage() {
   const [passwordTouched, setPasswordTouched] = useState({})
   const [passwordVisibility, setPasswordVisibility] = useState({ current_password: false, new_password: false, confirm_new_password: false })
 
-  const metadataByCategory = useMemo(() => metadataEntries.reduce((accumulator, entry) => {
-    if (!entry?.category) return accumulator
-    if (!accumulator[entry.category]) accumulator[entry.category] = []
-    accumulator[entry.category].push(entry)
-    return accumulator
-  }, {}), [metadataEntries])
+  const metadataCatalog = useMemo(() => buildEmployeeMetadataCatalog(metadataEntries), [metadataEntries])
+  const { data: phoneCountryOptionsData = [] } = usePhoneCountryOptionsQuery(Boolean(profile))
 
-  const positionOptions = useMemo(() => toFormOptions(mergeSelectValues([], [
-    ...(metadataByCategory.position || []).filter((entry) => entry.isActive).map((entry) => entry.value),
-    profileDraft.position
-  ])), [metadataByCategory.position, profileDraft.position])
-  const departmentOptions = useMemo(() => toFormOptions(mergeSelectValues([], [
-    ...(metadataByCategory.department || []).filter((entry) => entry.isActive).map((entry) => entry.value),
-    profileDraft.department
-  ])), [metadataByCategory.department, profileDraft.department])
-  const genderOptions = useMemo(() => toFormOptions(mergeSelectValues(EMPLOYEE_GENDER_OPTIONS, [
-    ...(metadataByCategory.gender || []).filter((entry) => entry.isActive).map((entry) => entry.value),
-    profileDraft.gender
-  ])), [metadataByCategory.gender, profileDraft.gender])
-  const employeeTypeOptions = useMemo(() => toFormOptions(mergeSelectValues(EMPLOYEE_TYPE_OPTIONS, [
-    ...(metadataByCategory.employee_type || []).filter((entry) => entry.isActive).map((entry) => entry.value),
-    profileDraft.employee_type
-  ])), [metadataByCategory.employee_type, profileDraft.employee_type])
-  const workLocationOptions = useMemo(() => toFormOptions(mergeSelectValues(EMPLOYEE_WORK_LOCATION_OPTIONS, [
-    ...(metadataByCategory.work_location || []).filter((entry) => entry.isActive).map((entry) => entry.value),
-    profileDraft.work_location
-  ])), [metadataByCategory.work_location, profileDraft.work_location])
-  const bloodGroupOptions = useMemo(() => toFormOptions(mergeSelectValues(EMPLOYEE_BLOOD_GROUP_OPTIONS, [
-    ...(metadataByCategory.blood_group || []).filter((entry) => entry.isActive).map((entry) => entry.value),
-    profileDraft.blood_group
-  ])), [metadataByCategory.blood_group, profileDraft.blood_group])
-  const phoneCountryOptions = useMemo(() => PHONE_COUNTRY_OPTIONS.map((option) => ({
-    value: option.dialCode,
-    label: option.dialCode,
-    description: `${option.label} - ${formatPhoneLengthRule(option.dialCode)}`
-  })), [])
+  const positionOptions = useMemo(
+    () => buildDepartmentScopedPositionOptions(metadataCatalog, profileDraft.department, profileDraft.position),
+    [metadataCatalog, profileDraft.department, profileDraft.position]
+  )
+  const departmentOptions = useMemo(
+    () => buildMetadataOptions(metadataCatalog.departmentEntries, profileDraft.department),
+    [metadataCatalog.departmentEntries, profileDraft.department]
+  )
+  const employeeTypeOptions = useMemo(
+    () => buildMetadataOptions(metadataCatalog.byCategory.employee_type || [], profileDraft.employee_type),
+    [metadataCatalog.byCategory.employee_type, profileDraft.employee_type]
+  )
+  const workLocationOptions = useMemo(
+    () => buildMetadataOptions(metadataCatalog.byCategory.work_location || [], profileDraft.work_location),
+    [metadataCatalog.byCategory.work_location, profileDraft.work_location]
+  )
+  const bloodGroupOptions = useMemo(
+    () => buildMetadataOptions(metadataCatalog.byCategory.blood_group || [], profileDraft.blood_group),
+    [metadataCatalog.byCategory.blood_group, profileDraft.blood_group]
+  )
+  const phoneCountryOptions = useMemo(() => buildPhoneCountrySelectOptions(phoneCountryOptionsData), [phoneCountryOptionsData])
   const roleOptions = useMemo(() => {
     const options = roles.map((role) => ({
       value: role.uid,
@@ -876,7 +864,10 @@ export default function ProfilePage() {
 
     return options
   }, [profile?.employee?.roleName, profile?.employee?.roleType, profileDraft.role_type, roles, user?.roleId, user?.roleName])
-  const statusOptions = useMemo(() => toFormOptions(mergeSelectValues(EMPLOYEE_STATUS_OPTIONS, [profileDraft.status])), [profileDraft.status])
+  const statusOptions = useMemo(
+    () => buildMetadataOptions(metadataCatalog.byCategory.status || [], profileDraft.status),
+    [metadataCatalog.byCategory.status, profileDraft.status]
+  )
 
   const mustChangePassword = Boolean(user?.mustChangePassword)
   const hasLinkedEmployee = Boolean(profile?.employee?.uid)
@@ -1214,7 +1205,12 @@ export default function ProfilePage() {
         value = String(value).replace(/\D/g, '').slice(0, maxLength)
       }
 
-      return { ...current, [name]: value }
+      const nextDraft = { ...current, [name]: value }
+      if (name === 'department' && !isPositionMappedToDepartment(metadataCatalog, nextDraft.position, value)) {
+        nextDraft.position = ''
+      }
+
+      return nextDraft
     })
   }
 
@@ -2178,8 +2174,8 @@ export default function ProfilePage() {
                     <div className="col-12 col-md-6"><label className="form-label">First Name</label><input className={`form-control${showBasicError('first_name') ? ' is-invalid' : ''}`} name="first_name" value={basicDetailsDraft.first_name} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} disabled={!canEditBasicDetails} maxLength="120" />{showBasicError('first_name') ? <div className="invalid-feedback d-block">{basicDetailErrors.first_name}</div> : null}</div>
                     <div className="col-12 col-md-6"><label className="form-label">Last Name</label><input className={`form-control${showBasicError('last_name') ? ' is-invalid' : ''}`} name="last_name" value={basicDetailsDraft.last_name} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} disabled={!canEditBasicDetails} maxLength="120" />{showBasicError('last_name') ? <div className="invalid-feedback d-block">{basicDetailErrors.last_name}</div> : null}</div>
                     <div className="col-12 col-md-6"><label className="form-label">Role</label><AppSelect name="role_type" value={basicDetailsDraft.role_type} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} options={roleOptions} placeholder="Select role" disabled={!canEditBasicDetails} invalid={Boolean(showBasicError('role_type'))} />{showBasicError('role_type') ? <div className="invalid-feedback d-block">{basicDetailErrors.role_type}</div> : null}</div>
-                    <div className="col-12 col-md-6"><label className="form-label">Position</label><AppSelect name="position" value={basicDetailsDraft.position} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} options={positionOptions} placeholder="Select position" disabled={!canEditBasicDetails} invalid={Boolean(showBasicError('position'))} />{showBasicError('position') ? <div className="invalid-feedback d-block">{basicDetailErrors.position}</div> : null}</div>
                     <div className="col-12 col-md-6"><label className="form-label">Department</label><AppSelect name="department" value={basicDetailsDraft.department} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} options={departmentOptions} placeholder="Select department" disabled={!canEditBasicDetails} invalid={Boolean(showBasicError('department'))} />{showBasicError('department') ? <div className="invalid-feedback d-block">{basicDetailErrors.department}</div> : null}</div>
+                    <div className="col-12 col-md-6"><label className="form-label">Position</label><AppSelect name="position" value={basicDetailsDraft.position} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} options={positionOptions} placeholder={basicDetailsDraft.department ? 'Select position' : 'Select department first'} disabled={!canEditBasicDetails || !basicDetailsDraft.department} invalid={Boolean(showBasicError('position'))} />{!basicDetailsDraft.department ? <div className="form-text">Choose a department first to load the mapped positions.</div> : null}{showBasicError('position') ? <div className="invalid-feedback d-block">{basicDetailErrors.position}</div> : null}</div>
                     <div className="col-12 col-md-6">
                       <label className="form-label">Mobile Number</label>
                       <div className="phone-input-shell">
@@ -2199,7 +2195,7 @@ export default function ProfilePage() {
                     </div>
                     <div className="col-12 col-md-3"><label className="form-label">Age</label><input className="form-control" disabled value={ageLabel} /></div>
                     <div className="col-12 col-md-3"><label className="form-label">Tenure in Organization</label><input className="form-control" disabled value={tenureLabel} /></div>
-                    <div className="col-12 col-md-6"><label className="form-label">Gender</label><AppSelect name="gender" value={basicDetailsDraft.gender} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} options={genderOptions} placeholder="Select gender" disabled={!canEditBasicDetails} /></div>
+                    <div className="col-12 col-md-6"><label className="form-label">Gender</label><input className="form-control" name="gender" value={basicDetailsDraft.gender} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} maxLength="120" placeholder="Enter gender manually" disabled={!canEditBasicDetails} /></div>
                     <div className="col-12 col-md-6"><label className="form-label">Caste</label><input className="form-control" name="caste" value={basicDetailsDraft.caste} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} maxLength="120" disabled={!canEditBasicDetails} /></div>
                     <div className="col-12 col-md-6"><label className="form-label">Employee Type</label><AppSelect name="employee_type" value={basicDetailsDraft.employee_type} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} options={employeeTypeOptions} placeholder="Select type" disabled={!canEditBasicDetails} /></div>
                     <div className="col-12 col-md-6"><label className="form-label">Work Location</label><AppSelect name="work_location" value={basicDetailsDraft.work_location} onChange={handleProfileFieldChange} onBlur={handleProfileFieldBlur} options={workLocationOptions} placeholder="Select work location" disabled={!canEditBasicDetails} /></div>

@@ -307,6 +307,10 @@ export function canAccessAppPath(user, pathname = '') {
     return false
   }
 
+  if (normalizedPath.startsWith('/admin/task-management/employees/')) {
+    return hasModuleVisibility(user, TASK_MANAGEMENT_ROUTE_MODULES)
+  }
+
   const requiredModules = APP_ROUTE_ACCESS[normalizedPath]
   if (!requiredModules) return false
 

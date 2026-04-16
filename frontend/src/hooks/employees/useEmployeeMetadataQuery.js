@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { metadataService } from '../../api/services/metadata.service.js'
 import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache, writeCachedQuery } from '../../utils/queryCache.js'
 
-const metadataQueryKey = ['employees', 'metadata']
+const metadataQueryKey = ['employees', 'metadata', 'v3']
 const roleQueryKey = ['employees', 'roles']
 const roleModulesQueryKey = ['employees', 'role-modules', 'v2']
 

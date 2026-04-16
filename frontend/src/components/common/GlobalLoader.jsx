@@ -9,9 +9,11 @@ function SpinnerIcon() {
 }
 
 export default function GlobalLoader({ visible, title, message }) {
+  if (!visible) return null
+
   return (
-    <div className={'ui-overlay' + (visible ? ' is-visible' : '')} aria-hidden={!visible}>
-      <div className="ui-loader-modal" role="status" aria-live="polite" aria-busy={visible}>
+    <div className="ui-overlay is-visible" aria-hidden={false}>
+      <div className="ui-loader-modal" role="status" aria-live="polite" aria-busy={true}>
         <div className="ui-loader-spinner">
           <SpinnerIcon />
         </div>

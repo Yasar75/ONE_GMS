@@ -9,20 +9,22 @@ from .schema import EmployeeMetadataCreate, EmployeeMetadataUpdate
 
 
 class EmployeeMetadataService:
-    async def _get_existing_by_value(self, session: AsyncSession, category: MetadataCategory, value: str, exclude_uid: uuid.UUID | None = None):
+    async def _get_existing_by_label(self, session: AsyncSession, category: MetadataCategory, label: str, exclude_uid: uuid.UUID | None = None):
         stmt = select(EmployeeMetadata).where(
             EmployeeMetadata.category == category,
-            EmployeeMetadata.value == value,
+            EmployeeMetadata.label == label,
         )
         if exclude_uid:
             stmt = stmt.where(EmployeeMetadata.uid != exclude_uid)
         return (await session.exec(stmt)).first()
 
     async def create_entry(self, session: AsyncSession, data: EmployeeMetadataCreate, created_by: uuid.UUID | None):
-        if await self._get_existing_by_value(session, data.category, data.value):
+        if await self._get_existing_by_label(session, data.category, data.label):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Metadata entry already exists for this category.")
 
-        entry = EmployeeMetadata(**data.model_dump(), created_by=created_by)
+        payload = data.model_dump()
+        payload["value"] = payload["label"]
+        entry = EmployeeMetadata(**payload, created_by=created_by)
         session.add(entry)
         await session.commit()
         await session.refresh(entry)
@@ -47,9 +49,12 @@ class EmployeeMetadataService:
         entry = await self.get_entry(session, metadata_uid)
         payload = data.model_dump(exclude_unset=True)
 
-        next_value = payload.get("value")
-        if next_value and await self._get_existing_by_value(session, entry.category, next_value, exclude_uid=entry.uid):
+        next_label = payload.get("label")
+        if next_label and await self._get_existing_by_label(session, entry.category, next_label, exclude_uid=entry.uid):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Metadata entry already exists for this category.")
+
+        if next_label:
+            payload["value"] = next_label
 
         for key, value in payload.items():
             setattr(entry, key, value)

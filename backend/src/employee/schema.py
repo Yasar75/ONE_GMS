@@ -30,6 +30,7 @@ class EmployeeBase(BaseModel):
     position: Optional[str] 
     department: Optional[str] 
     email: Optional[EmailStr] 
+    client_email: Optional[EmailStr]
     phone: Optional[str] 
     join_date: Optional[date] 
     status: EmployeeStatus 
@@ -58,6 +59,7 @@ class EmployeeCreate(BaseModel):
     position: Optional[str] = " "
     department: Optional[str] = " "
     email: Optional[EmailStr] = " "
+    client_email: Optional[EmailStr] = " "
     phone: Optional[str] = " "
     join_date: Optional[date] = " "
     status: EmployeeStatus = EmployeeStatus.Active
@@ -84,6 +86,7 @@ class EmployeeUpdate(BaseModel):
     position: Optional[str] = " "
     department: Optional[str] = " "
     email: Optional[EmailStr] = " "
+    client_email: Optional[EmailStr] = " "
     phone: Optional[str] = " "
     join_date: Optional[date] = " "
     status: Optional[EmployeeStatus] = " "

@@ -48,7 +48,8 @@
 }
 
 .app-sidebar .sidebar-scroll {
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   height: 100%;
 }
 
@@ -89,9 +90,13 @@
 }
 
 .sidebar-link {
+  min-width: 0;
   color: var(--bs-body-color);
   text-decoration: none;
   border: 1px solid transparent;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
 .sidebar-link:hover {
@@ -164,6 +169,38 @@
 .sidebar-icon svg {
   width: 18px;
   height: 18px;
+}
+
+
+.sidebar-link-label {
+  display: inline-block;
+  min-width: 0;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateX(-0.3rem);
+  transition: max-width 220ms ease, opacity 180ms ease, transform 180ms ease;
+}
+
+.app-sidebar.expanded .sidebar-link-label,
+.app-sidebar.hovering .sidebar-link-label {
+  max-width: 13rem;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.app-sidebar.collapsed .sidebar-link {
+  justify-content: center;
+}
+
+.app-sidebar.expanded .sidebar-link,
+.app-sidebar.hovering .sidebar-link {
+  justify-content: flex-start;
+}
+
+.app-sidebar .nav {
+  overflow-x: hidden;
 }
 
 .sidebar-divider {

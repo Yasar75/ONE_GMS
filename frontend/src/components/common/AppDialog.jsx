@@ -28,7 +28,7 @@ function StatusIcon({ tone }) {
 }
 
 export default function AppDialog({ dialog, onClose, onConfirm }) {
-  if (!dialog) return <div className="ui-overlay" aria-hidden="true" />
+  if (!dialog) return null
 
   const isConfirm = dialog.kind === 'confirm'
 

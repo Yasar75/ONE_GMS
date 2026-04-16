@@ -101,8 +101,7 @@ export function downloadTasksAsCsv(records = []) {
     'Tasks Approved',
     'Tasks Rejected',
     'Tasks Reviewed',
-    'Remarks',
-    'Project Assignment UID'
+    'Remarks'
   ]
 
   const rows = (Array.isArray(records) ? records : []).map((task) => ([
@@ -118,8 +117,7 @@ export function downloadTasksAsCsv(records = []) {
     task.taskApproved ?? 0,
     task.taskRejected ?? 0,
     task.taskReviewed ?? 0,
-    task.remarks || '',
-    task.projectAssignmentUid || ''
+    task.remarks || ''
   ]))
 
   const csvContent = serializeRowsToCsv([headers, ...rows])
@@ -141,8 +139,7 @@ export function downloadTasksAsExcel(records = []) {
     'Tasks Approved',
     'Tasks Rejected',
     'Tasks Reviewed',
-    'Remarks',
-    'Project Assignment UID'
+    'Remarks'
   ]
 
   const rows = (Array.isArray(records) ? records : []).map((task) => ([
@@ -158,8 +155,7 @@ export function downloadTasksAsExcel(records = []) {
     task.taskApproved ?? 0,
     task.taskRejected ?? 0,
     task.taskReviewed ?? 0,
-    task.remarks || '',
-    task.projectAssignmentUid || ''
+    task.remarks || ''
   ]))
 
   const workbook = XLSX.utils.book_new()

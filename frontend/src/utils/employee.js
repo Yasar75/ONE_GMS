@@ -2,19 +2,13 @@ import * as XLSX from 'xlsx'
 
 export const EMPLOYEE_STORAGE_KEY = 'one_gms.admin.employees.directory'
 
-export const EMPLOYEE_POSITION_OPTIONS = []
-export const EMPLOYEE_DEPARTMENT_OPTIONS = []
-export const EMPLOYEE_STATUS_OPTIONS = ['Active', 'Inactive', 'Resigned', 'Terminated']
-export const EMPLOYEE_TYPE_OPTIONS = ['FullTime', 'PartTime', 'Contract', 'Intern']
-export const EMPLOYEE_WORK_LOCATION_OPTIONS = ['Onsite', 'Remote', 'Hybrid']
-export const EMPLOYEE_GENDER_OPTIONS = ['Male', 'Female', 'Others']
-export const EMPLOYEE_BLOOD_GROUP_OPTIONS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
 export const EMPLOYEE_ATTENDANCE_OPTIONS = ['Present', 'Remote', 'On Leave', 'Half-Day', 'Absent']
 export const EMPLOYEE_IMPORT_HEADERS = [
   'Employee Code',
   'First Name',
   'Last Name',
   'Email',
+  'Country Code',
   'Phone',
   'Role',
   'Position',
@@ -26,6 +20,7 @@ export const EMPLOYEE_IMPORT_HEADERS = [
   'Gender',
   'Caste',
   'Employee Type',
+  'Emergency Contact Country Code',
   'Emergency Contact',
   'Blood Group',
   'Address'
@@ -36,7 +31,8 @@ export const EMPLOYEE_IMPORT_TEMPLATE_SAMPLE_ROWS = [
     'Aarav',
     'Sharma',
     'aarav.sharma@example.com',
-    '+919876543210',
+    '+91',
+    '9876543210',
     'Admin',
     'Software Engineer',
     'Engineering',
@@ -47,7 +43,8 @@ export const EMPLOYEE_IMPORT_TEMPLATE_SAMPLE_ROWS = [
     'Male',
     '',
     'FullTime',
-    '+919123456780',
+    '+91',
+    '9123456780',
     'B+',
     'Bangalore'
   ],
@@ -56,7 +53,8 @@ export const EMPLOYEE_IMPORT_TEMPLATE_SAMPLE_ROWS = [
     'Diya',
     'Patel',
     'diya.patel@example.com',
-    '+919812345678',
+    '+971',
+    '551234567',
     'Admin',
     'HR Executive',
     'Human Resources',
@@ -67,28 +65,318 @@ export const EMPLOYEE_IMPORT_TEMPLATE_SAMPLE_ROWS = [
     'Female',
     '',
     'FullTime',
-    '+919298765432',
+    '+971',
+    '501234567',
     'O+',
     'Mumbai'
   ]
 ]
 
 const DEFAULT_PHONE_LOCAL_LENGTH_RULE = Object.freeze({ minLength: 6, maxLength: 15 })
+const PHONE_COUNTRY_STORAGE_KEY = 'one_gms.phone_country_options.v1'
+const PHONE_COUNTRY_API_URL = 'https://restcountries.com/v3.1/all?fields=name,cca2,idd'
+const DEFAULT_PHONE_COUNTRY_OPTION = Object.freeze({
+  countryCode: 'IN',
+  label: 'India',
+  dialCode: '+91',
+  localMinLength: 10,
+  localMaxLength: 10
+})
+const GENERIC_PHONE_LENGTH_RULE = Object.freeze({
+  localMinLength: DEFAULT_PHONE_LOCAL_LENGTH_RULE.minLength,
+  localMaxLength: DEFAULT_PHONE_LOCAL_LENGTH_RULE.maxLength
+})
 
-export const PHONE_COUNTRY_OPTIONS = [
-  { countryCode: 'IN', label: 'India', dialCode: '+91', localMinLength: 10, localMaxLength: 10 },
-  { countryCode: 'AE', label: 'UAE', dialCode: '+971', localMinLength: 9, localMaxLength: 9 },
-  { countryCode: 'SA', label: 'Saudi Arabia', dialCode: '+966', localMinLength: 9, localMaxLength: 9 },
-  { countryCode: 'US', label: 'United States', dialCode: '+1', localMinLength: 10, localMaxLength: 10 },
-  { countryCode: 'CA', label: 'Canada', dialCode: '+1', localMinLength: 10, localMaxLength: 10 },
-  { countryCode: 'GB', label: 'United Kingdom', dialCode: '+44', localMinLength: 10, localMaxLength: 10 },
-  { countryCode: 'AU', label: 'Australia', dialCode: '+61', localMinLength: 9, localMaxLength: 9 },
-  { countryCode: 'SG', label: 'Singapore', dialCode: '+65', localMinLength: 8, localMaxLength: 8 },
-  { countryCode: 'MY', label: 'Malaysia', dialCode: '+60', localMinLength: 9, localMaxLength: 10 },
-  { countryCode: 'DE', label: 'Germany', dialCode: '+49', localMinLength: 10, localMaxLength: 11 },
-  { countryCode: 'FR', label: 'France', dialCode: '+33', localMinLength: 9, localMaxLength: 9 },
-  { countryCode: 'ZA', label: 'South Africa', dialCode: '+27', localMinLength: 9, localMaxLength: 9 }
-]
+let phoneCountryOptionsCache = [DEFAULT_PHONE_COUNTRY_OPTION]
+
+function sortPhoneCountryOptions(options = []) {
+  return [...(Array.isArray(options) ? options : [])].sort((left, right) => {
+    const leftIsIndia = String(left?.countryCode || '').toUpperCase() === 'IN'
+    const rightIsIndia = String(right?.countryCode || '').toUpperCase() === 'IN'
+    if (leftIsIndia !== rightIsIndia) return leftIsIndia ? -1 : 1
+
+    const leftLabel = String(left?.label || '')
+    const rightLabel = String(right?.label || '')
+    const labelCompare = leftLabel.localeCompare(rightLabel)
+    if (labelCompare !== 0) return labelCompare
+
+    return String(left?.dialCode || '').localeCompare(String(right?.dialCode || ''))
+  })
+}
+
+function normalizePhoneCountryOption(option = {}) {
+  const countryCode = String(option.countryCode || '').trim().toUpperCase()
+  const label = String(option.label || '').trim()
+  const rawDialCode = String(option.dialCode || '').trim()
+  const dialCode = rawDialCode.startsWith('+') ? rawDialCode : (rawDialCode ? `+${rawDialCode}` : '')
+
+  if (!countryCode || !label || !dialCode || !/^\+\d+$/.test(dialCode)) return null
+
+  const localMinLength = Number.parseInt(String(option.localMinLength ?? option.minLength ?? GENERIC_PHONE_LENGTH_RULE.localMinLength), 10)
+  const localMaxLength = Number.parseInt(String(option.localMaxLength ?? option.maxLength ?? GENERIC_PHONE_LENGTH_RULE.localMaxLength), 10)
+
+  return {
+    countryCode,
+    label,
+    dialCode,
+    localMinLength: Number.isFinite(localMinLength) ? localMinLength : GENERIC_PHONE_LENGTH_RULE.localMinLength,
+    localMaxLength: Number.isFinite(localMaxLength) ? Math.max(localMaxLength, localMinLength || 0) : GENERIC_PHONE_LENGTH_RULE.localMaxLength
+  }
+}
+
+function dedupePhoneCountryOptions(options = []) {
+  const seen = new Set()
+
+  return sortPhoneCountryOptions((Array.isArray(options) ? options : [])
+    .map((option) => normalizePhoneCountryOption(option))
+    .filter(Boolean)
+    .filter((option) => {
+      const key = `${option.countryCode}:${option.dialCode}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    }))
+}
+
+function readStoredPhoneCountryOptions() {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const storedValue = window.localStorage.getItem(PHONE_COUNTRY_STORAGE_KEY)
+    if (!storedValue) return []
+    const parsedValue = JSON.parse(storedValue)
+    return dedupePhoneCountryOptions(parsedValue)
+  } catch {
+    return []
+  }
+}
+
+function writeStoredPhoneCountryOptions(options = []) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(PHONE_COUNTRY_STORAGE_KEY, JSON.stringify(options))
+  } catch {
+    // Ignore storage write failures and continue with in-memory cache.
+  }
+}
+
+function updatePhoneCountryOptionsCache(options = []) {
+  const normalizedOptions = dedupePhoneCountryOptions(options)
+  phoneCountryOptionsCache = normalizedOptions.length ? normalizedOptions : [DEFAULT_PHONE_COUNTRY_OPTION]
+  writeStoredPhoneCountryOptions(phoneCountryOptionsCache)
+  return phoneCountryOptionsCache
+}
+
+function createPhoneCountryOptionsFromApi(records = []) {
+  const mappedOptions = (Array.isArray(records) ? records : []).flatMap((record) => {
+    const countryCode = String(record?.cca2 || '').trim().toUpperCase()
+    const label = String(record?.name?.common || record?.name?.official || '').trim()
+    const root = String(record?.idd?.root || '').trim()
+    const suffixes = Array.isArray(record?.idd?.suffixes) ? record.idd.suffixes : []
+    if (!countryCode || !label || !root || !suffixes.length) return []
+
+    return suffixes
+      .map((suffix) => String(suffix || '').trim())
+      .filter(Boolean)
+      .map((suffix) => ({
+        countryCode,
+        label,
+        dialCode: `${root}${suffix}`,
+        ...(countryCode === 'IN' ? DEFAULT_PHONE_COUNTRY_OPTION : GENERIC_PHONE_LENGTH_RULE)
+      }))
+  })
+
+  return dedupePhoneCountryOptions(mappedOptions)
+}
+
+export function getPhoneCountryOptions() {
+  if (!phoneCountryOptionsCache.length) {
+    const storedOptions = readStoredPhoneCountryOptions()
+    if (storedOptions.length) {
+      phoneCountryOptionsCache = storedOptions
+    } else {
+      phoneCountryOptionsCache = [DEFAULT_PHONE_COUNTRY_OPTION]
+    }
+  }
+
+  return phoneCountryOptionsCache
+}
+
+export async function fetchPhoneCountryOptions() {
+  const cachedOptions = readStoredPhoneCountryOptions()
+  if (cachedOptions.length) {
+    phoneCountryOptionsCache = cachedOptions
+  }
+
+  try {
+    const response = await fetch(PHONE_COUNTRY_API_URL, {
+      method: 'GET',
+      headers: { Accept: 'application/json' }
+    })
+    if (!response.ok) throw new Error(`Country code request failed with status ${response.status}`)
+
+    const data = await response.json()
+    const nextOptions = createPhoneCountryOptionsFromApi(data)
+    if (nextOptions.length) {
+      return updatePhoneCountryOptionsCache(nextOptions)
+    }
+  } catch {
+    // Keep the app functional with cached values or the India-first fallback.
+  }
+
+  if (cachedOptions.length) return cachedOptions
+  return updatePhoneCountryOptionsCache([DEFAULT_PHONE_COUNTRY_OPTION])
+}
+
+function sortMetadataEntries(entries = []) {
+  return [...(Array.isArray(entries) ? entries : [])].sort((left, right) => {
+    const leftOrder = Number(left?.sortOrder ?? left?.sort_order ?? 0)
+    const rightOrder = Number(right?.sortOrder ?? right?.sort_order ?? 0)
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder
+
+    const leftLabel = String(left?.label || left?.value || '')
+    const rightLabel = String(right?.label || right?.value || '')
+    return leftLabel.localeCompare(rightLabel)
+  })
+}
+
+function normalizeMetadataLookupValue(value = '') {
+  return String(value || '').trim().toLowerCase()
+}
+
+export function buildEmployeeMetadataCatalog(metadataEntries = []) {
+  const activeEntries = (Array.isArray(metadataEntries) ? metadataEntries : [])
+    .filter((entry) => entry?.category && entry?.isActive !== false)
+
+  const byCategory = activeEntries.reduce((accumulator, entry) => {
+    const categoryKey = String(entry.category || '')
+    accumulator[categoryKey] = accumulator[categoryKey] || []
+    accumulator[categoryKey].push(entry)
+    return accumulator
+  }, {})
+
+  Object.keys(byCategory).forEach((categoryKey) => {
+    byCategory[categoryKey] = sortMetadataEntries(byCategory[categoryKey])
+  })
+
+  const departmentEntries = byCategory.department || []
+  const positionEntries = byCategory.position || []
+  const departmentEntryByValue = new Map(departmentEntries.map((entry) => [String(entry.value || ''), entry]))
+  const departmentEntryByUid = new Map(departmentEntries.map((entry) => [String(entry.uid || ''), entry]))
+  const departmentLabelByUid = new Map(departmentEntries.map((entry) => [String(entry.uid || ''), entry.label || entry.value || '']))
+  const positionEntryByValue = new Map(positionEntries.map((entry) => [String(entry.value || ''), entry]))
+  const positionEntriesByDepartmentUid = positionEntries.reduce((accumulator, entry) => {
+    const departmentUid = String(entry.departmentUid || '')
+    const bucket = accumulator.get(departmentUid) || []
+    bucket.push(entry)
+    accumulator.set(departmentUid, bucket)
+    return accumulator
+  }, new Map())
+
+  positionEntriesByDepartmentUid.forEach((entries, departmentUid) => {
+    positionEntriesByDepartmentUid.set(departmentUid, sortMetadataEntries(entries))
+  })
+
+  const lookupByCategory = Object.entries(byCategory).reduce((accumulator, [categoryKey, entries]) => {
+    accumulator[categoryKey] = new Map()
+    entries.forEach((entry) => {
+      const displayLabel = String(entry.label || entry.value || '')
+      const normalizedValueKey = normalizeMetadataLookupValue(entry.value)
+      const normalizedLabelKey = normalizeMetadataLookupValue(displayLabel)
+      if (normalizedValueKey) accumulator[categoryKey].set(normalizedValueKey, entry)
+      if (normalizedLabelKey) accumulator[categoryKey].set(normalizedLabelKey, entry)
+    })
+    return accumulator
+  }, {})
+
+  const labelMaps = Object.entries(byCategory).reduce((accumulator, [categoryKey, entries]) => {
+    accumulator[categoryKey] = new Map(entries.map((entry) => [String(entry.value || ''), entry.label || entry.value || '']))
+    return accumulator
+  }, {})
+
+  return {
+    byCategory,
+    departmentEntries,
+    positionEntries,
+    departmentEntryByValue,
+    departmentEntryByUid,
+    departmentLabelByUid,
+    positionEntryByValue,
+    positionEntriesByDepartmentUid,
+    lookupByCategory,
+    labelMaps
+  }
+}
+
+export function buildMetadataOptions(entries = [], currentValue = '') {
+  const options = sortMetadataEntries(entries).map((entry) => ({
+    value: entry.value,
+    label: entry.label || entry.value || '',
+    description: entry.description || ''
+  }))
+
+  const normalizedCurrentValue = String(currentValue || '').trim()
+  if (normalizedCurrentValue && !options.some((option) => String(option.value) === normalizedCurrentValue)) {
+    options.push({
+      value: normalizedCurrentValue,
+      label: normalizedCurrentValue,
+      description: 'Current saved value'
+    })
+  }
+
+  return options
+}
+
+export function buildDepartmentScopedPositionOptions(catalog = {}, departmentValue = '', currentValue = '') {
+  const normalizedDepartmentValue = String(departmentValue || '').trim()
+  const departmentEntry = catalog.departmentEntryByValue?.get(normalizedDepartmentValue)
+  const scopedEntries = departmentEntry
+    ? (catalog.positionEntriesByDepartmentUid?.get(String(departmentEntry.uid || '')) || [])
+    : []
+
+  return buildMetadataOptions(scopedEntries, currentValue)
+}
+
+export function isPositionMappedToDepartment(catalog = {}, positionValue = '', departmentValue = '') {
+  const normalizedPositionValue = String(positionValue || '').trim()
+  if (!normalizedPositionValue) return true
+
+  const positionEntry = catalog.positionEntryByValue?.get(normalizedPositionValue)
+  const departmentEntry = catalog.departmentEntryByValue?.get(String(departmentValue || '').trim())
+  if (!positionEntry || !departmentEntry || !positionEntry.departmentUid) return false
+
+  return String(positionEntry.departmentUid) === String(departmentEntry.uid)
+}
+
+export function getMetadataDisplayLabel(catalog = {}, category = '', value = '') {
+  const normalizedValue = String(value || '').trim()
+  if (!normalizedValue) return ''
+  return catalog.labelMaps?.[category]?.get(normalizedValue) || normalizedValue
+}
+
+export function findMetadataEntryByInput(catalog = {}, category = '', input = '') {
+  const normalizedInput = normalizeMetadataLookupValue(input)
+  if (!normalizedInput) return null
+  return catalog.lookupByCategory?.[category]?.get(normalizedInput) || null
+}
+
+export function findPhoneCountryOptionByInput(value = '') {
+  const rawValue = String(value || '').trim()
+  if (!rawValue) return null
+
+  const normalizedLabel = rawValue.toLowerCase()
+  const normalizedDigits = rawValue.replace(/[^\d+]/g, '')
+  const normalizedDigitsWithoutPlus = normalizedDigits.replace(/^\+/, '')
+  const normalizedCountryCode = rawValue.toUpperCase()
+
+  return getPhoneCountryOptions().find((option) => (
+    option.dialCode === normalizedDigits
+    || option.dialCode.replace(/^\+/, '') === normalizedDigitsWithoutPlus
+    || option.countryCode === normalizedCountryCode
+    || String(option.label || '').toLowerCase() === normalizedLabel
+  )) || null
+}
 
 export function normalizeEmployee(record) {
   if (!record) return null
@@ -109,9 +397,10 @@ export function normalizeEmployee(record) {
     position: record.position || '',
     department: record.department || '',
     email: record.email || '',
+    clientEmail: record.client_email || record.clientEmail || '',
     phone: record.phone || '',
     joinDate: normalizeDateInput(record.joinDate || record.join_date || ''),
-    status: record.status || 'Active',
+    status: record.status || '',
     attendanceStatus: normalizeAttendanceLabel(record.attendanceStatus || record.attendance_status || record.attendance || record.latest_attendance_status || inferAttendanceFromWorkLocation(record.work_location)),
     dateOfBirth: normalizeDateInput(record.dateOfBirth || record.birth_date || ''),
     address: record.address || '',
@@ -171,10 +460,11 @@ export function getEmployeeOverviewItems(employee, managerLabel = '—') {
     { label: 'Employee Code', value: employee.employeeCode || employee.id },
     { label: 'First Name', value: employee.firstName || '—' },
     { label: 'Last Name', value: employee.lastName || '—' },
-    { label: 'Role', value: employee.roleName || employee.roleType || '—' },
+    { label: 'Personal Email', value: employee.email || '—' },
+    { label: 'Client Email', value: employee.clientEmail || '—' },
+    { label: 'Role', value: employee.roleName || '—' },
     { label: 'Position', value: employee.position || '—' },
     { label: 'Department', value: employee.department || '—' },
-    { label: 'Email', value: employee.email || '—' },
     { label: 'Phone', value: employee.phone || '—' },
     { label: 'Join Date', value: formatDate(employee.joinDate) },
     { label: 'Status', value: employee.status || '—' },
@@ -186,10 +476,10 @@ export function getEmployeeOverviewItems(employee, managerLabel = '—') {
     { label: 'Blood Group', value: employee.bloodGroup || '—' },
     { label: 'Employee Type', value: employee.employeeType || '—' },
     { label: 'Work Location', value: employee.workLocation || '—' },
-    { label: 'Manager', value: managerLabel || employee.managerEmployeeUid || '—' },
-    { label: 'HR', value: employee.hrEmployeeName || employee.hrEmployeeUid || '—' },
-    { label: 'Team Lead', value: employee.teamLeadName || employee.teamLeadEmployeeUid || '—' },
-    { label: 'Coordinator', value: employee.coordinatorName || employee.coordinatorEmployeeUid || '—' },
+    { label: 'Manager', value: managerLabel || '—' },
+    { label: 'HR', value: employee.hrEmployeeName || '—' },
+    { label: 'Team Lead', value: employee.teamLeadName || '—' },
+    { label: 'Coordinator', value: employee.coordinatorName || '—' },
     { label: 'Emergency Contact', value: employee.emergencyContact || '—' },
     { label: 'Address', value: employee.address || '—' }
   ]
@@ -291,9 +581,10 @@ export function toEmployeeApiPayload(employee) {
     position: toNullableString(employee.position),
     department: toNullableString(employee.department),
     email: toNullableString(employee.email),
+    client_email: toNullableString(employee.clientEmail),
     phone: toNullablePhone(employee.phone),
     join_date: toNullableString(normalizeDateInput(employee.joinDate)),
-    status: toNullableString(employee.status) || 'Active',
+    status: toNullableString(employee.status),
     birth_date: toNullableString(normalizeDateInput(employee.dateOfBirth)),
     address: toNullableString(employee.address),
     gender: toNullableString(employee.gender),
@@ -326,17 +617,18 @@ export function getAttendanceOptions(records = []) {
 
 export function getWorkLocationOptions(records = []) {
   const dynamicValues = records.map((employee) => employee.workLocation).filter(Boolean)
-  return Array.from(new Set([...EMPLOYEE_WORK_LOCATION_OPTIONS, ...dynamicValues]))
+  return Array.from(new Set(dynamicValues))
 }
 
 
 export function getStatusOptions(records = []) {
   const dynamicValues = records.map((employee) => employee.status).filter(Boolean)
-  return Array.from(new Set([...EMPLOYEE_STATUS_OPTIONS, ...dynamicValues]))
+  return Array.from(new Set(dynamicValues))
 }
 
 export function getPhoneCountryOption(dialCode) {
-  return PHONE_COUNTRY_OPTIONS.find((option) => option.dialCode === dialCode) || PHONE_COUNTRY_OPTIONS[0]
+  const options = getPhoneCountryOptions()
+  return options.find((option) => option.dialCode === dialCode) || options[0] || DEFAULT_PHONE_COUNTRY_OPTION
 }
 
 export function getPhoneCountryLengthRule(dialCode) {
@@ -358,13 +650,60 @@ export function formatPhoneLengthRule(ruleOrDialCode) {
   return rule.isExactLength ? `${rule.minLength} digits` : `${rule.minLength} to ${rule.maxLength} digits`
 }
 
-export function getDefaultPhoneCountryOption() {
-  const fallback = PHONE_COUNTRY_OPTIONS[0]
-  if (typeof navigator === 'undefined') return fallback
 
-  const locale = String(navigator.language || '').toUpperCase()
-  const countryCode = locale.includes('-') ? locale.split('-')[1] : ''
-  return PHONE_COUNTRY_OPTIONS.find((option) => option.countryCode === countryCode) || fallback
+export function buildPhoneCountrySelectOptions(options = []) {
+  const groupedOptions = new Map()
+
+  ;(Array.isArray(options) ? options : []).forEach((option, index) => {
+    const normalizedOption = normalizePhoneCountryOption(option)
+    if (!normalizedOption) return
+
+    const current = groupedOptions.get(normalizedOption.dialCode) || {
+      value: normalizedOption.dialCode,
+      label: normalizedOption.dialCode,
+      dialCode: normalizedOption.dialCode,
+      minLength: normalizedOption.localMinLength,
+      maxLength: normalizedOption.localMaxLength,
+      countries: [],
+      countryCodes: [],
+      firstIndex: index
+    }
+
+    current.minLength = Math.min(current.minLength, normalizedOption.localMinLength)
+    current.maxLength = Math.max(current.maxLength, normalizedOption.localMaxLength)
+
+    if (!current.countries.includes(normalizedOption.label)) current.countries.push(normalizedOption.label)
+    if (!current.countryCodes.includes(normalizedOption.countryCode)) current.countryCodes.push(normalizedOption.countryCode)
+
+    groupedOptions.set(normalizedOption.dialCode, current)
+  })
+
+  return [...groupedOptions.values()]
+    .sort((left, right) => left.firstIndex - right.firstIndex)
+    .map((option) => {
+      const countrySummary = option.countries.length <= 2
+        ? option.countries.join(' / ')
+        : `${option.countries[0]} +${option.countries.length - 1} more`
+      const lengthRule = formatPhoneLengthRule({
+        minLength: option.minLength,
+        maxLength: option.maxLength,
+        isExactLength: option.minLength === option.maxLength
+      })
+
+      return {
+        value: option.value,
+        label: option.label,
+        description: `${countrySummary} - ${lengthRule}`,
+        searchText: `${option.dialCode} ${option.countries.join(' ')} ${option.countryCodes.join(' ')} ${lengthRule}`,
+        key: `dial-code-${option.dialCode}`
+      }
+    })
+}
+
+export function getDefaultPhoneCountryOption() {
+  const options = getPhoneCountryOptions()
+  const fallback = options[0] || DEFAULT_PHONE_COUNTRY_OPTION
+  return options.find((option) => option.countryCode === DEFAULT_PHONE_COUNTRY_OPTION.countryCode) || fallback
 }
 
 export function parseStoredPhoneValue(phone) {
@@ -375,7 +714,7 @@ export function parseStoredPhoneValue(phone) {
   }
 
   const normalized = raw.replace(/[^\d+]/g, '')
-  const matched = [...PHONE_COUNTRY_OPTIONS]
+  const matched = [...getPhoneCountryOptions()]
     .sort((left, right) => right.dialCode.length - left.dialCode.length)
     .find((option) => normalized.startsWith(option.dialCode))
 
@@ -462,28 +801,45 @@ export function isIsoDateInput(value) {
   return date.getFullYear() === year && date.getMonth() + 1 === month && date.getDate() === day
 }
 
+function getEmployeeExportDisplay(employee = {}) {
+  return {
+    role: employee.roleName || employee.roleLabel || '',
+    position: employee.positionLabel || employee.position || '',
+    department: employee.departmentLabel || employee.department || '',
+    status: employee.statusLabel || employee.status || '',
+    gender: employee.genderLabel || employee.gender || '',
+    employeeType: employee.employeeTypeLabel || employee.employeeType || '',
+    workLocation: employee.workLocationLabel || employee.workLocation || '',
+    bloodGroup: employee.bloodGroupLabel || employee.bloodGroup || ''
+  }
+}
+
 export function downloadEmployeesAsCsv(records) {
-  const headers = ['Employee Code', 'First Name', 'Last Name', 'Role', 'Position', 'Department', 'Email', 'Phone', 'Join Date', 'Status', 'Date Of Birth', 'Gender', 'Caste', 'Employee Type', 'Work Location', 'Emergency Contact', 'Blood Group', 'Address']
-  const rows = records.map((employee) => [
-    employee.employeeCode || employee.id,
-    employee.firstName,
-    employee.lastName,
-    employee.roleName || employee.roleType || '',
-    employee.position,
-    employee.department,
-    employee.email,
-    employee.phone,
-    employee.joinDate,
-    employee.status,
-    employee.dateOfBirth,
-    employee.gender,
-    employee.caste,
-    employee.employeeType,
-    employee.workLocation,
-    employee.emergencyContact,
-    employee.bloodGroup,
-    employee.address
-  ])
+  const headers = ['Employee Code', 'First Name', 'Last Name', 'Role', 'Position', 'Department', 'Personal Email', 'Client Email', 'Phone', 'Join Date', 'Status', 'Date Of Birth', 'Gender', 'Caste', 'Employee Type', 'Work Location', 'Emergency Contact', 'Blood Group', 'Address']
+  const rows = records.map((employee) => {
+    const display = getEmployeeExportDisplay(employee)
+    return [
+      employee.employeeCode || employee.id,
+      employee.firstName,
+      employee.lastName,
+      display.role,
+      display.position,
+      display.department,
+      employee.email,
+      employee.clientEmail,
+      employee.phone,
+      employee.joinDate,
+      display.status,
+      employee.dateOfBirth,
+      display.gender,
+      employee.caste,
+      display.employeeType,
+      display.workLocation,
+      employee.emergencyContact,
+      display.bloodGroup,
+      employee.address
+    ]
+  })
 
   const csvContent = [headers, ...rows]
     .map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
@@ -494,27 +850,31 @@ export function downloadEmployeesAsCsv(records) {
 }
 
 export function downloadEmployeesAsExcel(records) {
-  const header = ['Employee Code', 'First Name', 'Last Name', 'Role', 'Position', 'Department', 'Email', 'Phone', 'Join Date', 'Status', 'Date Of Birth', 'Gender', 'Caste', 'Employee Type', 'Work Location', 'Emergency Contact', 'Blood Group', 'Address']
-  const rows = records.map((employee) => ([
-    employee.employeeCode || employee.id || '',
-    employee.firstName || '',
-    employee.lastName || '',
-    employee.roleName || employee.roleType || '',
-    employee.position || '',
-    employee.department || '',
-    employee.email || '',
-    employee.phone || '',
-    employee.joinDate || '',
-    employee.status || '',
-    employee.dateOfBirth || '',
-    employee.gender || '',
-    employee.caste || '',
-    employee.employeeType || '',
-    employee.workLocation || '',
-    employee.emergencyContact || '',
-    employee.bloodGroup || '',
-    employee.address || ''
-  ]))
+  const header = ['Employee Code', 'First Name', 'Last Name', 'Role', 'Position', 'Department', 'Personal Email', 'Client Email', 'Phone', 'Join Date', 'Status', 'Date Of Birth', 'Gender', 'Caste', 'Employee Type', 'Work Location', 'Emergency Contact', 'Blood Group', 'Address']
+  const rows = records.map((employee) => {
+    const display = getEmployeeExportDisplay(employee)
+    return ([
+      employee.employeeCode || employee.id || '',
+      employee.firstName || '',
+      employee.lastName || '',
+      display.role,
+      display.position,
+      display.department,
+      employee.email || '',
+      employee.clientEmail || '',
+      employee.phone || '',
+      employee.joinDate || '',
+      display.status,
+      employee.dateOfBirth || '',
+      display.gender,
+      employee.caste || '',
+      display.employeeType,
+      display.workLocation,
+      employee.emergencyContact || '',
+      display.bloodGroup,
+      employee.address || ''
+    ])
+  })
 
   const workbook = XLSX.utils.book_new()
   const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows])

@@ -1,7 +1,8 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
+import AppDatePresetFilter from '../../../components/common/AppDatePresetFilter.jsx'
 import PageHeader from '../../../components/common/PageHeader.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
@@ -9,7 +10,7 @@ import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import AppSearchField from '../../../components/common/AppSearchField.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
-import { DownloadIcon, ExportIcon, FilterIcon, ImportIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from '../../../components/common/AppIcons.jsx'
+import { DownloadIcon, ExportIcon, FilterIcon, ImportIcon, PencilIcon, PlusIcon, RotateCcwIcon, TrashIcon, ViewIcon } from '../../../components/common/AppIcons.jsx'
 import { TableActionButton, TableActionCluster, TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { AttendanceTabs } from '../../attendance/components/AttendanceShared.jsx'
 
@@ -45,6 +46,7 @@ import {
   parseProjectManagementImportFile,
   pickImportValue
 } from '../../../utils/taskManagement.js'
+import { filterTasksByDatePreset } from '../utils/taskInsights.js'
 import { filterCollectionByQuery } from '../../../utils/search.js'
 import { getDateRangeValidationMessage, getRequiredFieldMessage, hasValidationErrors, markFieldsTouched } from '../../../utils/validation.js'
 
@@ -977,6 +979,7 @@ function TaskFormModal({
   )
 }
 export default function TaskManagement() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const { showStatus, showConfirm, runWithLoader } = useModal()
@@ -1037,6 +1040,7 @@ export default function TaskManagement() {
   const [assignmentEmployeeFilter, setAssignmentEmployeeFilter] = useState('All')
 
   const [taskSearch, setTaskSearch] = useState('')
+  const [taskDatePreset, setTaskDatePreset] = useState('today')
   const [taskProjectFilter, setTaskProjectFilter] = useState('All')
   const [taskEmployeeFilter, setTaskEmployeeFilter] = useState('All')
   const [taskAssignmentFilter, setTaskAssignmentFilter] = useState('All')
@@ -1338,7 +1342,7 @@ export default function TaskManagement() {
   }), [assignmentByUid, assignmentStatusesByEmployeeUid, employeeByUid, projectByUid, tasks])
 
   const filteredTasks = useMemo(() => (
-    filterCollectionByQuery(taskRows, deferredTaskSearch, [
+    filterCollectionByQuery(filterTasksByDatePreset(taskRows, taskDatePreset), deferredTaskSearch, [
       'projectName',
       'projectCode',
       'projectStatus',
@@ -1379,6 +1383,7 @@ export default function TaskManagement() {
       })
   ), [
     deferredTaskSearch,
+    taskDatePreset,
     taskAssignmentFilter,
     taskAssignmentStatusFilter,
     taskBillingFilter,
@@ -2079,6 +2084,7 @@ export default function TaskManagement() {
 
   function resetTaskFilters() {
     setTaskSearch('')
+    setTaskDatePreset('today')
     setTaskProjectFilter('All')
     setTaskEmployeeFilter('All')
     setTaskAssignmentFilter('All')
@@ -2193,8 +2199,8 @@ export default function TaskManagement() {
                     <AppDateRangeField value={projectStartDateRange} onChange={setProjectStartDateRange} className="employee-range-field" placeholder="[Select range]" />
                   </div>
                   <div className="employee-filter-actions">
-                    <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetProjectFilters}>
-                      <XIcon />
+                    <button type="button" className="btn btn-outline-secondary btn-sm btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetProjectFilters}>
+                      <RotateCcwIcon />
                       <span>Reset</span>
                     </button>
                   </div>
@@ -2309,8 +2315,8 @@ export default function TaskManagement() {
                     <AppSelect value={assignmentEmployeeFilter} onChange={setAssignmentEmployeeFilter} options={employeeFilterOptions} placeholder="All employees" />
                   </div>
                   <div className="employee-filter-actions">
-                    <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetAssignmentFilters}>
-                      <XIcon />
+                    <button type="button" className="btn btn-outline-secondary btn-sm btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetAssignmentFilters}>
+                      <RotateCcwIcon />
                       <span>Reset</span>
                     </button>
                   </div>
@@ -2385,7 +2391,10 @@ export default function TaskManagement() {
                 {projectsQuery.isError ? <div className="alert alert-warning py-2 mb-0">Project lookup unavailable. {parseApiError(projectsQuery.error, 'Labels may show raw IDs.')}</div> : null}
 
                 <div className="employee-toolbar employee-toolbar-top">
-                  <AppSearchField className="employee-toolbar-search" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} placeholder="Search by project, employee, assignment, or remarks" />
+                  <div className="d-flex flex-column gap-2 flex-grow-1">
+                    <AppDatePresetFilter value={taskDatePreset} onChange={setTaskDatePreset} includeOverall={false} />
+                    <AppSearchField className="employee-toolbar-search" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} placeholder="Search by project, employee, assignment, or remarks" />
+                  </div>
                   <div className="employee-toolbar-actions">
                     {canCreateTasks ? (
                       <button
@@ -2457,8 +2466,8 @@ export default function TaskManagement() {
                     <AppDateRangeField value={taskDateRangeFilter} onChange={setTaskDateRangeFilter} className="employee-range-field" placeholder="[Select range]" />
                   </div>
                   <div className="employee-filter-actions">
-                    <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetTaskFilters}>
-                      <XIcon />
+                    <button type="button" className="btn btn-outline-secondary btn-sm btn-icon-inline employee-filter-reset-btn employee-toolbar-btn" onClick={resetTaskFilters}>
+                      <RotateCcwIcon />
                       <span>Reset</span>
                     </button>
                   </div>
@@ -2510,6 +2519,7 @@ export default function TaskManagement() {
                             <td className="employee-cell-wrap"><TableCellStack title={<TableBadge value={String(task.taskReviewedValue ?? 0)} tone="purple" />} subtitle="Reviewed" /></td>
                             <td className="employee-actions-cell">
                               <TableActionCluster className="justify-content-center mx-auto">
+                                <TableActionButton icon={<ViewIcon />} label="View" variant="view" onClick={() => navigate(`/admin/task-management/employees/${task.employeeUid}`)} />
                                 {canUpdateTasks ? <TableActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openEditTask(task)} /> : null}
                                 {canDeleteTasks ? <TableActionButton icon={<TrashIcon />} label="Delete" variant="delete" onClick={() => handleDeleteTask(task)} /> : null}
                               </TableActionCluster>

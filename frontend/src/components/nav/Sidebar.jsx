@@ -47,10 +47,10 @@ export default function Sidebar({ ui }) {
             <NavLink
               key={it.to}
               to={it.to}
-              className={({ isActive }) => 'sidebar-link d-flex align-items-center gap-2 px-2 py-2 rounded ' + (isActive ? 'active' : '')}
+              className={({ isActive }) => `sidebar-link d-flex align-items-center gap-2 px-2 py-2 rounded ${isActive ? 'active' : ''}`.trim()}
             >
               <span className="sidebar-icon">{it.icon}</span>
-              {expanded && <span className="small fw-semibold">{it.label}</span>}
+              <span className={`sidebar-link-label small fw-semibold ${expanded ? 'is-visible' : ''}`.trim()}>{it.label}</span>
             </NavLink>
           ))}
         </nav>

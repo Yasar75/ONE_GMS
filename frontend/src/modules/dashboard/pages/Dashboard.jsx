@@ -29,8 +29,30 @@ import { resolveDashboardVariant } from '../../../utils/permissions.js'
 const KPI_TONES = ['blue', 'orange', 'teal', 'purple']
 const PIE_COLORS = ['var(--gm-blue)', 'var(--gm-orange)', '#22c55e', '#a855f7']
 
+const EMPTY_DASHBOARD = {
+  kpis: [],
+  charts: {},
+  widgets: {
+    upcomingEvents: [],
+    holidayCalendar: [],
+    recentlyJoined: [],
+    updates: []
+  }
+}
+
+function ensureArray(value) {
+  return Array.isArray(value) ? value : []
+}
+
 function DashboardScaffold({ data, title, tagline, primaryChart, secondaryChart, tertiaryChart }) {
-  const { items: sortedRecentlyJoined, sortConfig: recentlyJoinedSortConfig, requestSort: requestRecentlyJoinedSort } = useSortableData(data.widgets.recentlyJoined, {
+  const dashboardData = data || EMPTY_DASHBOARD
+  const kpis = ensureArray(dashboardData?.kpis)
+  const upcomingEvents = ensureArray(dashboardData?.widgets?.upcomingEvents)
+  const holidayCalendar = ensureArray(dashboardData?.widgets?.holidayCalendar)
+  const updates = ensureArray(dashboardData?.widgets?.updates)
+  const recentlyJoined = ensureArray(dashboardData?.widgets?.recentlyJoined)
+
+  const { items: sortedRecentlyJoined, sortConfig: recentlyJoinedSortConfig, requestSort: requestRecentlyJoinedSort } = useSortableData(recentlyJoined, {
     initialKey: 'name',
     initialDirection: 'asc',
     accessors: {
@@ -44,7 +66,7 @@ function DashboardScaffold({ data, title, tagline, primaryChart, secondaryChart,
       <PageHeader title={title} tagline={tagline} />
 
       <div className="row g-3">
-        {data.kpis.map((item, index) => (
+        {kpis.map((item, index) => (
           <div className="col-12 col-sm-6 col-xl-3" key={item.label}>
             <KpiCard label={item.label} value={item.value} tone={KPI_TONES[index % KPI_TONES.length]} />
           </div>
@@ -64,24 +86,24 @@ function DashboardScaffold({ data, title, tagline, primaryChart, secondaryChart,
             <div className="col-12">
               <CardShell title="Upcoming Events">
                 <ul className="list-group list-group-flush">
-                  {data.widgets.upcomingEvents.map((event) => (
+                  {upcomingEvents.length ? upcomingEvents.map((event) => (
                     <li className="list-group-item d-flex justify-content-between" key={event.title}>
                       <span>{event.title}</span>
                       <span className="text-muted small">{event.date}</span>
                     </li>
-                  ))}
+                  )) : <li className="list-group-item text-muted">No upcoming events found.</li>}
                 </ul>
               </CardShell>
             </div>
             <div className="col-12">
               <CardShell title="Holiday Calendar">
                 <ul className="list-group list-group-flush">
-                  {data.widgets.holidayCalendar.map((holiday) => (
+                  {holidayCalendar.length ? holidayCalendar.map((holiday) => (
                     <li className="list-group-item d-flex justify-content-between" key={holiday.title}>
                       <span>{holiday.title}</span>
                       <span className="text-muted small">{holiday.date}</span>
                     </li>
-                  ))}
+                  )) : <li className="list-group-item text-muted">No holidays configured.</li>}
                 </ul>
               </CardShell>
             </div>
@@ -122,7 +144,7 @@ function DashboardScaffold({ data, title, tagline, primaryChart, secondaryChart,
         <div className="col-12 col-lg-6">
           <CardShell title="Important Updates">
             <ul className="mb-0">
-              {data.widgets.updates.map((update) => <li key={update}>{update}</li>)}
+              {updates.length ? updates.map((update) => <li key={update}>{update}</li>) : <li className="text-muted">No updates available.</li>}
             </ul>
           </CardShell>
         </div>
@@ -132,20 +154,26 @@ function DashboardScaffold({ data, title, tagline, primaryChart, secondaryChart,
 }
 
 function AdminDashboardView() {
-  const { data, isLoading } = useAdminDashboardQuery(true)
+  const { data, isLoading, isError } = useAdminDashboardQuery(true)
 
   if (isLoading) return <div className="text-muted">Loading dashboard…</div>
+  if (isError) return <div className="text-muted">Unable to load dashboard data.</div>
+
+  const dashboardData = data || EMPTY_DASHBOARD
+  const attendanceTrend = ensureArray(dashboardData?.charts?.attendanceTrend)
+  const summarySplit = ensureArray(dashboardData?.charts?.leaveSplit?.length ? dashboardData?.charts?.leaveSplit : dashboardData?.charts?.projectStatusSplit)
+  const hoursByDept = ensureArray(dashboardData?.charts?.hoursByDept?.length ? dashboardData?.charts?.hoursByDept : dashboardData?.charts?.departmentHours)
 
   return (
     <DashboardScaffold
-      data={data}
+      data={dashboardData}
       title="Dashboard"
       tagline="Organization-level overview of workforce, attendance, and leave utilization."
       primaryChart={(
         <CardShell title="Attendance Trend (Present vs Absent)">
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
-              <BarChart data={data.charts.attendanceTrend}>
+              <BarChart data={attendanceTrend}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="day" />
                 <YAxis />
@@ -159,13 +187,13 @@ function AdminDashboardView() {
         </CardShell>
       )}
       secondaryChart={(
-        <CardShell title="Leave Split">
+        <CardShell title="Project Status Split">
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={data.charts.leaveSplit} dataKey="value" nameKey="name" outerRadius={85} label>
-                  {data.charts.leaveSplit.map((_, index) => (
-                    <Cell key={`admin-leave-split-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                <Pie data={summarySplit} dataKey="value" nameKey="name" outerRadius={85} label>
+                  {summarySplit.map((_, index) => (
+                    <Cell key={`admin-summary-split-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -179,7 +207,7 @@ function AdminDashboardView() {
         <CardShell title="Hours Worked by Department">
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
-              <LineChart data={data.charts.hoursByDept}>
+              <LineChart data={hoursByDept}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" />
                 <YAxis />
@@ -195,20 +223,26 @@ function AdminDashboardView() {
 }
 
 function EmployeeDashboardView() {
-  const { data, isLoading } = useEmployeeDashboardQuery(true)
+  const { data, isLoading, isError } = useEmployeeDashboardQuery(true)
 
   if (isLoading) return <div className="text-muted">Loading dashboard…</div>
+  if (isError) return <div className="text-muted">Unable to load dashboard data.</div>
+
+  const dashboardData = data || EMPTY_DASHBOARD
+  const hoursTrend = ensureArray(dashboardData?.charts?.hoursTrend)
+  const taskStatusSplit = ensureArray(dashboardData?.charts?.taskStatusSplit)
+  const projectStatusSplit = ensureArray(dashboardData?.charts?.projectStatusSplit)
 
   return (
     <DashboardScaffold
-      data={data}
+      data={dashboardData}
       title="Dashboard"
       tagline="Your monthly attendance and leave insights at a glance."
       primaryChart={(
         <CardShell title="Hours Worked (This Week)">
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
-              <LineChart data={data.charts.hoursTrend}>
+              <LineChart data={hoursTrend}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="day" />
                 <YAxis />
@@ -220,13 +254,13 @@ function EmployeeDashboardView() {
         </CardShell>
       )}
       secondaryChart={(
-        <CardShell title="Attendance (Monthly)">
+        <CardShell title="Task Status Split">
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={data.charts.attendanceDonut} dataKey="value" nameKey="name" outerRadius={85} label>
-                  {data.charts.attendanceDonut.map((_, index) => (
-                    <Cell key={`employee-attendance-donut-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                <Pie data={taskStatusSplit} dataKey="value" nameKey="name" outerRadius={85} label>
+                  {taskStatusSplit.map((_, index) => (
+                    <Cell key={`employee-task-status-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -237,10 +271,10 @@ function EmployeeDashboardView() {
         </CardShell>
       )}
       tertiaryChart={(
-        <CardShell title="Leave Usage">
+        <CardShell title="Assigned Project Status">
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
-              <BarChart data={data.charts.leaveUsage}>
+              <BarChart data={projectStatusSplit}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" />
                 <YAxis />

@@ -59,15 +59,40 @@ async_engine = create_async_engine(
 # ]
 
 
-# async def _ensure_employee_columns(conn) -> None:
-#     alter_statements = [
-#         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS role_type UUID',
-#         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS hr_employee_uid UUID',
-#         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS team_lead_employee_uid UUID',
-#         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS coordinator_employee_uid UUID',
-#     ]
-#     for stmt in alter_statements:
-#         await conn.execute(text(stmt))
+async def _ensure_employee_columns(conn) -> None:
+    alter_statements = [
+        'ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_email VARCHAR(255)',
+    ]
+    for stmt in alter_statements:
+        await conn.execute(text(stmt))
+
+
+async def _seed_default_roles(conn) -> None:
+    await conn.execute(
+        text(
+            """
+            INSERT INTO roles (uid, role_name, description, permissions, created_at, updated_at, created_by)
+            SELECT
+                CAST(:uid AS UUID),
+                CAST(:role_name AS VARCHAR),
+                CAST(:description AS VARCHAR),
+                '{}'::jsonb,
+                NOW(),
+                NOW(),
+                NULL
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM roles
+                WHERE LOWER(role_name) = LOWER(CAST(:role_name AS VARCHAR))
+            )
+            """
+        ),
+        {
+            "uid": str(uuid.uuid4()),
+            "role_name": "Delivary",
+            "description": "Delivery operations role",
+        },
+    )
 
 
 # async def _seed_employee_metadata(conn) -> None:
@@ -97,8 +122,8 @@ async def init_db() -> None:
         import src.db.models  # noqa: F401
 
         await conn.run_sync(SQLModel.metadata.create_all)
-       # await _ensure_employee_columns(conn)
-       # await _seed_employee_metadata(conn)
+        await _ensure_employee_columns(conn)
+        await _seed_default_roles(conn)
 
 
 async def get_session() -> AsyncSession:

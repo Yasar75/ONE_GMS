@@ -124,11 +124,13 @@ body {
   right: 0;
   bottom: var(--footer-h);
   overflow: hidden;
+  transition: left 160ms ease;
 }
 
 .app-content-scroll {
   height: 100%;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }

@@ -103,6 +103,7 @@ app.include_router(attendance_regularization_router, prefix=f"/api/{version}/att
 app.include_router(attendance_regularization_log_router, prefix=f"/api/{version}/attendance-regularization-log", tags=["Attendance-Regularization-Logs"])
 
 app.include_router(holiday_calender_router, prefix=f"/api/{version}/holiday-calender", tags=["Holiday Calender"])
+app.include_router(holiday_calender_router, prefix=f"/api/{version}/holiday-calendar", tags=["Holiday Calendar"])
 app.include_router(leave_type_router, prefix=f"/api/{version}/leave-types", tags=["Leave Types"])
 app.include_router(employee_leave_balance_router, prefix=f"/api/{version}/employee-leave-balances", tags=["Employee Leave Balances"])
 app.include_router(leave_request_router, prefix=f"/api/{version}/leave-requests", tags=["Leave Requests"])

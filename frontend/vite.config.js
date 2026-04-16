@@ -27,6 +27,16 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    css: {
+      preprocessorOptions: {
+        scss: {
+          api: 'modern'
+        },
+        sass: {
+          api: 'modern'
+        }
+      }
+    },
     server: {
       port: 5173,
       strictPort: true,

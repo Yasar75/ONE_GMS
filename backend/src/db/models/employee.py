@@ -39,6 +39,7 @@ class Employee(SQLModel, table=True):
     position: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
     department: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
     email: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(255), unique=True, nullable=True))
+    client_email: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(255), nullable=True))
     phone: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(50), nullable=True))
     join_date: Optional[date] = Field(default=None)
     status: EmployeeStatus = Field(default=EmployeeStatus.Active,sa_column=Column(pg.ENUM(EmployeeStatus, name="employee_status", create_type=True),nullable=False,server_default="Active",))

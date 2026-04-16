@@ -9,7 +9,6 @@ from src.db.models.employee_metadata import MetadataCategory
 
 class EmployeeMetadataCreate(BaseModel):
     category: MetadataCategory
-    value: str = Field(min_length=1, max_length=120)
     label: str = Field(min_length=1, max_length=120)
     description: Optional[str] = Field(default=None, max_length=255)
     is_active: bool = True
@@ -17,7 +16,6 @@ class EmployeeMetadataCreate(BaseModel):
 
 
 class EmployeeMetadataUpdate(BaseModel):
-    value: Optional[str] = Field(default=None, min_length=1, max_length=120)
     label: Optional[str] = Field(default=None, min_length=1, max_length=120)
     description: Optional[str] = Field(default=None, max_length=255)
     is_active: Optional[bool] = None
@@ -27,7 +25,6 @@ class EmployeeMetadataUpdate(BaseModel):
 class EmployeeMetadataRead(BaseModel):
     uid: uuid.UUID
     category: MetadataCategory
-    value: str
     label: str
     description: Optional[str]
     is_active: bool
