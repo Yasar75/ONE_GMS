@@ -22,6 +22,16 @@ Install the required dependencies:
 fastapi dev src/
 ```
 
+# Vercel Backend Deployment
+
+Use the backend folder as the Vercel project root and configure:
+
+- Framework Preset: `FastAPI`
+- Install Command: `pip install -r requirements.vercel.txt`
+- Build Command: `alembic upgrade head`
+
+`requirements.vercel.txt` is a slim runtime dependency set for Vercel to stay below the Python Lambda bundle size limit.
+
 
 
 # Database Migrations Workflow
