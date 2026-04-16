@@ -15,11 +15,11 @@ class EmployeeStatus(str, Enum):
     Terminated = "Terminated"
 
 
-class EmployeeType(str, Enum):
-    FullTime = "FullTime"
-    PartTime = "PartTime"
-    Contract = "Contract"
-    Intern = "Intern"
+# class EmployeeType(str, Enum):
+#     FullTime = "FullTime"
+#     PartTime = "PartTime"
+#     Contract = "Contract"
+#     Intern = "Intern"
 
 # class BillingStatus(str, Enum):
 #     Billable = "Billable"
@@ -49,7 +49,7 @@ class Employee(SQLModel, table=True):
     emergency_contact: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     billing_status: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     blood_group: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(10), nullable=True))
-    employee_type: Optional[EmployeeType] = Field(default=None,sa_column=Column(pg.ENUM(EmployeeType, name="employee_type", create_type=True),nullable=True,))
+    employee_type: Optional[str] = Field(default=None,sa_column=Column(pg.VARCHAR(100), nullable=True))
     work_location: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
     manager_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
     hr_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))

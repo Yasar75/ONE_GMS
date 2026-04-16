@@ -50,7 +50,7 @@ Use the backend folder as the Vercel project root and configure:
 Generate a new script that calculates the difference between your code and the database:
 
 ```bash
-alembic revision --autogenerate -m "add blood group in employee table"
+alembic revision --autogenerate -m "keep field employees type as text field"
 
 ```
 
