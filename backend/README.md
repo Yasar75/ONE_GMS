@@ -40,7 +40,7 @@ fastapi dev src/
 Generate a new script that calculates the difference between your code and the database:
 
 ```bash
-alembic revision --autogenerate -m "add blood group in employee table"
+alembic revision --autogenerate -m "keep field employees type as text field"
 
 ```
 

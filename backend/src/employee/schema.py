@@ -13,11 +13,11 @@ class EmployeeStatus(str, Enum):
     Terminated = "Terminated"
 
 
-class EmployeeType(str, Enum):
-    FullTime = "FullTime"
-    PartTime = "PartTime"
-    Contract = "Contract"
-    Intern = "Intern"
+# class EmployeeType(str, Enum):
+#     FullTime = "FullTime"
+#     PartTime = "PartTime"
+#     Contract = "Contract"
+#     Intern = "Intern"
     
 class EmployeeBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -39,7 +39,7 @@ class EmployeeBase(BaseModel):
     caste: Optional[str] 
     emergency_contact: Optional[str] 
     blood_group: Optional[str]
-    employee_type: Optional[EmployeeType] 
+    employee_type: Optional[str] 
     work_location: Optional[str] 
     manager_employee_uid: Optional[uuid.UUID] 
     hr_employee_uid: Optional[uuid.UUID] = None
@@ -68,7 +68,7 @@ class EmployeeCreate(BaseModel):
     emergency_contact: Optional[str] = " "
     billing_status: str = "Non-Billable"
     blood_group: Optional[str] = " "
-    employee_type: Optional[EmployeeType] = " "
+    employee_type: Optional[str] = " "
     work_location: Optional[str] = " "
     manager_employee_uid: Optional[uuid.UUID] = " "
     hr_employee_uid: Optional[uuid.UUID] = " "
@@ -93,7 +93,7 @@ class EmployeeUpdate(BaseModel):
     caste: Optional[str] = " "
     emergency_contact: Optional[str] = " "
     blood_group: Optional[str] = " "
-    employee_type: Optional[EmployeeType] = " "
+    employee_type: Optional[str] = " "
     work_location: Optional[str] = " "
     manager_employee_uid: Optional[uuid.UUID] = " "
     hr_employee_uid: Optional[uuid.UUID] = " "
