@@ -42,10 +42,7 @@ class EmployeeBase(BaseModel):
     blood_group: Optional[str]
     employee_type: Optional[str] 
     work_location: Optional[str] 
-    manager_employee_uid: Optional[uuid.UUID] 
-    hr_employee_uid: Optional[uuid.UUID] = None
-    team_lead_employee_uid: Optional[uuid.UUID] = None
-    coordinator_employee_uid: Optional[uuid.UUID] = None
+    reporting_assignments: dict[str, Optional[uuid.UUID]] = PydField(default_factory=dict)
     role_type: Optional[uuid.UUID] = None
     billing_status:Optional[str] 
     created_at: datetime
@@ -72,10 +69,7 @@ class EmployeeCreate(BaseModel):
     blood_group: Optional[str] = " "
     employee_type: Optional[str] = " "
     work_location: Optional[str] = " "
-    manager_employee_uid: Optional[uuid.UUID] = " "
-    hr_employee_uid: Optional[uuid.UUID] = " "
-    team_lead_employee_uid: Optional[uuid.UUID] = " "
-    coordinator_employee_uid: Optional[uuid.UUID] = " "
+    reporting_assignments: dict[str, Optional[uuid.UUID]] = PydField(default_factory=dict)
     role_type: uuid.UUID = " "
 
 
@@ -98,10 +92,7 @@ class EmployeeUpdate(BaseModel):
     blood_group: Optional[str] = " "
     employee_type: Optional[str] = " "
     work_location: Optional[str] = " "
-    manager_employee_uid: Optional[uuid.UUID] = " "
-    hr_employee_uid: Optional[uuid.UUID] = " "
-    team_lead_employee_uid: Optional[uuid.UUID] = " "
-    coordinator_employee_uid: Optional[uuid.UUID] = " "
+    reporting_assignments: Optional[dict[str, Optional[uuid.UUID]]] = None
     role_type: Optional[uuid.UUID] = " "
 
 ###### Upload Profile Image and Nick Name ###########3

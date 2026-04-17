@@ -52,16 +52,46 @@ class Employee(SQLModel, table=True):
     blood_group: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(10), nullable=True))
     employee_type: Optional[str] = Field(default=None,sa_column=Column(pg.VARCHAR(100), nullable=True))
     work_location: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
-    manager_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
-    hr_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
-    team_lead_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
-    coordinator_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
+    reporting_assignments: dict[str, str] = Field(
+        default_factory=dict,
+        sa_column=Column(
+            pg.JSONB,
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
+    )
     role_type: Optional[uuid.UUID] = Field(default=None, sa_column=Column(pg.UUID(as_uuid=True), ForeignKey("roles.uid", ondelete="SET NULL"), nullable=True, index=True))
     created_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=datetime.utcnow))
 
     def __repr__(self):
         return f"{self.employee_code} - {self.name} {self.created_at} "
+
+    def get_reporting_assignment_uid(self, assignment_key: str) -> Optional[uuid.UUID]:
+        raw_value = (self.reporting_assignments or {}).get(str(assignment_key or "").strip())
+        if not raw_value:
+            return None
+
+        try:
+            return uuid.UUID(str(raw_value))
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def manager_employee_uid(self) -> Optional[uuid.UUID]:
+        return self.get_reporting_assignment_uid("manager_employee_uid")
+
+    @property
+    def hr_employee_uid(self) -> Optional[uuid.UUID]:
+        return self.get_reporting_assignment_uid("hr_employee_uid")
+
+    @property
+    def team_lead_employee_uid(self) -> Optional[uuid.UUID]:
+        return self.get_reporting_assignment_uid("team_lead_employee_uid")
+
+    @property
+    def coordinator_employee_uid(self) -> Optional[uuid.UUID]:
+        return self.get_reporting_assignment_uid("coordinator_employee_uid")
 
 
 

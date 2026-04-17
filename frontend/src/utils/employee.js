@@ -355,6 +355,66 @@ export function getMetadataDisplayLabel(catalog = {}, category = '', value = '')
   return catalog.labelMaps?.[category]?.get(normalizedValue) || normalizedValue
 }
 
+function toSnakeCase(value = '') {
+  return String(value || '')
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+    .toLowerCase()
+}
+
+export function toReportingAssignmentKey(value = '') {
+  const normalizedValue = toSnakeCase(value)
+  if (!normalizedValue) return ''
+  return normalizedValue.endsWith('_employee_uid') ? normalizedValue : `${normalizedValue}_employee_uid`
+}
+
+export function formatReportingAssignmentLabel(fieldName = '') {
+  const normalizedKey = toReportingAssignmentKey(fieldName)
+  const baseKey = normalizedKey.replace(/_employee_uid$/, '')
+  if (!baseKey) return ''
+
+  return baseKey
+    .split('_')
+    .filter(Boolean)
+    .map((segment) => {
+      if (segment.toLowerCase() === 'hr') return 'HR'
+      return segment.charAt(0).toUpperCase() + segment.slice(1)
+    })
+    .join(' ')
+}
+
+export function normalizeReportingAssignments(record = {}) {
+  const normalizedAssignments = {}
+  const rawAssignments = record?.reporting_assignments ?? record?.reportingAssignments ?? {}
+
+  if (rawAssignments && typeof rawAssignments === 'object' && !Array.isArray(rawAssignments)) {
+    Object.entries(rawAssignments).forEach(([rawFieldName, rawValue]) => {
+      const fieldName = toReportingAssignmentKey(rawFieldName)
+      const employeeUid = rawValue ? String(rawValue) : ''
+      if (!fieldName || !employeeUid) return
+      normalizedAssignments[fieldName] = employeeUid
+    })
+  }
+
+  const legacyAssignments = {
+    manager_employee_uid: record?.manager_employee_uid ?? record?.managerEmployeeUid ?? '',
+    hr_employee_uid: record?.hr_employee_uid ?? record?.hrEmployeeUid ?? '',
+    team_lead_employee_uid: record?.team_lead_employee_uid ?? record?.teamLeadEmployeeUid ?? '',
+    coordinator_employee_uid: record?.coordinator_employee_uid ?? record?.coordinatorEmployeeUid ?? ''
+  }
+
+  Object.entries(legacyAssignments).forEach(([fieldName, rawValue]) => {
+    const employeeUid = rawValue ? String(rawValue) : ''
+    if (!employeeUid) return
+    normalizedAssignments[fieldName] = employeeUid
+  })
+
+  return normalizedAssignments
+}
+
 export function findMetadataEntryByInput(catalog = {}, category = '', input = '') {
   const normalizedInput = normalizeMetadataLookupValue(input)
   if (!normalizedInput) return null
@@ -385,6 +445,7 @@ export function normalizeEmployee(record) {
   const lastName = record.last_name || record.lastName || ''
   const fullName = record.fullName || [firstName, lastName].filter(Boolean).join(' ').trim()
   const employeeCode = record.employee_code || record.employeeCode || record.id || record.uid || `EMP-${Math.floor(Math.random() * 10000)}`
+  const reportingAssignments = normalizeReportingAssignments(record)
 
   return {
     uid: record.uid || record.employee_uid || null,
@@ -412,10 +473,11 @@ export function normalizeEmployee(record) {
     emergencyContact: record.emergency_contact || record.emergencyContact || '',
     bloodGroup: record.blood_group || record.bloodGroup || '',
     employeeType: record.employee_type || record.employeeType || '',
-    managerEmployeeUid: record.manager_employee_uid ? String(record.manager_employee_uid) : (record.managerEmployeeUid ? String(record.managerEmployeeUid) : ''),
-    hrEmployeeUid: record.hr_employee_uid ? String(record.hr_employee_uid) : (record.hrEmployeeUid ? String(record.hrEmployeeUid) : ''),
-    teamLeadEmployeeUid: record.team_lead_employee_uid ? String(record.team_lead_employee_uid) : (record.teamLeadEmployeeUid ? String(record.teamLeadEmployeeUid) : ''),
-    coordinatorEmployeeUid: record.coordinator_employee_uid ? String(record.coordinator_employee_uid) : (record.coordinatorEmployeeUid ? String(record.coordinatorEmployeeUid) : ''),
+    reportingAssignments,
+    managerEmployeeUid: reportingAssignments.manager_employee_uid || '',
+    hrEmployeeUid: reportingAssignments.hr_employee_uid || '',
+    teamLeadEmployeeUid: reportingAssignments.team_lead_employee_uid || '',
+    coordinatorEmployeeUid: reportingAssignments.coordinator_employee_uid || '',
     roleType: record.role_type || record.roleType || null,
     roleName: record.role_name || record.roleName || ''
   }
@@ -573,6 +635,7 @@ export function mapAttendanceApiStatus(value) {
 
 export function toEmployeeApiPayload(employee) {
   const { firstName, lastName } = splitFullName(employee.fullName)
+  const reportingAssignments = normalizeReportingAssignments(employee)
 
   return {
     employee_code: toNullableString(employee.employeeCode || employee.id) || generateEmployeeId(),
@@ -593,10 +656,11 @@ export function toEmployeeApiPayload(employee) {
     blood_group: toNullableString(employee.bloodGroup),
     employee_type: toNullableString(employee.employeeType),
     work_location: toNullableString(employee.workLocation) || (employee.attendanceStatus === 'Remote' ? 'Remote' : 'Onsite'),
-    manager_employee_uid: toNullableString(employee.managerEmployeeUid),
-    hr_employee_uid: toNullableString(employee.hrEmployeeUid),
-    team_lead_employee_uid: toNullableString(employee.teamLeadEmployeeUid),
-    coordinator_employee_uid: toNullableString(employee.coordinatorEmployeeUid),
+    reporting_assignments: Object.fromEntries(
+      Object.entries(reportingAssignments)
+        .map(([fieldName, employeeUid]) => [fieldName, toNullableString(employeeUid)])
+        .filter(([, employeeUid]) => Boolean(employeeUid))
+    ),
     role_type: toNullableString(employee.roleType)
   }
 }

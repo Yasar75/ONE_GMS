@@ -737,21 +737,6 @@ function buildPasswordErrors(draft, mustChangePassword, passwordValidation) {
   }
 }
 
-function upsertRecordByUid(items = [], nextRecord = null, { prepend = false } = {}) {
-  if (!nextRecord?.uid) return Array.isArray(items) ? [...items] : []
-
-  const normalizedItems = Array.isArray(items) ? items : []
-  const nextItems = normalizedItems.filter((entry) => String(entry?.uid || '') !== String(nextRecord.uid))
-
-  if (prepend) {
-    nextItems.unshift(nextRecord)
-  } else {
-    nextItems.push(nextRecord)
-  }
-
-  return nextItems
-}
-
 function sortWorkExperienceRecords(items = []) {
   return [...(Array.isArray(items) ? items : [])].sort((left, right) => {
     const leftDate = new Date(left?.startDate || left?.createdAt || 0).getTime()
@@ -988,9 +973,11 @@ export default function ProfilePage() {
   const hasBasicDetailChanges = Object.keys(basicDetailChanges).length > 0
   const identityHasChanges = Boolean(photoFile) || String(profileDraft.nickname || '').trim() !== String(profile?.nickname || '').trim()
   const hasSavedSkills = (profile?.skills || []).length > 0
+  const hasSavedFamilyDetails = familyDetailItems.length > 0
   const hasSavedDocuments = documentItems.length > 0
-  const skillSetupRequired = false
-  const documentSetupRequired = false
+  const skillSetupRequired = mustCompleteProfile && !hasSavedSkills
+  const familySetupRequired = mustCompleteProfile && !hasSavedFamilyDetails
+  const documentSetupRequired = mustCompleteProfile && !hasSavedDocuments
   const employeeProfileRequirementsMet = isAdminUser || Boolean(profile?.profileCompletedAt)
   const passwordValidation = useMemo(() => buildPasswordValidation(passwordDraft.new_password, passwordDraft.confirm_new_password), [passwordDraft.new_password, passwordDraft.confirm_new_password])
   const basicDetailErrors = useMemo(() => buildProfileBasicErrors(profileDraft, canEditBasicDetails, dobBounds), [canEditBasicDetails, dobBounds, profileDraft])
@@ -1444,15 +1431,12 @@ export default function ProfilePage() {
 
     try {
       await runWithLoader(async () => {
-        const nextSkills = await employeeService.syncEmployeeSkills(profile.employee.uid, parsedSkillValues, profile.skills)
-        const nextProfile = {
-          ...profile,
-          skills: nextSkills
-        }
+        await employeeService.syncEmployeeSkills(profile.employee.uid, parsedSkillValues, profile.skills)
+        const refreshedProfile = await fetchProfileBundle(profile.employee)
 
-        setProfile(nextProfile)
-        setProfileDraft((current) => ({ ...current, skills_input: normalizeSkills(nextSkills.map((entry) => entry?.skill || '')).join(', ') }))
-        updateUserFromProfile(nextProfile)
+        setProfile(refreshedProfile)
+        setProfileDraft((current) => ({ ...current, skills_input: normalizeSkills((refreshedProfile?.skills || []).map((entry) => entry?.skill || '')).join(', ') }))
+        updateUserFromProfile(refreshedProfile)
       }, {
         title: 'Saving skills',
         message: parsedSkillValues.length ? 'Updating employee skills.' : 'Removing employee skills.',
@@ -1495,7 +1479,7 @@ export default function ProfilePage() {
     const normalizedFamilyPayload = buildFamilyDetailPayload(familyDetailDraft)
 
     try {
-      const savedDetail = await runWithLoader(() => (
+      await runWithLoader(() => (
         selectedFamilyDetail
           ? employeeService.updateEmployeeFamilyDetail(selectedFamilyDetail.uid, normalizedFamilyPayload)
           : employeeService.createEmployeeFamilyDetail({
@@ -1508,14 +1492,10 @@ export default function ProfilePage() {
         minVisibleMs: 450
       })
 
-      const nextProfile = {
-        ...profile,
-        familyDetails: upsertRecordByUid(profile?.familyDetails || [], savedDetail, { prepend: !selectedFamilyDetail })
-      }
-
-      setProfile(nextProfile)
+      const refreshedProfile = await fetchProfileBundle(profile.employee)
+      setProfile(refreshedProfile)
       closeFamilyDetailEditor()
-      updateUserFromProfile(nextProfile)
+      updateUserFromProfile(refreshedProfile)
       showToast({ tone: 'success', title: selectedFamilyDetail ? 'Family details updated' : 'Family detail added', message: selectedFamilyDetail ? 'The family record has been updated.' : 'The family record has been added.' })
     } catch (error) {
       showStatus({ type: 'error', title: 'Family detail update failed', message: error?.response?.data?.detail || error?.message || 'Could not save the family detail.' })
@@ -1542,14 +1522,10 @@ export default function ProfilePage() {
         minVisibleMs: 450
       })
 
-      const nextProfile = {
-        ...profile,
-        familyDetails: (profile?.familyDetails || []).filter((entry) => String(entry?.uid || '') !== String(detail.uid || ''))
-      }
-
-      setProfile(nextProfile)
+      const refreshedProfile = await fetchProfileBundle(profile.employee)
+      setProfile(refreshedProfile)
       closeFamilyDetailEditor()
-      updateUserFromProfile(nextProfile)
+      updateUserFromProfile(refreshedProfile)
       showToast({ tone: 'success', title: 'Family detail deleted', message: 'The family record has been removed.' })
     } catch (error) {
       showStatus({ type: 'error', title: 'Family detail delete failed', message: error?.response?.data?.detail || error?.message || 'Could not delete the family detail.' })
@@ -1586,7 +1562,7 @@ export default function ProfilePage() {
     const payload = buildWorkExperiencePayload(workExperienceDraft)
 
     try {
-      const savedExperience = await runWithLoader(() => (
+      await runWithLoader(() => (
         selectedWorkExperience
           ? employeeService.updateEmployeeWorkExperience(selectedWorkExperience.uid, payload)
           : employeeService.createEmployeeWorkExperience({
@@ -1599,14 +1575,10 @@ export default function ProfilePage() {
         minVisibleMs: 450
       })
 
-      const nextProfile = {
-        ...profile,
-        workExperiences: dedupeWorkExperienceRecords(upsertRecordByUid(profile?.workExperiences || [], savedExperience, { prepend: !selectedWorkExperience }))
-      }
-
-      setProfile(nextProfile)
+      const refreshedProfile = await fetchProfileBundle(profile.employee)
+      setProfile(refreshedProfile)
       closeWorkExperienceEditor()
-      updateUserFromProfile(nextProfile)
+      updateUserFromProfile(refreshedProfile)
       showToast({ tone: 'success', title: selectedWorkExperience ? 'Work experience updated' : 'Work experience added', message: selectedWorkExperience ? 'The work experience entry has been updated.' : 'The work experience entry has been added.' })
     } catch (error) {
       showStatus({ type: 'error', title: 'Work experience update failed', message: error?.response?.data?.detail || error?.message || 'Could not save the work experience entry.' })
@@ -1633,14 +1605,10 @@ export default function ProfilePage() {
         minVisibleMs: 450
       })
 
-      const nextProfile = {
-        ...profile,
-        workExperiences: dedupeWorkExperienceRecords((profile?.workExperiences || []).filter((entry) => String(entry?.uid || '') !== String(experience.uid || '')))
-      }
-
-      setProfile(nextProfile)
+      const refreshedProfile = await fetchProfileBundle(profile.employee)
+      setProfile(refreshedProfile)
       closeWorkExperienceEditor()
-      updateUserFromProfile(nextProfile)
+      updateUserFromProfile(refreshedProfile)
       showToast({ tone: 'success', title: 'Work experience deleted', message: 'The work experience entry has been removed.' })
     } catch (error) {
       showStatus({ type: 'error', title: 'Work experience delete failed', message: error?.response?.data?.detail || error?.message || 'Could not delete the work experience entry.' })
@@ -1700,15 +1668,11 @@ export default function ProfilePage() {
         minVisibleMs: 450
       })
 
-      const nextProfile = {
-        ...profile,
-        documents: upsertRecordByUid(profile?.documents || [], savedDocument, { prepend: !selectedDocument })
-      }
-
-      setProfile(nextProfile)
+      const refreshedProfile = await fetchProfileBundle(profile.employee)
+      setProfile(refreshedProfile)
       setSelectedDocumentUid(String(savedDocument?.uid || ''))
       setDocumentFileInputKey((current) => current + 1)
-      updateUserFromProfile(nextProfile)
+      updateUserFromProfile(refreshedProfile)
       showToast({ tone: 'success', title: selectedDocument ? 'Document updated' : 'Document uploaded', message: selectedDocument ? 'The document has been updated.' : 'The document has been uploaded.' })
     } catch (error) {
       showStatus({ type: 'error', title: 'Document save failed', message: error?.response?.data?.detail || error?.message || 'Could not save the document.' })
@@ -1735,16 +1699,12 @@ export default function ProfilePage() {
         minVisibleMs: 450
       })
 
-      const nextProfile = {
-        ...profile,
-        documents: (profile?.documents || []).filter((entry) => String(entry?.uid || '') !== String(document.uid || ''))
-      }
-
-      setProfile(nextProfile)
+      const refreshedProfile = await fetchProfileBundle(profile.employee)
+      setProfile(refreshedProfile)
       setSelectedDocumentUid('')
       setDocumentDraft(emptyDocumentDraft())
       setDocumentFileInputKey((current) => current + 1)
-      updateUserFromProfile(nextProfile)
+      updateUserFromProfile(refreshedProfile)
       showToast({ tone: 'success', title: 'Document deleted', message: 'The document has been removed.' })
     } catch (error) {
       showStatus({ type: 'error', title: 'Document delete failed', message: error?.response?.data?.detail || error?.message || 'Could not delete the document.' })
@@ -1822,20 +1782,20 @@ export default function ProfilePage() {
       <PageHeader title="My Profile" tagline="Manage profile identity, onboarding, and account security." />
 
       <div className="profile-hero card border-0 shadow-sm">
-        <div className="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
-          <div>
+        <div className="card-body profile-hero-body">
+          <div className="profile-hero-content">
             <div className="profile-hero-eyebrow">{isAdminUser ? 'Admin Workspace' : 'Employee Workspace'}</div>
             <div className="profile-hero-title">{profileDraft.nickname || profileDraft.first_name || user?.firstName || 'User'}</div>
-            <div className="text-muted small">
+            <div className="text-muted small profile-hero-summary">
               {isAdminUser
                 ? 'Admin accounts can manage basic details, skills, family details, documents, and password from one workspace.'
-                : 'Basic details are loaded from the employee directory, and each profile section can now be saved separately. During first login, required sections stay highlighted until they are completed.'}
+                : 'Basic details are loaded from the employee directory, and each profile section can now be saved separately. During first login, only the required onboarding sections stay highlighted until they are completed.'}
             </div>
             {firstLoginSetupRequired && firstLoginDeadlineLabel ? (
-              <div className="text-muted small mt-1">Complete first-login setup by {firstLoginDeadlineLabel} to avoid automatic account disable.</div>
+              <div className="text-muted small mt-1 profile-hero-summary">Complete first-login setup by {firstLoginDeadlineLabel} to avoid automatic account disable.</div>
             ) : null}
           </div>
-          <div className="d-flex flex-column align-items-lg-end gap-2">
+          <div className="d-flex flex-column gap-2 profile-hero-meta">
             <span className={`profile-pill ${profileStatusTone}`}>{profileStatusLabel}</span>
             {!isAdminUser ? <span className="text-muted small">Skills: {skillCount} • Documents: {documentItems.length} • Family records: {familyDetailItems.length} • Experience: {workExperienceItems.length}</span> : null}
             {profile?.profileCompletedAt ? <span className="text-muted small">Completed on {formatDate(profile.profileCompletedAt)}</span> : null}
@@ -1852,7 +1812,7 @@ export default function ProfilePage() {
                 <div className="profile-photo-preview profile-photo-modern profile-photo-modern-large profile-photo-centered">
                   {avatarUrl ? <img src={avatarUrl} alt="Profile avatar" /> : <span>{String(user?.displayName || user?.firstName || 'U').charAt(0).toUpperCase()}</span>}
                 </div>
-                <div className="profile-identity-fields d-flex flex-column gap-3">
+                  <div className="profile-identity-fields d-flex flex-column gap-3">
                   <div>
                     <label className="form-label">Nickname</label>
                     <input className="form-control" name="nickname" value={profileDraft.nickname} onChange={handleProfileFieldChange} maxLength="120" placeholder="Set your nickname" />
@@ -1870,6 +1830,9 @@ export default function ProfilePage() {
                     <button type="button" className="btn btn-primary profile-action-btn" onClick={handleIdentitySave} disabled={!hasLinkedEmployee || !identityHasChanges}>
                       Save Identity
                     </button>
+                    <div className="text-muted small">
+                      Nickname and profile image are optional during first login. You can update them later.
+                    </div>
                   </div>
               </div>
             </div>
@@ -1964,6 +1927,9 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
+                <div className="text-muted small">
+                  Work experience is optional during first login. Add it now or come back later.
+                </div>
                 {!canManageWorkExperience ? <div className="profile-readonly-banner">Role access for My Work Experience is disabled. Ask admin to grant that sub-module to add or update records.</div> : null}
 
                 {workExperienceGroups.length ? (
@@ -2272,6 +2238,7 @@ export default function ProfilePage() {
                       ) : null}
                     </div>
                   </div>
+                  {familySetupRequired ? <div className="col-12"><div className="alert alert-warning mb-0 small">This section is mandatory on first login. Add at least one family record and save it to continue onboarding.</div></div> : null}
                   {isFamilyDetailEditorOpen ? (
                     <>
                       <div className="col-12">
@@ -2425,7 +2392,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 {!employeeProfileRequirementsMet && !isAdminUser ? (
-                  <div className="text-muted small">Complete any missing mandatory employee details that are required for your profile record.</div>
+                  <div className="text-muted small">Complete your profile setup by saving at least one skill, one family detail, and one document. Nickname, profile picture, and work experience can be added later.</div>
                 ) : null}
                 {documentItems.length ? (
                   <div className="d-flex flex-column gap-2">
@@ -2491,7 +2458,7 @@ export default function ProfilePage() {
         <div className="d-flex flex-column gap-2">
           <div className="fw-semibold">Profile setup is required before the rest of the application is unlocked.</div>
           {mustChangePassword ? <div className="text-muted small">1. Set a new password because the default password is not allowed.</div> : null}
-          {mustCompleteProfile ? <div className="text-muted small">2. Complete any missing mandatory employee details in your profile record.</div> : null}
+          {mustCompleteProfile ? <div className="text-muted small">2. Complete profile details by saving at least one skill, one family detail, and one document. Nickname, profile picture, and work experience are optional during first login.</div> : null}
           {firstLoginDeadlineLabel
             ? <div className="text-muted small">3. Complete setup by {firstLoginDeadlineLabel} to avoid automatic account disable.</div>
             : <div className="text-warning mt-2 fw-bold medium">Warning: If setup is not completed within 48 hours, the account will be disabled.</div>}

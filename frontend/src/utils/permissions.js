@@ -19,10 +19,14 @@ const ROLE_MODULE_ALIAS_MAP = {
   'Apply Leave Requests': 'Leave Request',
   'Manage Leave Requests': 'Manage Leave',
   'Project Management': 'Project',
+  'Manage Projects': 'Project',
   'Project Mapping': 'Project Assignment',
   'Project Assignments': 'Project Assignment',
+  'Assign Projects': 'Project Assignment',
   'Task Management': 'Project Task',
-  'Project Tasks': 'Project Task'
+  'Project Tasks': 'Project Task',
+  'Manage Tasks': 'Project Task',
+  'Employee Management': 'Employees Management'
 }
 
 export const PERMISSION_ACTIONS = {
@@ -63,9 +67,9 @@ export const PERMISSION_MODULES = {
   myLeaveBalance: ['My Leave Balance', 'My Leave Balances'],
   leaveRequest: ['Leave Request', 'Apply Leave Requests'],
   manageLeave: ['Manage Leave', 'Manage Leave Requests'],
-  project: ['Project', 'Project Management'],
-  projectAssignment: ['Project Assignment', 'Project Mapping', 'Project Assignments'],
-  projectTask: ['Project Task', 'Task Management', 'Project Tasks']
+  project: ['Project', 'Project Management', 'Manage Projects'],
+  projectAssignment: ['Project Assignment', 'Project Mapping', 'Project Assignments', 'Assign Projects'],
+  projectTask: ['Project Task', 'Task Management', 'Project Tasks', 'Manage Tasks']
 }
 
 export const ROLE_MATRIX_MODULES = dedupePermissionModules([
@@ -181,6 +185,30 @@ export function isAdminBypassUser(user) {
   return isSystemAdminRoleName(user?.roleName ?? user?.role_name ?? '')
 }
 
+export function normalizeUserRoleName(roleName = '') {
+  return String(roleName || '').trim().toLowerCase()
+}
+
+export function isGenericEmployeeRoleName(roleName = '') {
+  return normalizeUserRoleName(roleName) === 'employee'
+}
+
+export function isSelfServiceOnlyUser(user) {
+  if (!user) return false
+  if (isAdminBypassUser(user) || user?.role === ROLES.ADMIN) return false
+
+  const resolvedRoleName = user?.roleName ?? user?.role_name ?? (user?.role === ROLES.EMPLOYEE ? 'Employee' : '')
+  return isGenericEmployeeRoleName(resolvedRoleName)
+}
+
+export function isManagementConsoleUser(user) {
+  if (!user) return false
+  if (isAdminBypassUser(user) || user?.role === ROLES.ADMIN) return true
+  if (isSelfServiceOnlyUser(user)) return false
+
+  return Boolean(user?.roleName ?? user?.role_name)
+}
+
 export function sanitizePermissionModuleName(moduleName) {
   const normalizedValue = String(moduleName || '')
     .replace(/^\s*[\[({<]+/, '')
@@ -288,22 +316,23 @@ export function normalizeAppPath(pathname = '') {
 
 export function canAccessAppPath(user, pathname = '') {
   const normalizedPath = normalizeAppPath(pathname)
-  const isAdminUser = user?.role === ROLES.ADMIN || isAdminBypassUser(user)
+  const isManagementUser = isManagementConsoleUser(user)
+  const isSelfServiceUser = isSelfServiceOnlyUser(user)
 
   if (!normalizedPath || normalizedPath === '/' || normalizedPath === '/dashboard' || normalizedPath === '/profile') {
     return true
   }
 
-  if (normalizedPath === '/admin/dashboard') return isAdminUser
-  if (normalizedPath === '/employee/dashboard') return !isAdminUser
-  if (normalizedPath === '/employee/attendance') return !isAdminUser
-  if (normalizedPath === '/employee/apply-leave') return !isAdminUser
+  if (normalizedPath === '/admin/dashboard') return isManagementUser
+  if (normalizedPath === '/employee/dashboard') return isSelfServiceUser
+  if (normalizedPath === '/employee/attendance') return isSelfServiceUser
+  if (normalizedPath === '/employee/apply-leave') return isSelfServiceUser
 
-  if (normalizedPath.startsWith('/admin/') && !isAdminUser) {
+  if (normalizedPath.startsWith('/admin/') && !isManagementUser) {
     return false
   }
 
-  if (normalizedPath.startsWith('/employee/') && isAdminUser) {
+  if (normalizedPath.startsWith('/employee/') && !isSelfServiceUser) {
     return false
   }
 
@@ -326,8 +355,8 @@ export function resolveHomePath(user) {
 }
 
 export function resolveDashboardVariant(user) {
-  if (isAdminBypassUser(user) || user?.role === ROLES.ADMIN) return 'management'
-  if (user) return 'employee'
+  if (isManagementConsoleUser(user)) return 'management'
+  if (isSelfServiceOnlyUser(user)) return 'employee'
   return null
 }
 

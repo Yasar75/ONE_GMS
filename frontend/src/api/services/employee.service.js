@@ -161,13 +161,18 @@ function hasCompletedMandatoryEmployeeFields(employee = null) {
   return requiredValues.every((value) => hasMeaningfulValue(value))
 }
 
-function deriveProfileCompletedAt(employee = null, skills = [], documents = []) {
+function deriveProfileCompletedAt(employee = null, profileDetails = {}, skills = [], documents = [], familyDetails = [], workExperiences = []) {
   if (!hasCompletedMandatoryEmployeeFields(employee)) return null
+  if (!Array.isArray(skills) || !skills.length) return null
+  if (!Array.isArray(documents) || !documents.length) return null
+  if (!Array.isArray(familyDetails) || !familyDetails.length) return null
 
   const timestamps = [
     employee?.updatedAt || employee?.createdAt || null,
     ...skills.map((entry) => entry.updatedAt || entry.createdAt || null),
-    ...documents.map((entry) => entry.updatedAt || entry.createdAt || entry.uploadDate || null)
+    ...documents.map((entry) => entry.updatedAt || entry.createdAt || entry.uploadDate || null),
+    ...familyDetails.map((entry) => entry.updatedAt || entry.createdAt || null),
+    ...workExperiences.map((entry) => entry.updatedAt || entry.createdAt || null)
   ]
     .map((value) => (value ? new Date(value).getTime() : Number.NaN))
     .filter((value) => Number.isFinite(value))
@@ -249,19 +254,30 @@ function buildProfileBundle({ employee = null, profileDetails = null, skills = [
   const normalizedDocuments = documents.map((entry) => normalizeEmployeeDocumentRecord(entry)).filter((entry) => entry.uid)
   const normalizedFamilyDetails = familyDetails.map((entry) => normalizeEmployeeFamilyDetailRecord(entry)).filter((entry) => entry.uid)
   const normalizedWorkExperiences = workExperiences.map((entry) => normalizeEmployeeWorkExperienceRecord(entry)).filter((entry) => entry.uid)
+  const dbNickname = profileDetails?.nickname || profileDetails?.nick_name || ''
+  const dbProfileImageUrl = profileDetails?.profile_image_url || profileDetails?.profile_image || ''
+  const resolvedNickname = profileDetails?.nickname || profileDetails?.nick_name || account?.nickname || ''
+  const resolvedProfileImageUrl = profileDetails?.profile_image_url || profileDetails?.profile_image || account?.profileImageUrl || ''
   const normalizedStatus = String(employee?.status || '').trim().toLowerCase()
   const isStatusLocked = Boolean(normalizedStatus) && normalizedStatus !== 'active'
   const isBackendLocked = Boolean(account?.isLocked)
 
   return {
     employee,
-    nickname: profileDetails?.nickname || profileDetails?.nick_name || account?.nickname || '',
-    profileImageUrl: profileDetails?.profile_image_url || profileDetails?.profile_image || account?.profileImageUrl || '',
+    nickname: resolvedNickname,
+    profileImageUrl: resolvedProfileImageUrl,
     skills: normalizedSkills,
     documents: normalizedDocuments,
     familyDetails: normalizedFamilyDetails,
     workExperiences: normalizedWorkExperiences,
-    profileCompletedAt: deriveProfileCompletedAt(employee, normalizedSkills, normalizedDocuments),
+    profileCompletedAt: deriveProfileCompletedAt(
+      employee,
+      { nickname: dbNickname, profileImageUrl: dbProfileImageUrl },
+      normalizedSkills,
+      normalizedDocuments,
+      normalizedFamilyDetails,
+      normalizedWorkExperiences
+    ),
     firstLoginAt: account?.firstLoginAt || null,
     firstLoginDeadlineAt: account?.firstLoginDeadlineAt || null,
     isLocked: isBackendLocked || isStatusLocked,
@@ -353,6 +369,7 @@ function buildFallbackEmployeeFromUser(rawUser = {}) {
     emergencyContact: '',
     bloodGroup: '',
     employeeType: '',
+    reportingAssignments: {},
     managerEmployeeUid: '',
     hrEmployeeUid: '',
     teamLeadEmployeeUid: '',

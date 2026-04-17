@@ -7,7 +7,7 @@ class UserCreateModel(BaseModel):
     first_name: Optional[str] = Field(max_length=25)
     last_name: Optional[str] = Field(max_length=25)
     username: str = Field(max_length=20)
-    email: EmailStr = Field(max_length=40)
+    email: EmailStr = Field(max_length=80)
     password: str = Field(min_length=6)
     role_id: uuid.UUID
     is_verified: bool = False
@@ -26,7 +26,7 @@ class UserModel(BaseModel):
 
 
 class UserLoginModel(BaseModel):
-    email: EmailStr = Field(max_length=40)
+    email: EmailStr = Field(max_length=80)
     password: str = Field(min_length=6)
 
 

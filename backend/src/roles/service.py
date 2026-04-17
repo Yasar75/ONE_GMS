@@ -1,20 +1,98 @@
 import logging
+from datetime import datetime
 from typing import Optional
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import desc, select
-from src.db.models import Role, User
+from src.db.models import Employee, Role, User
 from src.errors import RoleAlreadyExists, RoleHasUsers, RoleNotFound
 from src.utils.validations import parse_uuid
 from .constants import ADMIN_ROLE_NAME
-from .schemas import RoleCreateModel, RoleUpdateModel
+from .schemas import RoleCreateModel, RoleUpdateModel, canonicalize_role_name
 
 logger = logging.getLogger(__name__)
 
 
 class RoleService:
+    def _normalize_role_name_for_compare(self, role_name: str) -> str:
+        return " ".join(str(role_name or "").split()).strip().lower()
+
+    async def _get_role_by_normalized_name(
+        self,
+        session: AsyncSession,
+        role_name: str,
+        *,
+        exclude_uid=None,
+    ) -> Optional[Role]:
+        normalized_role_name = self._normalize_role_name_for_compare(role_name)
+        if not normalized_role_name:
+            return None
+
+        statement = select(Role).where(
+            func.lower(func.trim(Role.role_name)) == normalized_role_name
+        )
+        if exclude_uid is not None:
+            statement = statement.where(Role.uid != exclude_uid)
+
+        result = await session.exec(statement)
+        return result.first()
+
+    async def _cleanup_delivery_role_typos(self, session: AsyncSession) -> None:
+        normalized_delivery_names = {"delivery", "delivary"}
+        statement = select(Role).where(
+            func.lower(func.trim(Role.role_name)).in_(normalized_delivery_names)
+        )
+        result = await session.exec(statement)
+        delivery_roles = result.all()
+
+        if not delivery_roles:
+            return
+
+        def _delivery_sort_key(role: Role):
+            normalized_role_name = self._normalize_role_name_for_compare(role.role_name)
+            created_at = role.created_at or datetime.min
+            updated_at = role.updated_at or datetime.min
+            return (
+                0 if normalized_role_name == "delivery" else 1,
+                created_at,
+                updated_at,
+                str(role.uid),
+            )
+
+        ordered_roles = sorted(delivery_roles, key=_delivery_sort_key)
+        canonical_role = ordered_roles[0]
+        duplicate_roles = ordered_roles[1:]
+        has_changes = False
+
+        for duplicate_role in duplicate_roles:
+            users_result = await session.exec(select(User).where(User.role_id == duplicate_role.uid))
+            users_with_duplicate_role = users_result.all()
+            for user in users_with_duplicate_role:
+                user.role_id = canonical_role.uid
+                session.add(user)
+                has_changes = True
+
+            employees_result = await session.exec(select(Employee).where(Employee.role_type == duplicate_role.uid))
+            employees_with_duplicate_role = employees_result.all()
+            for employee in employees_with_duplicate_role:
+                employee.role_type = canonical_role.uid
+                session.add(employee)
+                has_changes = True
+
+            await session.delete(duplicate_role)
+            has_changes = True
+
+        if canonical_role.role_name != "Delivery":
+            canonical_role.role_name = "Delivery"
+            session.add(canonical_role)
+            has_changes = True
+
+        if has_changes:
+            await session.commit()
+
     def _transform_role_for_response(self, role: Role) -> dict:
         return {
             "id": role.uid,
@@ -25,6 +103,7 @@ class RoleService:
 
     async def get_all_roles(self, session: AsyncSession) -> list[dict]:
         try:
+            await self._cleanup_delivery_role_typos(session)
             statement = select(Role).order_by(desc(Role.created_at))
             result = await session.exec(statement)
             roles = result.all()
@@ -55,14 +134,15 @@ class RoleService:
         user_uid = parse_uuid(user_uid, "user_uid")
 
         try:
-            role_statement = select(Role).where(Role.role_name == role_data.role_name)
-            role_result = await session.exec(role_statement)
-            existing_role = role_result.first()
+            await self._cleanup_delivery_role_typos(session)
+            canonical_role_name = canonicalize_role_name(role_data.role_name)
+            existing_role = await self._get_role_by_normalized_name(session, canonical_role_name)
 
             if existing_role:
                 raise RoleAlreadyExists()
 
             role_data_dict = role_data.model_dump(exclude={"access"})
+            role_data_dict["role_name"] = canonical_role_name
             role_data_dict["permissions"] = role_data.access.copy()
 
             new_role = Role(**role_data_dict)
@@ -95,6 +175,7 @@ class RoleService:
         uid = parse_uuid(role_uid, "role_uid")
 
         try:
+            await self._cleanup_delivery_role_typos(session)
             statement = select(Role).where(Role.uid == uid)
             result = await session.exec(statement)
             role = result.first()
@@ -114,15 +195,16 @@ class RoleService:
             )
 
             if "role_name" in update_data_dict:
-                role_statement = select(Role).where(
-                    Role.role_name == update_data_dict["role_name"],
-                    Role.uid != uid,
+                canonical_role_name = canonicalize_role_name(update_data_dict["role_name"])
+                existing_role = await self._get_role_by_normalized_name(
+                    session,
+                    canonical_role_name,
+                    exclude_uid=uid,
                 )
-                role_result = await session.exec(role_statement)
-                existing_role = role_result.first()
 
                 if existing_role:
                     raise RoleAlreadyExists()
+                update_data_dict["role_name"] = canonical_role_name
 
             for key, value in update_data_dict.items():
                 setattr(role, key, value)

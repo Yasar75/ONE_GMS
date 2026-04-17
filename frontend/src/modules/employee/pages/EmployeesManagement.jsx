@@ -31,6 +31,7 @@ import {
   downloadEmployeesAsExcel,
   findMetadataEntryByInput,
   findPhoneCountryOptionByInput,
+  formatReportingAssignmentLabel,
   formatPhoneLengthRule,
   formatDate,
   formatEmployeeAge,
@@ -42,6 +43,8 @@ import {
   isPositionMappedToDepartment,
   isIsoDateInput,
   normalizeDateInput,
+  normalizeReportingAssignments,
+  toReportingAssignmentKey,
   parseStoredPhoneValue
 } from '../../../utils/employee.js'
 import {
@@ -125,18 +128,12 @@ const ACCESS_LEVEL_OPTIONS = [
 ]
 
 const ROLE_ACCESS_EXPANDED_GROUPS_CACHE_KEY = 'one-gms:role-access-expanded-groups:v1'
+const ROLE_BADGE_ASSIGNMENTS_CACHE_KEY = 'one-gms:employee-role-badge-assignments:v1'
+const ROLE_BADGE_HUE_PALETTE = [214, 174, 26, 352, 128, 262, 44, 192, 14, 286, 92, 226, 168, 334, 58, 204, 140, 8]
 const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
 const BILLABLE_ASSIGNMENT_STATUSES = new Set(['assigned', 'active'])
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['released', 'hold', 'terminated', 'inactive', 'completed'])
-const ROLE_KEYWORDS = {
-  admin: ['admin', 'administrator', 'super admin', 'superadmin'],
-  hr: ['hr', 'human resource', 'human resources', 'people ops', 'people operations', 'talent'],
-  manager: ['manager', 'management', 'head', 'director', 'vice president', 'vp', 'chief', 'supervisor'],
-  teamLead: ['team lead', 'tech lead', 'project lead', 'lead'],
-  coordinator: ['coordinator'],
-  employee: ['employee']
-}
-const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Profile Management', 'Employees Management', 'Attendance Management', 'Leave Management', 'Other']
+const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Profile Management', 'Employees Management', 'Attendance Management', 'Leave Management', 'Project Management', 'Task Management', 'Other']
 const ROLE_MODULE_VISUAL_CONFIG = [
   {
     title: 'Administrative',
@@ -187,6 +184,19 @@ const ROLE_MODULE_VISUAL_CONFIG = [
       { key: 'Leave Request', label: 'Apply Leave Requests' },
       { key: 'Manage Leave', label: 'Manage Leave Requests' }
     ]
+  },
+  {
+    title: 'Project Management',
+    modules: [
+      { key: 'Project', label: 'Manage Projects' },
+      { key: 'Project Assignment', label: 'Assign Projects' }
+    ]
+  },
+  {
+    title: 'Task Management',
+    modules: [
+      { key: 'Project Task', label: 'Manage Tasks' }
+    ]
   }
 ]
 
@@ -223,44 +233,12 @@ function normalizeEmployeeRoleName(roleName) {
   return String(roleName || '').trim().toLowerCase()
 }
 
-function hasAnyRoleKeyword(roleName, keywords = []) {
-  const normalizedRoleName = normalizeEmployeeRoleName(roleName)
-  if (!normalizedRoleName) return false
-  return keywords.some((keyword) => normalizedRoleName.includes(keyword))
-}
-
-function getEmployeeRoleMeta(roleName) {
-  const normalizedRoleName = normalizeEmployeeRoleName(roleName)
-  const isAdmin = hasAnyRoleKeyword(normalizedRoleName, ROLE_KEYWORDS.admin)
-  const isHr = hasAnyRoleKeyword(normalizedRoleName, ROLE_KEYWORDS.hr)
-  const isManager = hasAnyRoleKeyword(normalizedRoleName, ROLE_KEYWORDS.manager)
-  const isTeamLead = hasAnyRoleKeyword(normalizedRoleName, ROLE_KEYWORDS.teamLead)
-  const isCoordinator = hasAnyRoleKeyword(normalizedRoleName, ROLE_KEYWORDS.coordinator)
-  const isManagement = isManager || isTeamLead || isCoordinator
-
-  return {
-    normalizedRoleName,
-    isAdmin,
-    isHr,
-    isManager,
-    isTeamLead,
-    isCoordinator,
-    isManagement,
-    isMappingExempt: isAdmin || isHr || isManagement
-  }
-}
-
 function isGenericEmployeeRole(roleName = '') {
   return normalizeEmployeeRoleName(roleName) === 'employee'
 }
 
 function isEmployeeMapped(employee = {}) {
-  return Boolean(
-    employee?.managerEmployeeUid
-    || employee?.hrEmployeeUid
-    || employee?.teamLeadEmployeeUid
-    || employee?.coordinatorEmployeeUid
-  )
+  return Object.keys(normalizeReportingAssignments(employee)).length > 0
 }
 
 function toCanonicalRoleModuleName(moduleName) {
@@ -389,6 +367,113 @@ function writeCachedExpandedGroupKeys(groupKeys = []) {
     window.localStorage.setItem(ROLE_ACCESS_EXPANDED_GROUPS_CACHE_KEY, JSON.stringify(Array.from(new Set(groupKeys.filter(Boolean)))))
   } catch {
     // Ignore cache write failures and keep the UI responsive.
+  }
+}
+
+function hashTextValue(value = '') {
+  const normalizedValue = String(value || '')
+  let hash = 0
+
+  for (let index = 0; index < normalizedValue.length; index += 1) {
+    hash = ((hash << 5) - hash) + normalizedValue.charCodeAt(index)
+    hash |= 0
+  }
+
+  return Math.abs(hash)
+}
+
+function sanitizeRoleBadgeAssignments(rawAssignments = {}) {
+  if (!rawAssignments || typeof rawAssignments !== 'object' || Array.isArray(rawAssignments)) return {}
+
+  return Object.entries(rawAssignments).reduce((accumulator, [rawRoleName, rawPaletteIndex]) => {
+    const roleName = normalizeEmployeeRoleName(rawRoleName)
+    const paletteIndex = Number(rawPaletteIndex)
+
+    if (!roleName || roleName === 'unassigned') return accumulator
+    if (!Number.isInteger(paletteIndex)) return accumulator
+    if (paletteIndex < 0 || paletteIndex >= ROLE_BADGE_HUE_PALETTE.length) return accumulator
+
+    accumulator[roleName] = paletteIndex
+    return accumulator
+  }, {})
+}
+
+function readCachedRoleBadgeAssignments() {
+  if (typeof window === 'undefined') return {}
+
+  try {
+    const rawValue = window.localStorage.getItem(ROLE_BADGE_ASSIGNMENTS_CACHE_KEY)
+    const parsedValue = rawValue ? JSON.parse(rawValue) : {}
+    return sanitizeRoleBadgeAssignments(parsedValue)
+  } catch {
+    return {}
+  }
+}
+
+function writeCachedRoleBadgeAssignments(assignments = {}) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(ROLE_BADGE_ASSIGNMENTS_CACHE_KEY, JSON.stringify(sanitizeRoleBadgeAssignments(assignments)))
+  } catch {
+    // Ignore cache write failures and keep the UI responsive.
+  }
+}
+
+function buildRoleBadgeAssignments(roleNames = [], cachedAssignments = {}) {
+  const paletteSize = ROLE_BADGE_HUE_PALETTE.length || 1
+  const normalizedRoleNames = Array.from(new Set(
+    roleNames
+      .map((roleName) => normalizeEmployeeRoleName(roleName))
+      .filter((roleName) => roleName && roleName !== 'unassigned')
+  ))
+  if (!normalizedRoleNames.length) return {}
+
+  const sanitizedCache = sanitizeRoleBadgeAssignments(cachedAssignments)
+  const assignments = {}
+  const usedPaletteIndexes = new Set()
+
+  normalizedRoleNames.forEach((roleName) => {
+    const cachedIndex = sanitizedCache[roleName]
+    if (!Number.isInteger(cachedIndex) || usedPaletteIndexes.has(cachedIndex)) return
+
+    assignments[roleName] = cachedIndex
+    usedPaletteIndexes.add(cachedIndex)
+  })
+
+  normalizedRoleNames
+    .filter((roleName) => assignments[roleName] == null)
+    .sort((leftRole, rightRole) => leftRole.localeCompare(rightRole))
+    .forEach((roleName) => {
+      const startIndex = hashTextValue(roleName) % paletteSize
+      let selectedIndex = startIndex
+
+      if (usedPaletteIndexes.size < paletteSize) {
+        for (let offset = 0; offset < paletteSize; offset += 1) {
+          const candidateIndex = (startIndex + offset) % paletteSize
+          if (!usedPaletteIndexes.has(candidateIndex)) {
+            selectedIndex = candidateIndex
+            break
+          }
+        }
+      }
+
+      assignments[roleName] = selectedIndex
+      usedPaletteIndexes.add(selectedIndex)
+    })
+
+  return assignments
+}
+
+function getRoleBadgeStyleFromPaletteIndex(index = 0) {
+  const paletteSize = ROLE_BADGE_HUE_PALETTE.length || 1
+  const safeIndex = Number.isInteger(index) ? Math.abs(index) % paletteSize : 0
+  const hue = ROLE_BADGE_HUE_PALETTE[safeIndex] ?? ROLE_BADGE_HUE_PALETTE[0]
+
+  return {
+    color: `hsl(${hue} 72% 42%)`,
+    background: `hsla(${hue}, 82%, 52%, 0.16)`,
+    borderColor: `hsla(${hue}, 80%, 46%, 0.32)`
   }
 }
 
@@ -618,11 +703,21 @@ function buildEmployeeDraft(employee) {
 }
 
 function createMappingDraft(employee) {
+  const reportingAssignments = normalizeReportingAssignments(employee)
+  const rows = Object.entries(reportingAssignments).map(([fieldName, employeeUid], index) => ({
+    rowKey: `${fieldName}-${employeeUid || index}`,
+    position: fieldName,
+    mappingPersonUid: String(employeeUid || '')
+  }))
+
+  return rows.length ? rows : [createEmptyMappingRow()]
+}
+
+function createEmptyMappingRow(overrides = {}) {
   return {
-    managerEmployeeUid: employee?.managerEmployeeUid || '',
-    hrEmployeeUid: employee?.hrEmployeeUid || '',
-    teamLeadEmployeeUid: employee?.teamLeadEmployeeUid || '',
-    coordinatorEmployeeUid: employee?.coordinatorEmployeeUid || ''
+    rowKey: overrides.rowKey || `mapping-${Math.random().toString(36).slice(2, 10)}`,
+    position: overrides.position || '',
+    mappingPersonUid: overrides.mappingPersonUid || ''
   }
 }
 
@@ -1077,28 +1172,21 @@ function DirectoryMetricCard({ title, value, helper, tone }) {
   )
 }
 
-function EmployeeBadge({ value, type = 'status' }) {
+function EmployeeBadge({ value, type = 'status', roleBadgeStyleMap = null }) {
   const safeValue = String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  const roleStyle = type === 'role' ? getGeneratedRoleBadgeStyle(value) : undefined
+  const roleStyle = type === 'role' ? getGeneratedRoleBadgeStyle(value, roleBadgeStyleMap) : undefined
   return <span className={`employee-badge ${type} ${safeValue}`.trim()} style={roleStyle}>{value || '—'}</span>
 }
 
-function getGeneratedRoleBadgeStyle(value) {
+function getGeneratedRoleBadgeStyle(value, roleBadgeStyleMap = null) {
   const normalized = String(value || '').trim()
   if (!normalized || normalizeEmployeeRoleName(normalized) === 'unassigned') return undefined
 
-  let hash = 0
-  for (let index = 0; index < normalized.length; index += 1) {
-    hash = ((hash << 5) - hash) + normalized.charCodeAt(index)
-    hash |= 0
-  }
+  const normalizedRoleName = normalizeEmployeeRoleName(normalized)
+  if (roleBadgeStyleMap?.has(normalizedRoleName)) return roleBadgeStyleMap.get(normalizedRoleName)
 
-  const hue = Math.abs(hash) % 360
-  return {
-    color: `hsl(${hue} 72% 28%)`,
-    background: `hsla(${hue}, 82%, 48%, 0.14)`,
-    borderColor: `hsla(${hue}, 82%, 40%, 0.24)`
-  }
+  const fallbackIndex = hashTextValue(normalizedRoleName) % (ROLE_BADGE_HUE_PALETTE.length || 1)
+  return getRoleBadgeStyleFromPaletteIndex(fallbackIndex)
 }
 
 function CellStack({ title, subtitle, meta = null, className = '' }) {
@@ -1113,7 +1201,8 @@ function CellStack({ title, subtitle, meta = null, className = '' }) {
 
 function ActionButton({ icon, label, variant = 'view', onClick, disabled = false }) {
   const safeLabel = String(label || '')
-  const labelChars = Math.min(Math.max(safeLabel.length, 4), 26)
+  const baseLabelChars = Math.min(Math.max(safeLabel.length, 4), 30)
+  const labelChars = variant === 'delete' ? Math.min(baseLabelChars + 3, 30) : baseLabelChars
 
   return (
     <button
@@ -1418,6 +1507,8 @@ function EmployeePreviewBasicInfoPanel({ employee, profile }) {
 }
 
 function EmployeePreviewBasicDetailsPanel({ employee }) {
+  const reportingAssignments = Array.isArray(employee?.reportingAssignmentEntries) ? employee.reportingAssignmentEntries : []
+
   return (
     <div className="row g-2">
       <div className="col-12 col-md-6"><strong>Department:</strong> {employee?.departmentLabel || employee?.department || '—'}</div>
@@ -1427,10 +1518,12 @@ function EmployeePreviewBasicDetailsPanel({ employee }) {
       <div className="col-12 col-md-6"><strong>Employee Type:</strong> {employee?.employeeTypeLabel || employee?.employeeType || '—'}</div>
       <div className="col-12 col-md-6"><strong>Billing Status:</strong> <EmployeeBadge value={employee?.billingStatus || 'Non Billable'} type="billingStatus" /></div>
       <div className="col-12"><strong>Assignment Statuses:</strong> {employee?.assignmentStatusSummary || 'No assignment'}</div>
-      <div className="col-12 col-md-6"><strong>Manager:</strong> {employee?.managerName || '—'}</div>
-      <div className="col-12 col-md-6"><strong>HR:</strong> {employee?.hrEmployeeName || '—'}</div>
-      <div className="col-12 col-md-6"><strong>Lead:</strong> {employee?.teamLeadName || '—'}</div>
-      <div className="col-12 col-md-6"><strong>Coordinator:</strong> {employee?.coordinatorName || '—'}</div>
+      <div className="col-12">
+        <strong>Reporting Assignments:</strong>{' '}
+        {reportingAssignments.length
+          ? reportingAssignments.map((entry) => `${entry.label}: ${entry.employeeName || 'Unassigned'}`).join(', ')
+          : 'No reporting assignments'}
+      </div>
     </div>
   )
 }
@@ -1831,22 +1924,18 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
 
 function MappingModal({
   open,
-  mode,
   employee,
   draft,
   onChange,
   onClose,
   onSubmit,
-  options,
-  selectedDepartment,
-  selectedRole,
   selectedEmployeeUid,
-  departmentOptions,
-  roleOptions,
   employeeOptions,
-  onDepartmentChange,
-  onRoleChange,
-  onEmployeeChange
+  onEmployeeChange,
+  onAddRow,
+  onRemoveRow,
+  getPositionOptions,
+  getMappingPersonOptions
 }) {
   return (
     <ModalFrame
@@ -1857,7 +1946,7 @@ function MappingModal({
       footer={(
         <>
           <button type="button" className="btn btn-light" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary" onClick={onSubmit}>{mode === 'select' ? 'Continue' : 'Save Mapping'}</button>
+          <button type="button" className="btn btn-primary" onClick={onSubmit}>Save Mapping</button>
         </>
       )}
     >
@@ -1868,61 +1957,64 @@ function MappingModal({
             <div className="small text-muted">
               {employee
                 ? `${employee.employeeCode} • ${employee.roleName || 'No role assigned'} • ${employee.departmentLabel || employee.department || 'No department'}`
-                : 'Start with department, optionally narrow by role, then choose the employee record to map.'}
+                : 'Choose an employee first, then set reporting roles and mapping persons.'}
             </div>
             <div className="small text-muted mt-1">
-              {selectedDepartment
-                ? `Reporting assignment dropdowns are scoped to the ${selectedDepartment} department.`
-                : 'Choose a department first to scope the employee and reporting assignment lists.'}
+              {employee
+                ? 'An employee can have multiple reporting-to mappings such as Manager, HR, Delivery, and more.'
+                : 'Only employees with the Employee role are available here.'}
             </div>
           </div>
         </div>
-        <div className="col-12 col-md-4">
-          <label className="form-label">Department</label>
-          <AppSelect
-            value={selectedDepartment}
-            onChange={onDepartmentChange}
-            options={departmentOptions}
-            placeholder="Select department"
-          />
-        </div>
-        <div className="col-12 col-md-4">
-          <label className="form-label">Role</label>
-          <AppSelect
-            value={selectedRole}
-            onChange={onRoleChange}
-            options={roleOptions}
-            placeholder="All non-employee roles"
-            disabled={!selectedDepartment}
-          />
-        </div>
-        <div className="col-12 col-md-4">
+        <div className="col-12">
           <label className="form-label">Employee</label>
           <AppSelect
             value={selectedEmployeeUid}
             onChange={onEmployeeChange}
             options={employeeOptions}
             placeholder="Select employee"
-            disabled={!selectedDepartment}
           />
         </div>
-        {mode === 'edit' && employee ? (
+        {employee ? (
           <>
-            <div className="col-12 col-md-6">
-              <label className="form-label">Manager</label>
-              <AppSelect name="managerEmployeeUid" value={draft.managerEmployeeUid} onChange={onChange} options={options.manager} placeholder="Select manager" />
-            </div>
-            <div className="col-12 col-md-6">
-              <label className="form-label">HR</label>
-              <AppSelect name="hrEmployeeUid" value={draft.hrEmployeeUid} onChange={onChange} options={options.hr} placeholder="Select HR" />
-            </div>
-            <div className="col-12 col-md-6">
-              <label className="form-label">Team Lead</label>
-              <AppSelect name="teamLeadEmployeeUid" value={draft.teamLeadEmployeeUid} onChange={onChange} options={options.teamLead} placeholder="Select team lead" />
-            </div>
-            <div className="col-12 col-md-6">
-              <label className="form-label">Coordinator</label>
-              <AppSelect name="coordinatorEmployeeUid" value={draft.coordinatorEmployeeUid} onChange={onChange} options={options.coordinator} placeholder="Select coordinator" />
+            {draft.map((row, index) => (
+              <React.Fragment key={row.rowKey}>
+                <div className="col-12 col-md-5">
+                  <label className="form-label">{index === 0 ? 'Reporting To' : `Reporting To ${index + 1}`}</label>
+                  <AppSelect
+                    value={row.position}
+                    onChange={(nextValue) => onChange(row.rowKey, 'position', nextValue)}
+                    options={getPositionOptions(row)}
+                    placeholder="Select reporting role"
+                  />
+                </div>
+                <div className="col-12 col-md-5">
+                  <label className="form-label">Mapping Person</label>
+                  <AppSelect
+                    value={row.mappingPersonUid}
+                    onChange={(nextValue) => onChange(row.rowKey, 'mappingPersonUid', nextValue)}
+                    options={getMappingPersonOptions(row)}
+                    placeholder="Select mapping person"
+                    disabled={!row.position}
+                  />
+                </div>
+                <div className="col-12 col-md-2 d-flex align-items-end">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary btn-sm w-100"
+                    onClick={() => onRemoveRow(row.rowKey)}
+                    disabled={draft.length <= 1}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </React.Fragment>
+            ))}
+            <div className="col-12">
+              <button type="button" className="btn btn-outline-primary btn-sm btn-icon-inline" onClick={onAddRow}>
+                <PlusIcon />
+                <span>Add Reporting To</span>
+              </button>
             </div>
           </>
         ) : (
@@ -1995,8 +2087,10 @@ export default function EmployeesManagement() {
   const [joinDateRange, setJoinDateRange] = useState({ start: '', end: '' })
   const [mappingSearch, setMappingSearch] = useState('')
   const [mappingDepartmentFilter, setMappingDepartmentFilter] = useState('All')
-  const [mappingRoleFilter, setMappingRoleFilter] = useState('All')
+  const [mappingPositionFilter, setMappingPositionFilter] = useState('All')
   const [mappingEmployeeFilter, setMappingEmployeeFilter] = useState('All')
+  const [mappingMappedPositionFilter, setMappingMappedPositionFilter] = useState('All')
+  const [mappingMappingPersonFilter, setMappingMappingPersonFilter] = useState('All')
 
   const [isEmployeeFormOpen, setIsEmployeeFormOpen] = useState(false)
   const [isImportOpen, setIsImportOpen] = useState(false)
@@ -2021,12 +2115,9 @@ export default function EmployeesManagement() {
   const [isRoleSaving, setIsRoleSaving] = useState(false)
 
   const [mappingModalOpen, setMappingModalOpen] = useState(false)
-  const [mappingModalMode, setMappingModalMode] = useState('select')
   const [mappingEmployee, setMappingEmployee] = useState(null)
   const [mappingSelectedEmployeeUid, setMappingSelectedEmployeeUid] = useState('')
-  const [mappingSelectedRole, setMappingSelectedRole] = useState('')
   const [mappingDraft, setMappingDraft] = useState(createMappingDraft(null))
-  const [mappingScopeDepartment, setMappingScopeDepartment] = useState('')
 
   const canManageMetadataSection = (category, action) => {
     if (category === 'roles') {
@@ -2109,26 +2200,58 @@ export default function EmployeesManagement() {
     return new Map(Array.from(lookup.entries()).map(([employeeUid, statusSet]) => [employeeUid, Array.from(statusSet)]))
   }, [projectAssignments])
 
-  const employees = useMemo(() => employeesData.map((employee) => ({
-    ...employee,
-    roleName: roleDirectory.get(String(employee.roleType || '')) || employee.roleName || '',
-    departmentLabel: getMetadataDisplayLabel(metadataCatalog, 'department', employee.department),
-    positionLabel: getMetadataDisplayLabel(metadataCatalog, 'position', employee.position),
-    statusLabel: getMetadataDisplayLabel(metadataCatalog, 'status', employee.status),
-    workLocationLabel: getMetadataDisplayLabel(metadataCatalog, 'work_location', employee.workLocation),
-    employeeTypeLabel: getMetadataDisplayLabel(metadataCatalog, 'employee_type', employee.employeeType),
-    bloodGroupLabel: getMetadataDisplayLabel(metadataCatalog, 'blood_group', employee.bloodGroup),
-    genderLabel: getMetadataDisplayLabel(metadataCatalog, 'gender', employee.gender),
-    managerName: employeeNameDirectory.get(String(employee.managerEmployeeUid || '')) || '',
-    hrEmployeeName: employeeNameDirectory.get(String(employee.hrEmployeeUid || '')) || '',
-    teamLeadName: employeeNameDirectory.get(String(employee.teamLeadEmployeeUid || '')) || '',
-    coordinatorName: employeeNameDirectory.get(String(employee.coordinatorEmployeeUid || '')) || '',
-    assignmentStatuses: assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || [],
-    assignmentStatusSummary: (assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || []).map(formatAssignmentStatus).join(', ') || 'No assignment',
-    billingStatus: resolveBillingStatus(assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || [])
-  })), [assignmentStatusesByEmployeeUid, employeesData, roleDirectory, metadataCatalog, employeeNameDirectory])
+  const employees = useMemo(() => employeesData.map((employee) => {
+    const reportingAssignments = normalizeReportingAssignments(employee)
+    const reportingAssignmentEntries = Object.entries(reportingAssignments).map(([fieldName, employeeUid]) => ({
+      key: fieldName,
+      label: formatReportingAssignmentLabel(fieldName),
+      employeeUid,
+      employeeName: employeeNameDirectory.get(String(employeeUid || '')) || ''
+    }))
+    const assignmentStatuses = assignmentStatusesByEmployeeUid.get(String(employee.uid || '')) || []
+
+    return {
+      ...employee,
+      reportingAssignments,
+      reportingAssignmentEntries,
+      reportingAssignmentSummary: reportingAssignmentEntries.length
+        ? reportingAssignmentEntries.map((entry) => `${entry.label}: ${entry.employeeName || 'Unassigned'}`).join(', ')
+        : 'No reporting assignments',
+      reportingAssignmentLabels: reportingAssignmentEntries.map((entry) => entry.label).join(', '),
+      roleName: roleDirectory.get(String(employee.roleType || '')) || employee.roleName || '',
+      departmentLabel: getMetadataDisplayLabel(metadataCatalog, 'department', employee.department),
+      positionLabel: getMetadataDisplayLabel(metadataCatalog, 'position', employee.position),
+      statusLabel: getMetadataDisplayLabel(metadataCatalog, 'status', employee.status),
+      workLocationLabel: getMetadataDisplayLabel(metadataCatalog, 'work_location', employee.workLocation),
+      employeeTypeLabel: getMetadataDisplayLabel(metadataCatalog, 'employee_type', employee.employeeType),
+      bloodGroupLabel: getMetadataDisplayLabel(metadataCatalog, 'blood_group', employee.bloodGroup),
+      genderLabel: getMetadataDisplayLabel(metadataCatalog, 'gender', employee.gender),
+      managerName: employeeNameDirectory.get(String(reportingAssignments.manager_employee_uid || '')) || '',
+      hrEmployeeName: employeeNameDirectory.get(String(reportingAssignments.hr_employee_uid || '')) || '',
+      teamLeadName: employeeNameDirectory.get(String(reportingAssignments.team_lead_employee_uid || '')) || '',
+      coordinatorName: employeeNameDirectory.get(String(reportingAssignments.coordinator_employee_uid || '')) || '',
+      assignmentStatuses,
+      assignmentStatusSummary: assignmentStatuses.map(formatAssignmentStatus).join(', ') || 'No assignment',
+      billingStatus: resolveBillingStatus(assignmentStatuses)
+    }
+  }), [assignmentStatusesByEmployeeUid, employeesData, roleDirectory, metadataCatalog, employeeNameDirectory])
   const employeeDirectoryByUid = useMemo(() => new Map(employees.map((employee) => [String(employee.uid), employee])), [employees])
   const mappedEmployees = useMemo(() => employees.filter((employee) => isEmployeeMapped(employee)), [employees])
+  const mappingSelectableEmployees = useMemo(
+    () => employees.filter((employee) => isGenericEmployeeRole(employee.roleName)),
+    [employees]
+  )
+  const roleBadgeAssignments = useMemo(() => buildRoleBadgeAssignments(
+    [...roles.map((role) => role.roleName), ...employees.map((employee) => employee.roleName)],
+    readCachedRoleBadgeAssignments()
+  ), [employees, roles])
+  const roleBadgeStyleMap = useMemo(() => new Map(
+    Object.entries(roleBadgeAssignments).map(([roleName, paletteIndex]) => [roleName, getRoleBadgeStyleFromPaletteIndex(paletteIndex)])
+  ), [roleBadgeAssignments])
+
+  useEffect(() => {
+    writeCachedRoleBadgeAssignments(roleBadgeAssignments)
+  }, [roleBadgeAssignments])
 
   const departmentValues = useMemo(
     () => metadataCatalog.departmentEntries.map((entry) => entry.value),
@@ -2159,7 +2282,10 @@ export default function EmployeesManagement() {
   )
   const positionFilterOptions = useMemo(() => buildSelectOptions(scopedPositionFilterOptions, 'All positions'), [scopedPositionFilterOptions])
   const departmentFilterOptions = useMemo(() => buildSelectOptions(departmentMetadataOptions), [departmentMetadataOptions])
-  const mappingDepartmentFilterOptions = useMemo(() => buildSelectOptions(departmentMetadataOptions, 'All departments'), [departmentMetadataOptions])
+  const mappingDepartmentFilterOptions = useMemo(() => buildSelectOptions(
+    mergeOptionValues([], mappedEmployees.map((employee) => employee.department)),
+    'All departments'
+  ), [mappedEmployees])
   const statusFilterOptions = useMemo(() => buildSelectOptions(buildMetadataOptions(metadataCatalog.byCategory.status || [])), [metadataCatalog.byCategory.status])
   const workLocationFilterOptions = useMemo(() => buildSelectOptions(buildMetadataOptions(metadataCatalog.byCategory.work_location || [])), [metadataCatalog.byCategory.work_location])
   const employeeTypeFilterOptions = useMemo(() => buildSelectOptions(buildMetadataOptions(metadataCatalog.byCategory.employee_type || [])), [metadataCatalog.byCategory.employee_type])
@@ -2182,7 +2308,6 @@ export default function EmployeesManagement() {
     () => buildMetadataOptions(metadataCatalog.departmentEntries, employeeDraft.department),
     [employeeDraft.department, metadataCatalog.departmentEntries]
   )
-  const mappingModalDepartmentOptions = useMemo(() => buildSelectOptions(departmentMetadataOptions, 'Select department', ''), [departmentMetadataOptions])
   const statusFormOptions = useMemo(() => buildMetadataOptions(metadataCatalog.byCategory.status || [], employeeDraft.status), [employeeDraft.status, metadataCatalog.byCategory.status])
   const workLocationFormOptions = useMemo(() => buildMetadataOptions(metadataCatalog.byCategory.work_location || [], employeeDraft.workLocation), [employeeDraft.workLocation, metadataCatalog.byCategory.work_location])
   const employeeTypeFormOptions = useMemo(() => buildMetadataOptions(metadataCatalog.byCategory.employee_type || [], employeeDraft.employeeType), [employeeDraft.employeeType, metadataCatalog.byCategory.employee_type])
@@ -2203,81 +2328,44 @@ export default function EmployeesManagement() {
     ))
   ), [mappedEmployees, mappingDepartmentFilter])
 
-  const mappingRoleFilterOptions = useMemo(() => buildSelectOptions(
-    mergeOptionValues([], mappingDepartmentScopedEmployees
-      .filter((employee) => !isGenericEmployeeRole(employee.roleName))
-      .map((employee) => employee.roleName)),
-    'All roles'
+  const mappingPositionFilterOptions = useMemo(() => buildSelectOptions(
+    mergeOptionValues([], mappingDepartmentScopedEmployees.map((employee) => employee.positionLabel || employee.position)),
+    'All positions'
   ), [mappingDepartmentScopedEmployees])
-  const mappingRoleScopedEmployees = useMemo(() => mappingDepartmentScopedEmployees.filter((employee) => (
-    mappingRoleFilter === 'All'
-    || employee.roleName === mappingRoleFilter
-  )), [mappingDepartmentScopedEmployees, mappingRoleFilter])
+  const mappingPositionScopedEmployees = useMemo(() => mappingDepartmentScopedEmployees.filter((employee) => (
+    mappingPositionFilter === 'All'
+    || (employee.positionLabel || employee.position) === mappingPositionFilter
+  )), [mappingDepartmentScopedEmployees, mappingPositionFilter])
   const mappingEmployeeFilterOptions = useMemo(() => buildSelectOptions(
-    mappingRoleScopedEmployees.map((employee) => ({
+    mappingPositionScopedEmployees.map((employee) => ({
       value: employee.uid,
       label: employee.fullName || employee.employeeCode || 'Employee',
-      description: `${employee.employeeCode || 'No code'} • ${employee.roleName || 'No role'}`
+      description: `${employee.employeeCode || 'No code'} • ${employee.positionLabel || employee.position || 'No position'}`
     })),
     'All employees'
-  ), [mappingRoleScopedEmployees])
-
-  const mappingModalDepartmentEmployees = useMemo(() => (
-    mappingScopeDepartment
-      ? employees.filter((employee) => String(employee.department || '').trim() === String(mappingScopeDepartment || '').trim())
-      : []
-  ), [employees, mappingScopeDepartment])
-
-  const mappingModalRoleOptions = useMemo(() => {
-    const entries = new Map()
-
-    mappingModalDepartmentEmployees.forEach((employee) => {
-      const roleValue = String(employee.roleType || employee.roleName || '').trim()
-      const roleLabel = String(employee.roleName || '').trim()
-      if (!roleValue || !roleLabel || isGenericEmployeeRole(roleLabel)) return
-      if (entries.has(roleValue)) return
-
-      entries.set(roleValue, {
-        value: roleValue,
-        label: roleLabel,
-        description: `${roleLabel} employees in ${mappingScopeDepartment}`
-      })
-    })
-
-    const currentRoleValue = String(mappingSelectedRole || '').trim()
-    const currentEmployeeRoleValue = String(mappingEmployee?.roleType || mappingEmployee?.roleName || '').trim()
-    const currentEmployeeRoleLabel = String(mappingEmployee?.roleName || currentEmployeeRoleValue || '').trim()
-    if (
-      currentRoleValue
-      && currentRoleValue === currentEmployeeRoleValue
-      && currentEmployeeRoleLabel
-      && !isGenericEmployeeRole(currentEmployeeRoleLabel)
-      && !entries.has(currentRoleValue)
-    ) {
-      entries.set(currentRoleValue, {
-        value: currentRoleValue,
-        label: currentEmployeeRoleLabel,
-        description: 'Current selected role'
-      })
-    }
-
-    return Array.from(entries.values()).sort((left, right) => left.label.localeCompare(right.label))
-  }, [mappingEmployee, mappingModalDepartmentEmployees, mappingScopeDepartment, mappingSelectedRole])
+  ), [mappingPositionScopedEmployees])
+  const mappingMappedPositionFilterOptions = useMemo(() => buildSelectOptions(
+    mergeOptionValues([], mappingPositionScopedEmployees.flatMap((employee) => (
+      (employee.reportingAssignmentEntries || []).map((entry) => entry.label).filter(Boolean)
+    ))),
+    'All mapped positions'
+  ), [mappingPositionScopedEmployees])
+  const mappingMappingPersonFilterOptions = useMemo(() => buildSelectOptions(
+    mergeOptionValues([], mappingPositionScopedEmployees.flatMap((employee) => (
+      (employee.reportingAssignmentEntries || []).map((entry) => entry.employeeName).filter(Boolean)
+    ))),
+    'All mapping persons'
+  ), [mappingPositionScopedEmployees])
 
   const mappingModalEmployeeOptions = useMemo(() => {
-    const selectedRoleValue = String(mappingSelectedRole || '').trim()
     const selectedEmployeeValue = String(mappingSelectedEmployeeUid || '').trim()
     const selectedEmployee = selectedEmployeeValue ? employeeDirectoryByUid.get(selectedEmployeeValue) : null
 
-    const scopedEmployees = mappingModalDepartmentEmployees.filter((employee) => (
-      !selectedRoleValue || String(employee.roleType || employee.roleName || '').trim() === selectedRoleValue
-    ))
-
     const optionEmployees = selectedEmployee
-      && !scopedEmployees.some((employee) => String(employee.uid || '') === selectedEmployeeValue)
-      && String(selectedEmployee.department || '').trim() === String(mappingScopeDepartment || '').trim()
-      ? [...scopedEmployees, selectedEmployee]
-      : scopedEmployees
+      && isGenericEmployeeRole(selectedEmployee.roleName)
+      && !mappingSelectableEmployees.some((employee) => String(employee.uid || '') === selectedEmployeeValue)
+      ? [...mappingSelectableEmployees, selectedEmployee]
+      : mappingSelectableEmployees
 
     return optionEmployees
       .sort((left, right) => String(left.fullName || left.employeeCode || '').localeCompare(String(right.fullName || right.employeeCode || '')))
@@ -2286,7 +2374,83 @@ export default function EmployeesManagement() {
         label: employee.fullName || employee.employeeCode || 'Employee',
         description: `${employee.employeeCode || 'No code'} • ${employee.roleName || 'No role'} • ${employee.positionLabel || employee.position || 'No position'}`
       }))
-  }, [employeeDirectoryByUid, mappingModalDepartmentEmployees, mappingScopeDepartment, mappingSelectedEmployeeUid, mappingSelectedRole])
+  }, [employeeDirectoryByUid, mappingSelectableEmployees, mappingSelectedEmployeeUid])
+
+  const resolveMappingPositionValue = useCallback((value) => {
+    const normalizedValue = String(value || '').trim()
+    if (!normalizedValue) return ''
+
+    const normalizedAssignmentKey = toReportingAssignmentKey(normalizedValue)
+    const assignmentBase = normalizedAssignmentKey.replace(/_employee_uid$/i, '')
+    const candidateValues = Array.from(new Set([
+      normalizedValue,
+      normalizedAssignmentKey,
+      assignmentBase,
+      assignmentBase.replace(/_/g, ' '),
+      formatReportingAssignmentLabel(normalizedValue),
+      formatReportingAssignmentLabel(normalizedAssignmentKey)
+    ].map((entry) => String(entry || '').trim()).filter(Boolean)))
+
+    for (const candidateValue of candidateValues) {
+      const metadataEntry = findMetadataEntryByInput(metadataCatalog, 'position', candidateValue)
+      if (metadataEntry?.value) return String(metadataEntry.value).trim()
+    }
+
+    if (/_employee_uid$/i.test(normalizedValue)) {
+      return formatReportingAssignmentLabel(normalizedValue) || normalizedValue
+    }
+
+    return normalizedValue
+  }, [metadataCatalog])
+
+  const getMappingPositionOptions = useCallback((row) => {
+    const currentValue = resolveMappingPositionValue(row?.position)
+    const scopedOptions = buildMetadataOptions(metadataCatalog.positionEntries || [], '')
+    if (!currentValue || scopedOptions.some((option) => String(option.value) === currentValue)) {
+      return scopedOptions
+    }
+
+    return [
+      ...scopedOptions,
+      {
+        value: currentValue,
+        label: formatReportingAssignmentLabel(currentValue),
+        description: 'Current saved mapping'
+      }
+    ]
+  }, [metadataCatalog.positionEntries, resolveMappingPositionValue])
+
+  const getMappingPersonOptions = useCallback((row) => {
+    const baseOptions = [{ value: '', label: 'Unassigned', description: 'Remove current mapping' }]
+    if (!mappingEmployee) return baseOptions
+
+    const selectedPositionValue = resolveMappingPositionValue(row?.position)
+    if (!selectedPositionValue) return baseOptions
+
+    const selectedMappingPersonUid = String(row?.mappingPersonUid || '').trim()
+    const selectedMappingPerson = selectedMappingPersonUid ? employeeDirectoryByUid.get(selectedMappingPersonUid) : null
+
+    const scopedEmployees = employees.filter((employee) => (
+      String(employee.uid || '') !== String(mappingEmployee.uid || '')
+      && resolveMappingPositionValue(employee.position || employee.positionLabel || '') === selectedPositionValue
+    ))
+
+    const optionEmployees = selectedMappingPerson
+      && !scopedEmployees.some((employee) => String(employee.uid || '') === selectedMappingPersonUid)
+      ? [...scopedEmployees, selectedMappingPerson]
+      : scopedEmployees
+
+    return [
+      ...baseOptions,
+      ...optionEmployees
+        .sort((left, right) => String(left.fullName || left.employeeCode || '').localeCompare(String(right.fullName || right.employeeCode || '')))
+        .map((employee) => ({
+          value: employee.uid,
+          label: employee.fullName || employee.employeeCode || 'Employee',
+          description: `${employee.employeeCode || 'No code'} • ${employee.positionLabel || employee.position || 'No position'} • ${employee.departmentLabel || employee.department || 'No department'}`
+        }))
+    ]
+  }, [employeeDirectoryByUid, employees, mappingEmployee, resolveMappingPositionValue])
 
   useEffect(() => {
     if (positionFilter === 'All') return
@@ -2295,10 +2459,10 @@ export default function EmployeesManagement() {
   }, [positionFilter, positionFilterOptions])
 
   useEffect(() => {
-    if (mappingRoleFilter === 'All') return
-    if (mappingRoleFilterOptions.some((option) => String(option.value) === String(mappingRoleFilter))) return
-    setMappingRoleFilter('All')
-  }, [mappingRoleFilter, mappingRoleFilterOptions])
+    if (mappingPositionFilter === 'All') return
+    if (mappingPositionFilterOptions.some((option) => String(option.value) === String(mappingPositionFilter))) return
+    setMappingPositionFilter('All')
+  }, [mappingPositionFilter, mappingPositionFilterOptions])
 
   useEffect(() => {
     if (mappingEmployeeFilter === 'All') return
@@ -2307,10 +2471,16 @@ export default function EmployeesManagement() {
   }, [mappingEmployeeFilter, mappingEmployeeFilterOptions])
 
   useEffect(() => {
-    if (!mappingSelectedRole) return
-    if (mappingModalRoleOptions.some((option) => String(option.value) === String(mappingSelectedRole))) return
-    setMappingSelectedRole('')
-  }, [mappingModalRoleOptions, mappingSelectedRole])
+    if (mappingMappedPositionFilter === 'All') return
+    if (mappingMappedPositionFilterOptions.some((option) => String(option.value) === String(mappingMappedPositionFilter))) return
+    setMappingMappedPositionFilter('All')
+  }, [mappingMappedPositionFilter, mappingMappedPositionFilterOptions])
+
+  useEffect(() => {
+    if (mappingMappingPersonFilter === 'All') return
+    if (mappingMappingPersonFilterOptions.some((option) => String(option.value) === String(mappingMappingPersonFilter))) return
+    setMappingMappingPersonFilter('All')
+  }, [mappingMappingPersonFilter, mappingMappingPersonFilterOptions])
 
   useEffect(() => {
     if (!mappingSelectedEmployeeUid) return
@@ -2345,6 +2515,8 @@ export default function EmployeesManagement() {
     'hrEmployeeName',
     'teamLeadName',
     'coordinatorName',
+    'reportingAssignmentSummary',
+    'reportingAssignmentLabels',
     'assignmentStatusSummary',
     'billingStatus'
   ]).filter((employee) => {
@@ -2434,24 +2606,34 @@ export default function EmployeesManagement() {
     'departmentLabel',
     'position',
     'positionLabel',
+    'reportingAssignmentSummary',
+    'reportingAssignmentLabels',
     'managerName',
     'hrEmployeeName',
     'teamLeadName',
     'coordinatorName'
   ]).filter((employee) => {
     const matchesDepartment = mappingDepartmentFilter === 'All' || employee.department === mappingDepartmentFilter
-    const matchesRole = mappingRoleFilter === 'All' || employee.roleName === mappingRoleFilter
+    const matchesPosition = mappingPositionFilter === 'All' || (employee.positionLabel || employee.position) === mappingPositionFilter
     const matchesEmployee = mappingEmployeeFilter === 'All' || String(employee.uid || '') === String(mappingEmployeeFilter)
+    const matchesMappedPosition = mappingMappedPositionFilter === 'All'
+      || (employee.reportingAssignmentEntries || []).some((entry) => entry.label === mappingMappedPositionFilter)
+    const matchesMappingPerson = mappingMappingPersonFilter === 'All'
+      || (employee.reportingAssignmentEntries || []).some((entry) => entry.employeeName === mappingMappingPersonFilter)
 
     return matchesDepartment
-      && matchesRole
+      && matchesPosition
       && matchesEmployee
+      && matchesMappedPosition
+      && matchesMappingPerson
   }), [
     deferredMappingSearch,
     mappedEmployees,
     mappingDepartmentFilter,
     mappingEmployeeFilter,
-    mappingRoleFilter,
+    mappingMappedPositionFilter,
+    mappingMappingPersonFilter,
+    mappingPositionFilter,
   ])
 
   const metrics = useMemo(() => {
@@ -2460,7 +2642,7 @@ export default function EmployeesManagement() {
     const onsite = employees.filter((employee) => employee.workLocation === 'Onsite').length
     const remote = employees.filter((employee) => employee.workLocation === 'Remote').length
     const hybrid = employees.filter((employee) => employee.workLocation === 'Hybrid').length
-    const mapped = employees.filter((employee) => employee.managerEmployeeUid || employee.hrEmployeeUid || employee.teamLeadEmployeeUid || employee.coordinatorEmployeeUid).length
+    const mapped = employees.filter((employee) => employee.reportingAssignmentEntries?.length).length
     return { active, inactive, onsite, remote, hybrid, mapped }
   }, [employees])
 
@@ -2476,78 +2658,6 @@ export default function EmployeesManagement() {
 
     return { locked, unlocked, pendingFirstLogin, expiredWindow }
   }, [profileRequests])
-
-  const mappingScopedEmployees = useMemo(() => {
-    if (!mappingEmployee) return []
-
-    const selectedDepartment = String(mappingScopeDepartment || '').trim()
-    if (!selectedDepartment) return []
-
-    const sourceEmployees = employees.filter((employee) => String(employee.department || '').trim() === selectedDepartment)
-
-    return sourceEmployees.filter((employee) => String(employee.uid || '') !== String(mappingEmployee?.uid || ''))
-  }, [employees, mappingEmployee, mappingScopeDepartment])
-
-  const isManagerCandidate = useCallback((employee) => {
-    const roleMeta = getEmployeeRoleMeta(employee?.roleName)
-    return roleMeta.isAdmin || roleMeta.isManager
-  }, [])
-
-  const isHrCandidate = useCallback((employee) => {
-    const roleMeta = getEmployeeRoleMeta(employee?.roleName)
-    return roleMeta.isAdmin || roleMeta.isHr
-  }, [])
-
-  const isTeamLeadCandidate = useCallback((employee) => {
-    const roleMeta = getEmployeeRoleMeta(employee?.roleName)
-    return roleMeta.isAdmin || roleMeta.isTeamLead
-  }, [])
-
-  const isCoordinatorCandidate = useCallback((employee) => {
-    const roleMeta = getEmployeeRoleMeta(employee?.roleName)
-    return roleMeta.isAdmin || roleMeta.isCoordinator
-  }, [])
-
-  const buildMappingOptionList = useCallback((selectedUid = '', { isCandidateEligible = () => true } = {}) => {
-    const baseOptions = [{ value: '', label: 'Unassigned', description: 'Remove current mapping' }]
-    if (!mappingEmployee) return baseOptions
-
-    const selectedValue = String(selectedUid || '')
-    const selectedEmployee = employees.find((employee) => String(employee.uid || '') === selectedValue)
-    const isSelfSelection = selectedEmployee && String(selectedEmployee.uid || '') === String(mappingEmployee?.uid || '')
-    const scopedEligibleEmployees = mappingScopedEmployees.filter((employee) => isCandidateEligible(employee))
-    const selectedMissingFromScopedList = selectedEmployee
-      && !isSelfSelection
-      && isCandidateEligible(selectedEmployee)
-      && !scopedEligibleEmployees.some((employee) => String(employee.uid || '') === selectedValue)
-    const optionEmployees = selectedMissingFromScopedList ? [...scopedEligibleEmployees, selectedEmployee] : scopedEligibleEmployees
-
-    return [
-      ...baseOptions,
-      ...optionEmployees.map((employee) => ({
-        value: employee.uid,
-        label: employee.fullName,
-        description: `${employee.employeeCode} • ${employee.roleName || 'No role'} • ${employee.department || 'No department'}`
-      }))
-    ]
-  }, [employees, mappingEmployee, mappingScopedEmployees])
-
-  const employeeMappingOptions = useMemo(() => ({
-    manager: buildMappingOptionList(mappingDraft.managerEmployeeUid, { isCandidateEligible: isManagerCandidate }),
-    hr: buildMappingOptionList(mappingDraft.hrEmployeeUid, { isCandidateEligible: isHrCandidate }),
-    teamLead: buildMappingOptionList(mappingDraft.teamLeadEmployeeUid, { isCandidateEligible: isTeamLeadCandidate }),
-    coordinator: buildMappingOptionList(mappingDraft.coordinatorEmployeeUid, { isCandidateEligible: isCoordinatorCandidate })
-  }), [
-    buildMappingOptionList,
-    isCoordinatorCandidate,
-    isHrCandidate,
-    isManagerCandidate,
-    isTeamLeadCandidate,
-    mappingDraft.coordinatorEmployeeUid,
-    mappingDraft.hrEmployeeUid,
-    mappingDraft.managerEmployeeUid,
-    mappingDraft.teamLeadEmployeeUid
-  ])
 
   useEffect(() => {
     const selectedEmployeeValue = String(mappingSelectedEmployeeUid || '').trim()
@@ -2665,24 +2775,32 @@ export default function EmployeesManagement() {
   function resetMappingFilters() {
     setMappingSearch('')
     setMappingDepartmentFilter('All')
-    setMappingRoleFilter('All')
+    setMappingPositionFilter('All')
     setMappingEmployeeFilter('All')
+    setMappingMappedPositionFilter('All')
+    setMappingMappingPersonFilter('All')
   }
 
   function handleMappingDepartmentFilterChange(nextDepartment) {
     setMappingDepartmentFilter(nextDepartment)
-    setMappingRoleFilter('All')
+    setMappingPositionFilter('All')
     setMappingEmployeeFilter('All')
+    setMappingMappedPositionFilter('All')
+    setMappingMappingPersonFilter('All')
+  }
+
+  function handleMappingPositionFilterChange(nextPosition) {
+    setMappingPositionFilter(nextPosition)
+    setMappingEmployeeFilter('All')
+    setMappingMappedPositionFilter('All')
+    setMappingMappingPersonFilter('All')
   }
 
   function closeMappingModal() {
     setMappingModalOpen(false)
-    setMappingModalMode('select')
     setMappingEmployee(null)
     setMappingSelectedEmployeeUid('')
-    setMappingSelectedRole('')
     setMappingDraft(createMappingDraft(null))
-    setMappingScopeDepartment('')
   }
 
   function openCreateEmployee() {
@@ -3096,9 +3214,6 @@ export default function EmployeesManagement() {
       return
     }
 
-    setMappingModalMode('select')
-    setMappingScopeDepartment('')
-    setMappingSelectedRole('')
     setMappingSelectedEmployeeUid('')
     setMappingEmployee(null)
     setMappingDraft(createMappingDraft(null))
@@ -3111,42 +3226,75 @@ export default function EmployeesManagement() {
       return
     }
 
-    setMappingModalMode('edit')
     setMappingEmployee(employee)
     setMappingSelectedEmployeeUid(String(employee?.uid || ''))
-    setMappingSelectedRole(isGenericEmployeeRole(employee?.roleName) ? '' : String(employee?.roleType || employee?.roleName || '').trim())
     setMappingDraft(createMappingDraft(employee))
-    setMappingScopeDepartment(String(employee?.department || '').trim())
     setMappingModalOpen(true)
   }
 
-  function handleMappingDraftChange(event) {
-    const { name, value } = event.target
-    setMappingDraft((current) => ({ ...current, [name]: value }))
-  }
-
-  function handleMappingScopeDepartmentChange(nextDepartment) {
-    setMappingScopeDepartment(nextDepartment)
-    setMappingSelectedRole('')
-    setMappingSelectedEmployeeUid('')
-    setMappingEmployee(null)
-    setMappingDraft(createMappingDraft(null))
-  }
-
-  function handleMappingRoleChange(nextRole) {
-    setMappingSelectedRole(nextRole)
-    setMappingSelectedEmployeeUid('')
-    setMappingEmployee(null)
-    setMappingDraft(createMappingDraft(null))
-  }
-
-  function handleMappingEmployeeChange(eventOrValue) {
-    if (eventOrValue && typeof eventOrValue === 'object' && eventOrValue.target) {
-      handleMappingDraftChange(eventOrValue)
+  async function handleDeleteMapping(employee) {
+    if (!canUpdateEmployees) {
+      showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to update employee mapping.' })
       return
     }
 
-    const nextEmployeeUid = String(eventOrValue || '').trim()
+    if (!employee?.uid) {
+      showStatus({ type: 'error', title: 'Invalid mapping', message: 'Could not find the selected employee mapping record.' })
+      return
+    }
+
+    const accepted = await showConfirm({
+      modalTitle: 'Delete Mapping',
+      title: `Remove mapping for ${employee.fullName || 'this employee'}?`,
+      message: 'All reporting-to assignments for this employee will be removed.'
+    })
+    if (!accepted) return
+
+    try {
+      await runWithLoader(() => updateEmployee(employee.uid, {
+        ...employee,
+        reportingAssignments: {}
+      }), {
+        title: 'Removing mapping',
+        message: `Clearing reporting assignments for ${employee.fullName || 'the selected employee'}.`
+      })
+
+      if (mappingEmployee?.uid && String(mappingEmployee.uid) === String(employee.uid)) {
+        closeMappingModal()
+      }
+
+      showStatus({
+        type: 'success',
+        title: 'Mapping removed',
+        message: `${employee.fullName || 'The selected employee'} mapping has been removed.`
+      })
+    } catch (actionError) {
+      showStatus({ type: 'error', title: 'Mapping removal failed', message: actionError?.response?.data?.detail || actionError?.message || 'The employee mapping could not be removed.' })
+    }
+  }
+
+  function handleMappingDraftChange(rowKey, fieldName, value) {
+    setMappingDraft((current) => current.map((row) => {
+      if (row.rowKey !== rowKey) return row
+      if (fieldName === 'position') {
+        return { ...row, position: value, mappingPersonUid: '' }
+      }
+      return { ...row, [fieldName]: value }
+    }))
+  }
+
+  function handleAddMappingRow() {
+    setMappingDraft((current) => [...current, createEmptyMappingRow()])
+  }
+
+  function handleRemoveMappingRow(rowKey) {
+    setMappingDraft((current) => {
+      const nextRows = current.filter((row) => row.rowKey !== rowKey)
+      return nextRows.length ? nextRows : [createEmptyMappingRow()]
+    })
+  }
+
+  function handleMappingEmployeeChange(nextEmployeeUid) {
     setMappingSelectedEmployeeUid(nextEmployeeUid)
   }
 
@@ -3156,79 +3304,72 @@ export default function EmployeesManagement() {
       return
     }
 
-    const selectedDepartment = String(mappingScopeDepartment || '').trim()
-    if (!selectedDepartment) {
-      showStatus({ type: 'error', title: 'Missing department', message: 'Select the department before saving a mapping.' })
-      return
-    }
-
     if (!mappingEmployee?.uid) {
       showStatus({ type: 'error', title: 'Missing employee', message: 'Select the employee record to map before saving.' })
       return
     }
 
-    if (String(mappingEmployee.department || '').trim() !== selectedDepartment) {
-      showStatus({ type: 'error', title: 'Invalid employee', message: 'The selected employee does not belong to the chosen department.' })
-      return
-    }
+    const nextAssignments = {}
+    const seenAssignmentKeys = new Set()
 
-    if (mappingModalMode === 'select') {
-      setMappingModalMode('edit')
-      return
-    }
+    for (const row of mappingDraft) {
+      const selectedPosition = resolveMappingPositionValue(row.position)
+      const mappingPersonUid = String(row.mappingPersonUid || '').trim()
 
-    const effectiveDraft = mappingDraft
-    const values = Object.entries(effectiveDraft)
-      .filter(([, value]) => value)
-      .map(([, value]) => String(value))
-
-    if (values.some((value) => value === String(mappingEmployee.uid))) {
-      showStatus({ type: 'error', title: 'Invalid mapping', message: 'An employee cannot be mapped to themselves.' })
-      return
-    }
-
-    const outsideDepartmentAssignments = values
-      .map((uid) => employeeDirectoryByUid.get(uid))
-      .filter((employee) => employee && String(employee.department || '').trim() !== selectedDepartment)
-
-    if (outsideDepartmentAssignments.length) {
-      showStatus({
-        type: 'error',
-        title: 'Invalid mapping',
-        message: `Only users from the ${selectedDepartment} department can be mapped for ${mappingEmployee.fullName}.`
-      })
-      return
-    }
-
-    const roleScopedValidationRules = [
-      { field: 'managerEmployeeUid', label: 'Manager', isCandidateEligible: isManagerCandidate },
-      { field: 'hrEmployeeUid', label: 'HR', isCandidateEligible: isHrCandidate },
-      { field: 'teamLeadEmployeeUid', label: 'Team Lead', isCandidateEligible: isTeamLeadCandidate },
-      { field: 'coordinatorEmployeeUid', label: 'Coordinator', isCandidateEligible: isCoordinatorCandidate }
-    ]
-
-    for (const rule of roleScopedValidationRules) {
-      const selectedUid = String(effectiveDraft[rule.field] || '').trim()
-      if (!selectedUid) continue
-
-      const selectedEmployee = employeeDirectoryByUid.get(selectedUid)
-      if (!selectedEmployee || !rule.isCandidateEligible(selectedEmployee)) {
+      if (!selectedPosition && !mappingPersonUid) continue
+      if (!selectedPosition || !mappingPersonUid) {
         showStatus({
           type: 'error',
-          title: 'Invalid mapping',
-          message: `${rule.label} must be selected from users with the proper ${rule.label} role.`
+          title: 'Incomplete mapping',
+          message: 'Each mapping row requires both Reporting To and Mapping Person.'
         })
         return
       }
+
+      const assignmentKey = toReportingAssignmentKey(selectedPosition)
+      if (!assignmentKey) {
+        showStatus({ type: 'error', title: 'Invalid reporting position', message: 'Choose a valid position for each reporting row.' })
+        return
+      }
+
+      if (seenAssignmentKeys.has(assignmentKey)) {
+        showStatus({
+          type: 'error',
+          title: 'Duplicate reporting position',
+          message: `${formatReportingAssignmentLabel(assignmentKey)} is selected more than once.`
+        })
+        return
+      }
+      seenAssignmentKeys.add(assignmentKey)
+
+      if (mappingPersonUid === String(mappingEmployee.uid)) {
+        showStatus({ type: 'error', title: 'Invalid mapping', message: 'An employee cannot be mapped to themselves.' })
+        return
+      }
+
+      const selectedMappingPerson = employeeDirectoryByUid.get(mappingPersonUid)
+      if (!selectedMappingPerson) {
+        showStatus({ type: 'error', title: 'Invalid mapping person', message: 'Choose a valid employee in Mapping Person.' })
+        return
+      }
+
+      const selectedMappingPersonPosition = resolveMappingPositionValue(selectedMappingPerson.position || selectedMappingPerson.positionLabel || '')
+      if (selectedMappingPersonPosition !== selectedPosition) {
+        showStatus({
+          type: 'error',
+          title: 'Reporting position mismatch',
+          message: `${selectedMappingPerson.fullName || 'Selected employee'} does not belong to the chosen ${formatReportingAssignmentLabel(assignmentKey)} position.`
+        })
+        return
+      }
+
+      nextAssignments[assignmentKey] = mappingPersonUid
     }
 
     try {
       await runWithLoader(() => updateEmployee(mappingEmployee.uid, {
         ...mappingEmployee,
-        managerEmployeeUid: effectiveDraft.managerEmployeeUid,
-        hrEmployeeUid: effectiveDraft.hrEmployeeUid,
-        teamLeadEmployeeUid: effectiveDraft.teamLeadEmployeeUid,
-        coordinatorEmployeeUid: effectiveDraft.coordinatorEmployeeUid
+        reportingAssignments: nextAssignments
       }), { title: 'Saving employee mapping', message: `Updating reporting assignments for ${mappingEmployee.fullName}.` })
 
       showStatus({
@@ -3540,7 +3681,7 @@ export default function EmployeesManagement() {
                       <col className="employee-col-name" />
                       <col className="employee-col-role" />
                       <col className="employee-col-contact" />
-                      <col className="employee-col-role" />
+                      <col className="employee-col-position" />
                       <col className="employee-col-status" />
                       <col className="employee-col-join" />
                       <col className="employee-col-billing" />
@@ -3565,7 +3706,7 @@ export default function EmployeesManagement() {
                             <CellStack title={employee.fullName} subtitle={employee.employeeCode} className="employee-cell-wrap" />
                           </td>
                           <td className="employee-cell-wrap employee-role-cell">
-                            <CellStack title={<EmployeeBadge value={employee.roleName || 'Unassigned'} type="role" />} className="employee-cell-wrap" />
+                            <CellStack title={<EmployeeBadge value={employee.roleName || 'Unassigned'} type="role" roleBadgeStyleMap={roleBadgeStyleMap} />} className="employee-cell-wrap" />
                           </td>
                           <td className="employee-cell-wrap">
                             <CellStack title={employee.email || '—'} subtitle={employee.phone || '—'} className="employee-cell-wrap" />
@@ -3620,7 +3761,7 @@ export default function EmployeesManagement() {
             <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
               <div>
                 <div className="fw-semibold">Employee Mapping</div>
-                <div className="text-muted small">Only successfully mapped employees are listed here. Use Add Mapping to assign reporting records for a department employee.</div>
+                <div className="text-muted small">Only employees with saved position-based reporting mappings are listed here. Use Add Mapping to assign reporting records for a department employee.</div>
               </div>
               <div className="small text-muted">Records: <strong>{mappingRows.length}</strong></div>
             </div>
@@ -3630,7 +3771,7 @@ export default function EmployeesManagement() {
                 className="employee-toolbar-search"
                 value={mappingSearch}
                 onChange={(event) => setMappingSearch(event.target.value)}
-                placeholder="Search employee, code, role, or mapped users"
+                placeholder="Search employee, code, position, or mapped positions"
               />
               <div className="employee-toolbar-actions">
                 {canUpdateEmployees ? (
@@ -3648,20 +3789,38 @@ export default function EmployeesManagement() {
                 <AppSelect value={mappingDepartmentFilter} onChange={handleMappingDepartmentFilterChange} options={mappingDepartmentFilterOptions} placeholder="All departments" />
               </div>
               <div className="employee-filter-field">
-                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Role</label>
+                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Position</label>
                 <AppSelect
-                  value={mappingRoleFilter}
-                  onChange={(nextRole) => {
-                    setMappingRoleFilter(nextRole)
-                    setMappingEmployeeFilter('All')
-                  }}
-                  options={mappingRoleFilterOptions}
-                  placeholder="All roles"
+                  value={mappingPositionFilter}
+                  onChange={handleMappingPositionFilterChange}
+                  options={mappingPositionFilterOptions}
+                  placeholder="All positions"
                 />
               </div>
               <div className="employee-filter-field">
                 <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Employee</label>
                 <AppSelect value={mappingEmployeeFilter} onChange={setMappingEmployeeFilter} options={mappingEmployeeFilterOptions} placeholder="All employees" />
+              </div>
+              <div className="employee-filter-field">
+                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Mapped Position</label>
+                <AppSelect
+                  value={mappingMappedPositionFilter}
+                  onChange={(nextMappedPosition) => {
+                    setMappingMappedPositionFilter(nextMappedPosition)
+                    setMappingMappingPersonFilter('All')
+                  }}
+                  options={mappingMappedPositionFilterOptions}
+                  placeholder="All mapped positions"
+                />
+              </div>
+              <div className="employee-filter-field">
+                <label className="form-label small text-muted d-flex align-items-center gap-2"><FilterIcon /> Mapping Person</label>
+                <AppSelect
+                  value={mappingMappingPersonFilter}
+                  onChange={setMappingMappingPersonFilter}
+                  options={mappingMappingPersonFilterOptions}
+                  placeholder="All mapping persons"
+                />
               </div>
               <div className="employee-filter-actions">
                 <button
@@ -3678,15 +3837,19 @@ export default function EmployeesManagement() {
             <PaginatedTable rows={mappingRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table align-middle mb-0 employee-table employee-table-dense mapping-table">
+                  <colgroup>
+                    <col className="mapping-col-employee" />
+                    <col className="mapping-col-role" />
+                    <col className="mapping-col-position" />
+                    <col className="mapping-col-mapped-positions" />
+                    <col className="mapping-col-actions" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Employee (Code)</th>
-                      <th>Role</th>
+                      <th className="employee-role-column table-header-center">Role</th>
                       <th>Position (Department)</th>
-                      <th>Manager</th>
-                      <th>HR</th>
-                      <th>Team Lead</th>
-                      <th>Coordinator</th>
+                      <th>Mapped Positions</th>
                       <th className="text-center">Actions</th>
                     </tr>
                   </thead>
@@ -3696,28 +3859,25 @@ export default function EmployeesManagement() {
                         <td className="employee-cell-wrap">
                           <CellStack title={employee.fullName || '—'} subtitle={employee.employeeCode || '—'} />
                         </td>
-                        <td className="employee-cell-wrap">
-                          <CellStack title={<EmployeeBadge value={employee.roleName || 'Unassigned'} type="role" />} />
+                        <td className="employee-cell-wrap employee-role-cell">
+                          <CellStack title={<EmployeeBadge value={employee.roleName || 'Unassigned'} type="role" roleBadgeStyleMap={roleBadgeStyleMap} />} />
                         </td>
                         <td className="employee-cell-wrap">
                           <CellStack title={employee.positionLabel || employee.position || '—'} subtitle={employee.departmentLabel || employee.department || '—'} />
                         </td>
                         <td className="employee-cell-wrap">
-                          <CellStack title={employee.managerName || 'Unassigned'} />
-                        </td>
-                        <td className="employee-cell-wrap">
-                          <CellStack title={employee.hrEmployeeName || 'Unassigned'} />
-                        </td>
-                        <td className="employee-cell-wrap">
-                          <CellStack title={employee.teamLeadName || 'Unassigned'} />
-                        </td>
-                        <td className="employee-cell-wrap">
-                          <CellStack title={employee.coordinatorName || 'Unassigned'} />
+                          <CellStack
+                            title={employee.reportingAssignmentSummary || 'No reporting assignments'}
+                            subtitle={employee.reportingAssignmentLabels || 'No mapped positions'}
+                          />
                         </td>
                         <td className="employee-actions-cell">
                           <div className="employee-action-cluster">
                             {canUpdateEmployees ? (
-                              <ActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openMappingModal(employee)} />
+                              <>
+                                <ActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openMappingModal(employee)} />
+                                <ActionButton icon={<TrashIcon />} label="Delete Mapping" variant="delete" onClick={() => handleDeleteMapping(employee)} />
+                              </>
                             ) : (
                               <div className="text-muted small">Read only</div>
                             )}
@@ -3726,7 +3886,7 @@ export default function EmployeesManagement() {
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan="8">
+                        <td colSpan="5">
                           <div className="employee-empty-state text-center py-4">
                             <div className="fw-semibold mb-1">No mapped employees matched the current filters.</div>
                             <div className="text-muted small">Use Add Mapping or reset the filters to widen the mapped employee list.</div>
@@ -4041,22 +4201,18 @@ export default function EmployeesManagement() {
 
       <MappingModal
         open={mappingModalOpen}
-        mode={mappingModalMode}
         employee={mappingEmployee}
         draft={mappingDraft}
         onChange={handleMappingDraftChange}
         onClose={closeMappingModal}
         onSubmit={handleSaveMapping}
-        options={employeeMappingOptions}
-        selectedDepartment={mappingScopeDepartment}
-        selectedRole={mappingSelectedRole}
         selectedEmployeeUid={mappingSelectedEmployeeUid}
-        departmentOptions={mappingModalDepartmentOptions}
-        roleOptions={mappingModalRoleOptions}
         employeeOptions={mappingModalEmployeeOptions}
-        onDepartmentChange={handleMappingScopeDepartmentChange}
-        onRoleChange={handleMappingRoleChange}
         onEmployeeChange={handleMappingEmployeeChange}
+        onAddRow={handleAddMappingRow}
+        onRemoveRow={handleRemoveMappingRow}
+        getPositionOptions={getMappingPositionOptions}
+        getMappingPersonOptions={getMappingPersonOptions}
       />
     </div>
   )
