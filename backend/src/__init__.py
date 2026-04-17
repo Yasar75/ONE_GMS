@@ -1,4 +1,5 @@
-"""One GMS backend package."""
+import asyncio
+from fastapi import FastAPI
 
 from src.auth.routes import auth_router
 from src.config import Config

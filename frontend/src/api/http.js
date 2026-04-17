@@ -2,9 +2,8 @@ import axios from 'axios'
 import { storage } from '../utils/storage.js'
 import { endpoints } from './endpoints.js'
 import { AUTH_STORAGE_KEYS } from '../utils/auth.js'
-import { DEFAULT_API_BASE_URL, normalizeApiBaseUrl } from '../../apiBaseUrl.js'
 
-const configuredBaseURL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL, DEFAULT_API_BASE_URL)
+const configuredBaseURL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
 const useDevProxy = import.meta.env.DEV && /^https?:\/\//i.test(configuredBaseURL)
 const baseURL = useDevProxy ? '/__api_proxy__' : configuredBaseURL
 
