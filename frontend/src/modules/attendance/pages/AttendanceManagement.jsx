@@ -513,7 +513,7 @@ export default function AttendanceManagement() {
   const canSelfPunch = hasAnyModulePermission(user, PERMISSION_MODULES.myAttendancePreview, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
   const canModifyAttendance = ATTENDANCE_EDIT_API_AVAILABLE && hasModulePermission(user, PERMISSION_MODULES.attendanceLogs, PERMISSION_ACTIONS.update)
   const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
-  const canReviewRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
+  const canReviewRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.update)
   const canViewRegularizationLogs = canViewRegularizationQueue
   const canCreateShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.create)
   const canUpdateShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.update)

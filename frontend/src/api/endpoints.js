@@ -93,9 +93,9 @@ export const endpoints = {
   },
   leave: {
     holidays: {
-      list: '/api/v1/holiday-calendar/',
-      create: '/api/v1/holiday-calendar/',
-      detail: (holidayUid) => `/api/v1/holiday-calendar/${holidayUid}`
+      list: '/api/v1/holiday-calender/',
+      create: '/api/v1/holiday-calender/',
+      detail: (holidayUid) => `/api/v1/holiday-calender/${holidayUid}`
     },
     types: {
       list: '/api/v1/leave-types/',

@@ -126,6 +126,7 @@ export const metadataService = {
     const response = await http.post(endpoints.employeeMetadata.create, {
       category: payload.category,
       label: payload.label,
+      value: payload.label,
       description: serializeMetadataDescription(payload),
       is_active: payload.isActive ?? true,
       sort_order: Number(payload.sortOrder || 0)
@@ -136,6 +137,7 @@ export const metadataService = {
   async updateEntry(metadataUid, payload) {
     const response = await http.put(endpoints.employeeMetadata.detail(metadataUid), {
       label: payload.label,
+      value: payload.label,
       description: serializeMetadataDescription(payload),
       is_active: payload.isActive,
       sort_order: Number(payload.sortOrder || 0)

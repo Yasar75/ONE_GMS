@@ -301,6 +301,20 @@ function buildRoleAccessMeta(access = {}) {
   return { moduleCount: configuredModules.length, permissionCount }
 }
 
+function toEndUserMetadataSaveError(error) {
+  const responseDetail = error?.response?.data?.detail
+  const responseMessage = typeof responseDetail === 'string' ? responseDetail : ''
+  const flattened = String(responseMessage || error?.message || '').trim()
+  const normalized = flattened.toLowerCase()
+
+  if (!normalized) return 'The metadata entry could not be saved. Please try again.'
+  if (normalized.includes('value') && normalized.includes('field required')) {
+    return 'The entry label is required before saving.'
+  }
+
+  return flattened
+}
+
 function dedupeRoleModules(modules = []) {
   return dedupePermissionModules(modules)
 }
@@ -1834,20 +1848,20 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
         <div className="col-12">
           <div className="attendance-note-card role-access-note-card">
             <div className="fw-semibold mb-1">Role access matrix</div>
-            <div className="text-muted small">Expand a main module, select the required access on its sub-modules or tabs, and the frontend will save only the short codes <strong>C</strong>, <strong>R</strong>, <strong>U</strong>, and <strong>D</strong> to the backend.</div>
+            <div className="text-muted small">Expand a main module, select the required access on its sub-modules or tabs, and save the short codes <strong>C</strong>, <strong>R</strong>, <strong>U</strong>, and <strong>D</strong> for each permission.</div>
             {isSystemAdminRole ? (
-              <div className="role-access-state-banner">This system role is backend-managed. Full access is shown for reference, and editing is locked here.</div>
+              <div className="role-access-state-banner">This system role is managed automatically. Full access is shown for reference, and editing is locked here.</div>
             ) : null}
             {backendModulesUnavailable ? (
               <div className="role-access-state-banner">
-                Backend role modules are currently unavailable. Role access cannot be saved until the running backend returns a valid module list.
+                Role modules are currently unavailable. Role access cannot be saved until a valid module list is available.
               </div>
             ) : null}
           </div>
         </div>
         <div className="col-12">
           {modulesLoading ? (
-            <div className="role-access-loading text-muted small">Loading module permissions from the backend…</div>
+            <div className="role-access-loading text-muted small">Loading role module permissions…</div>
           ) : moduleGroups.length ? (
             <div className="role-access-accordion d-flex flex-column gap-3">
               {moduleGroups.map((group) => {
@@ -1917,7 +1931,7 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
               })}
             </div>
           ) : (
-            <div className="text-muted small">No backend modules are available for permission mapping yet.</div>
+            <div className="text-muted small">No modules are available for permission mapping yet.</div>
           )}
         </div>
       </div>
@@ -2041,12 +2055,13 @@ export default function EmployeesManagement() {
   const canReadEmployeeStatus = hasModulePermission(user, PERMISSION_MODULES.employeeStatus, PERMISSION_ACTIONS.read)
   const canViewMetadata = canReadRoles || canReadEmployeeMetadata
   const canViewEntries = canReadEmployeeDirectory
-  const canViewMapping = canReadEmployeeDirectory
+  // Mapping visibility follows Employee Entries visibility by design.
+  const canViewMapping = canViewEntries
   const canViewRequests = canReadEmployeeStatus
   const canCreateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.create)
   const canUpdateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
   const canDeleteEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.delete)
-  const canManageEmployeeRequests = hasModulePermission(user, PERMISSION_MODULES.employeeStatus, PERMISSION_ACTIONS.create)
+  const canManageEmployeeRequests = hasModulePermission(user, PERMISSION_MODULES.employeeStatus, PERMISSION_ACTIONS.update)
   const { data: employeesData = [], isLoading, isError, error, refetch, isFetching } = useEmployeesQuery(canViewEntries)
   const directoryErrorStatus = Number(error?.response?.status || 0)
   const directoryErrorMessage = String(error?.message || error?.response?.data?.detail || '')
@@ -2059,17 +2074,17 @@ export default function EmployeesManagement() {
       || /unauthorized/i.test(directoryErrorMessage)
       || /forbidden/i.test(directoryErrorMessage)
     )
-  const canViewEntriesTab = canViewEntries && !isDirectoryAccessBlocked
-  const canViewMappingTab = canViewMapping && !isDirectoryAccessBlocked
+  const canViewEntriesTab = canViewEntries
+  const canViewMappingTab = canViewMapping
   const defaultTab = canViewEntriesTab
     ? 'entries'
     : (canViewMetadata
       ? 'metadata'
       : (canViewRequests ? 'requests' : ''))
-  const { data: employeeLookup = [] } = useEmployeeLookupQuery(canViewEntriesTab || canViewMappingTab)
+  const { data: employeeLookup = [] } = useEmployeeLookupQuery(canViewEntries || canViewMapping)
   const { data: metadataEntries = [] } = useEmployeeMetadataQuery(canReadEmployeeMetadata)
   const { data: roles = [] } = useRoleDirectoryQuery(canReadRoles)
-  const projectAssignmentsQuery = useProjectAssignmentsQuery(canViewEntriesTab)
+  const projectAssignmentsQuery = useProjectAssignmentsQuery(canViewEntries || canViewMapping)
   const { data: roleModules = [], isFetching: roleModulesFetching } = useRoleModulesQuery(canReadRoles)
   const { data: phoneCountryOptionsData = [] } = usePhoneCountryOptionsQuery(canViewEntriesTab || canViewMetadata || canViewRequests)
   const { addEmployee, bulkAddEmployees, updateEmployee, deleteEmployee } = useEmployeeDirectoryActions()
@@ -2199,6 +2214,44 @@ export default function EmployeesManagement() {
     })
   }, [queryClient])
 
+  const directoryRows = useMemo(() => {
+    const mergedDirectory = new Map()
+    const toDirectoryKey = (employee = {}) => (
+      String(employee.uid || '').trim()
+      || `user:${String(employee.userUid || '').trim()}`
+      || `email:${String(employee.email || '').trim().toLowerCase()}`
+      || `code:${String(employee.employeeCode || employee.id || '').trim()}`
+    )
+    const hasValue = (value) => {
+      if (value == null) return false
+      if (typeof value === 'string') return value.trim() !== ''
+      if (Array.isArray(value)) return value.length > 0
+      return true
+    }
+
+    const mergeRecord = (baseRecord = {}, nextRecord = {}) => {
+      const mergedRecord = { ...baseRecord }
+      Object.entries(nextRecord || {}).forEach(([fieldName, fieldValue]) => {
+        if (hasValue(fieldValue)) mergedRecord[fieldName] = fieldValue
+      })
+      return mergedRecord
+    }
+
+    const ingest = (employee, allowReplace = false) => {
+      const key = toDirectoryKey(employee)
+      if (!key) return
+      const current = mergedDirectory.get(key)
+      if (!current) {
+        mergedDirectory.set(key, employee)
+        return
+      }
+      mergedDirectory.set(key, allowReplace ? mergeRecord(current, employee) : mergeRecord(employee, current))
+    }
+
+    employeeLookup.forEach((employee) => ingest(employee, false))
+    employeesData.forEach((employee) => ingest(employee, true))
+    return Array.from(mergedDirectory.values())
+  }, [employeeLookup, employeesData])
   const roleDirectory = useMemo(() => new Map(roles.map((role) => [String(role.uid), role.roleName])), [roles])
   const employeeNameDirectory = useMemo(() => new Map(employeeLookup.map((employee) => [String(employee.uid), employee.fullName])), [employeeLookup])
   const projectAssignments = useMemo(() => (Array.isArray(projectAssignmentsQuery.data?.items) ? projectAssignmentsQuery.data.items : []), [projectAssignmentsQuery.data?.items])
@@ -2218,7 +2271,7 @@ export default function EmployeesManagement() {
     return new Map(Array.from(lookup.entries()).map(([employeeUid, statusSet]) => [employeeUid, Array.from(statusSet)]))
   }, [projectAssignments])
 
-  const employees = useMemo(() => employeesData.map((employee) => {
+  const employees = useMemo(() => directoryRows.map((employee) => {
     const reportingAssignments = normalizeReportingAssignments(employee)
     const reportingAssignmentEntries = Object.entries(reportingAssignments).map(([fieldName, employeeUid]) => ({
       key: fieldName,
@@ -2252,7 +2305,7 @@ export default function EmployeesManagement() {
       assignmentStatusSummary: assignmentStatuses.map(formatAssignmentStatus).join(', ') || 'No assignment',
       billingStatus: resolveBillingStatus(assignmentStatuses)
     }
-  }), [assignmentStatusesByEmployeeUid, employeesData, roleDirectory, metadataCatalog, employeeNameDirectory])
+  }), [assignmentStatusesByEmployeeUid, directoryRows, roleDirectory, metadataCatalog, employeeNameDirectory])
   const employeeDirectoryByUid = useMemo(() => new Map(employees.map((employee) => [String(employee.uid), employee])), [employees])
   const mappedEmployees = useMemo(() => employees.filter((employee) => isEmployeeMapped(employee)), [employees])
   const mappingSelectableEmployees = useMemo(
@@ -2533,7 +2586,8 @@ export default function EmployeesManagement() {
     const matchesWorkLocation = workLocationFilter === 'All' || employee.workLocation === workLocationFilter
     const matchesDepartment = departmentFilter === 'All' || employee.department === departmentFilter
     const matchesPosition = positionFilter === 'All' || employee.position === positionFilter
-    const matchesRole = roleFilter === 'All' || String(employee.roleType || '') === String(roleFilter)
+    const shouldBypassRoleScopeFilter = canViewEntries && !canCreateEmployees && !canUpdateEmployees && !canDeleteEmployees
+    const matchesRole = shouldBypassRoleScopeFilter || roleFilter === 'All' || String(employee.roleType || '') === String(roleFilter)
     const matchesEmployeeType = employeeTypeFilter === 'All' || employee.employeeType === employeeTypeFilter
     const matchesGender = genderFilter === 'All' || employee.gender === genderFilter
     const matchesBloodGroup = bloodGroupFilter === 'All' || employee.bloodGroup === bloodGroupFilter
@@ -2560,6 +2614,10 @@ export default function EmployeesManagement() {
       && matchesCoordinator
       && matchesJoinDate
   }), [
+    canCreateEmployees,
+    canDeleteEmployees,
+    canUpdateEmployees,
+    canViewEntries,
     billingStatusFilter,
     bloodGroupFilter,
     coordinatorFilter,
@@ -3075,7 +3133,7 @@ export default function EmployeesManagement() {
         showStatus({
           type: 'error',
           title: 'Backend modules unavailable',
-          message: 'The running backend returned no valid role modules, so the role matrix cannot be saved right now.'
+          message: 'No valid role modules are available right now, so the role matrix cannot be saved.'
         })
         return
       }
@@ -3088,7 +3146,7 @@ export default function EmployeesManagement() {
       }
 
       if (isEditingSystemAdminRole) {
-        showStatus({ type: 'error', title: 'Role locked', message: 'The Admin role is backend-managed. Its permissions are shown for reference and cannot be changed here.' })
+        showStatus({ type: 'error', title: 'Role locked', message: 'The Admin role is system-managed. Its permissions are shown for reference and cannot be changed here.' })
         return
       }
 
@@ -3169,7 +3227,7 @@ export default function EmployeesManagement() {
       setMetadataModal(null)
       setMetadataTouched({})
     } catch (actionError) {
-      showStatus({ type: 'error', title: 'Metadata save failed', message: actionError?.response?.data?.detail || actionError?.message || 'The metadata entry could not be saved.' })
+      showStatus({ type: 'error', title: 'Metadata save failed', message: toEndUserMetadataSaveError(actionError) })
     }
   }
 
@@ -3373,14 +3431,14 @@ export default function EmployeesManagement() {
 
     const requiresBackendUnlock = Boolean(requestEntry?.isBackendLocked)
     if (!requiresBackendUnlock) {
-      showStatus({ type: 'error', title: 'User already unlocked', message: `${requestEntry.fullName || requestEntry.email} is already unlocked in the backend.` })
+      showStatus({ type: 'error', title: 'User already unlocked', message: `${requestEntry.fullName || requestEntry.email} is already unlocked.` })
       return
     }
 
     const accepted = await showConfirm({
       modalTitle: 'Unlock User Account',
       title: `Unlock ${requestEntry.fullName || requestEntry.email}?`,
-      message: 'This will call the backend unlock-user API by email.',
+      message: 'This will unlock the selected account by email.',
       note: 'Manual lock or deactivate is no longer available here. Backend controls the 48-hour auto-lock flow.'
     })
     if (!accepted) return
@@ -3393,7 +3451,7 @@ export default function EmployeesManagement() {
         },
         {
           title: 'Unlocking account',
-          message: `Restoring backend account access for ${requestEntry.fullName || requestEntry.email}.`,
+          message: `Restoring account access for ${requestEntry.fullName || requestEntry.email}.`,
           minVisibleMs: 550
         }
       )
@@ -3401,7 +3459,7 @@ export default function EmployeesManagement() {
       showStatus({
         type: 'success',
         title: 'Account unlocked',
-        message: `${requestEntry.fullName || requestEntry.email} has been unlocked through the backend.`
+        message: `${requestEntry.fullName || requestEntry.email} has been unlocked successfully.`
       })
     } catch (error) {
       showStatus({
@@ -3438,7 +3496,7 @@ export default function EmployeesManagement() {
     }
   }, [activeTab, availableTabs, canViewEntriesTab, canViewMappingTab, canViewMetadata, canViewRequests, defaultTab])
 
-  const shouldShowDirectoryLoader = isLoading && (activeTab === 'entries' || activeTab === 'mapping')
+  const shouldShowDirectoryLoader = isLoading && !employeeLookup.length && (activeTab === 'entries' || activeTab === 'mapping')
   if (shouldShowDirectoryLoader) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
@@ -3446,19 +3504,19 @@ export default function EmployeesManagement() {
         <div className="card border-0 shadow-sm glass employee-directory-shell"><div className="card-body py-5 text-center"><div className="global-loader-spinner mb-3"><span /><span /></div><div className="fw-semibold mb-1">Loading employee management</div>
       {/* Mapping tab is under development and will be available in a future release. */}
       {/* <div className="text-muted small">Pulling directory, metadata, and mapping catalogs from the backend.</div></div></div> */}
-        <div className="text-muted small">Pulling directory and metadata catalogs from the backend.</div></div></div>
+        <div className="text-muted small">Loading directory and metadata catalogs.</div></div></div>
       </div>
     )
   }
 
-  if (isError && !isDirectoryAccessBlocked) {
+  if (isError && !isDirectoryAccessBlocked && !employeeLookup.length) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
         <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
         <div className="card border-0 shadow-sm glass employee-directory-shell">
           <div className="card-body py-5 text-center">
             <div className="fw-semibold mb-2">Employee management could not be loaded.</div>
-            <div className="text-muted small mb-3">{error?.response?.data?.detail || error?.message || 'The backend request failed.'}</div>
+            <div className="text-muted small mb-3">{error?.response?.data?.detail || error?.message || 'The request could not be completed.'}</div>
             <button type="button" className="btn btn-primary" onClick={() => refetch()}>Retry</button>
           </div>
         </div>
@@ -3493,12 +3551,6 @@ export default function EmployeesManagement() {
           The requested tab is not available for this role right now, so we moved you to an accessible tab.
         </div>
       ) : null}
-      {isDirectoryAccessBlocked ? (
-        <div className="alert alert-warning mb-0">
-          Employee directory access is blocked for the current role or session (`401/403`). Role-matrix tabs with valid access are still available.
-        </div>
-      ) : null}
-
       {activeTab === 'metadata' && canViewMetadata ? (
         <>
           <div className="metadata-masonry d-none d-xl-block">
@@ -3547,7 +3599,7 @@ export default function EmployeesManagement() {
               <DirectoryMetricCard title="Active / Inactive" value={`${metrics.active} / ${metrics.inactive}`} helper="Current employment status split." tone="orange" />
             </div>
             <div className="col-12 col-sm-6 col-xl-3">
-              <DirectoryMetricCard title="Roles / Departments" value={`${roles.length} / ${departmentValues.length}`} helper="Dynamic backend-driven master data." tone="teal" />
+              <DirectoryMetricCard title="Roles / Departments" value={`${roles.length} / ${departmentValues.length}`} helper="Master data currently available." tone="teal" />
             </div>
             <div className="col-12 col-sm-6 col-xl-3">
               <DirectoryMetricCard title="Onsite / Remote / Hybrid" value={`${metrics.onsite} / ${metrics.remote} / ${metrics.hybrid}`} helper="Work location split." tone="purple" />
@@ -3890,14 +3942,14 @@ export default function EmployeesManagement() {
             <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
               <div>
                 <div className="fw-semibold">Employee Status Controls</div>
-                <div className="text-muted small">Live backend account status for all users. Accounts are auto-locked after 48 hours only if first login was not completed, and admin can unlock by email.</div>
+                <div className="text-muted small">Live account status for all users. Accounts are auto-locked after 48 hours only if first login was not completed, and admins can unlock by email.</div>
               </div>
               <div className="small text-muted">Records: <strong>{profileRequests.length}</strong></div>
             </div>
 
             <div className="row g-3">
               <div className="col-12 col-sm-6 col-xl-3">
-                <DirectoryMetricCard title="Locked Accounts" value={profileRequestMetrics.locked} helper="Users currently locked by backend account state." tone="orange" />
+                <DirectoryMetricCard title="Locked Accounts" value={profileRequestMetrics.locked} helper="Users currently locked by account state." tone="orange" />
               </div>
               <div className="col-12 col-sm-6 col-xl-3">
                 <DirectoryMetricCard title="Unlocked Accounts" value={profileRequestMetrics.unlocked} helper="Users currently available to sign in." tone="blue" />
@@ -3912,7 +3964,7 @@ export default function EmployeesManagement() {
 
             {profileRequestsErrorState ? (
               <div className="alert alert-warning mb-0">
-                {profileRequestsError?.response?.data?.detail || profileRequestsError?.message || 'Employee status records could not be loaded from the backend.'}
+                {profileRequestsError?.response?.data?.detail || profileRequestsError?.message || 'Employee status records could not be loaded right now.'}
               </div>
             ) : null}
 
@@ -3973,7 +4025,7 @@ export default function EmployeesManagement() {
                           <td className="employee-cell-wrap">
                             <CellStack
                               title={entry.lockedReason || '—'}
-                              subtitle={entry.lockedReason ? 'Backend locked_reason' : 'No backend lock reason provided.'}
+                              subtitle={entry.lockedReason ? 'Account lock reason' : 'No lock reason provided.'}
                               meta={entry.isStatusLocked ? `Linked employee status is ${entry.status || 'Inactive'}.` : null}
                             />
                           </td>

@@ -4811,7 +4811,7 @@
 .leave-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: .65rem;
+  gap: .8rem;
 }
 
 .leave-calendar-heading {
@@ -4826,12 +4826,14 @@
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.92);
-  padding: .75rem;
+  padding: .8rem;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: .55rem;
   text-align: left;
+  position: relative;
+  overflow: hidden;
   transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
 
@@ -4854,6 +4856,13 @@
   box-shadow: inset 0 0 0 1px rgba(37, 116, 220, 0.35);
 }
 
+.leave-calendar-day.is-expanded {
+  transform: scale(1.04);
+  z-index: 3;
+  border-color: rgba(37, 116, 220, 0.5);
+  box-shadow: 0 20px 36px rgba(15, 23, 42, 0.18);
+}
+
 .leave-calendar-day__date {
   font-size: .92rem;
   font-weight: 700;
@@ -4863,6 +4872,13 @@
   display: flex;
   flex-direction: column;
   gap: .35rem;
+  min-height: 0;
+}
+
+.leave-calendar-day.is-expanded .leave-calendar-day__items {
+  max-height: 10rem;
+  overflow-y: auto;
+  padding-right: .15rem;
 }
 
 .leave-calendar-chip {
@@ -4904,7 +4920,7 @@
   }
 
   .leave-calendar-grid {
-    gap: .5rem;
+    gap: .6rem;
   }
 
   .leave-calendar-day {
@@ -5525,6 +5541,10 @@
   gap: 0.75rem;
 }
 
+.leave-calendar-source-strip .attendance-note-card--full {
+  grid-column: 1 / -1;
+}
+
 .leave-color-presets {
   display: flex;
   flex-wrap: wrap;
@@ -5717,6 +5737,11 @@
 [data-bs-theme="dark"] .leave-calendar-day.is-weekend {
   background: linear-gradient(180deg, rgba(127, 29, 29, 0.42) 0%, rgba(15, 23, 42, 0.76) 100%);
   border-color: rgba(248, 113, 113, 0.3);
+}
+
+[data-bs-theme="dark"] .leave-calendar-day.is-expanded {
+  border-color: rgba(96, 165, 250, 0.56);
+  box-shadow: 0 20px 36px rgba(2, 6, 23, 0.48);
 }
 
 [data-bs-theme="dark"] .leave-calendar-day.is-weekend .leave-calendar-day__date,

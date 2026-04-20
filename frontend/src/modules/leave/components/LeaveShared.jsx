@@ -35,7 +35,7 @@ import {
 } from '../../../utils/leave.js'
 import { getErrorMessage } from '../../../utils/auth.js'
 import { readCachedQuery, readCachedQueryUpdatedAt, withPersistentCache } from '../../../utils/queryCache.js'
-import { useUi } from '../../../app/providers/UiProvider.jsx'
+import { useModal } from '../../../app/providers/ModalProvider.jsx'
 import { useAuth } from '../../../app/providers/AuthProvider.jsx'
 import { useToast } from '../../../app/providers/ToastProvider.jsx'
 import { storage } from '../../../utils/storage.js'
@@ -107,6 +107,37 @@ const CALENDAR_AUDIENCE_OPTIONS = [
 ]
 
 const LOCAL_CALENDAR_STORAGE_KEY = 'one-gms-local-calendar-events'
+const PUBLIC_IP_REGION_LOOKUP_URL = 'https://ipapi.co/json/'
+const PUBLIC_HOLIDAY_API_BASE_URL = 'https://date.nager.at/api/v3'
+const INTERNATIONAL_REFERENCE_COUNTRIES = ['US', 'GB', 'IN', 'DE', 'AU', 'CA']
+const TIMEZONE_COUNTRY_MAP = {
+  'asia/calcutta': 'IN',
+  'asia/kolkata': 'IN',
+  'asia/dubai': 'AE',
+  'asia/singapore': 'SG',
+  'asia/bangkok': 'TH',
+  'america/new_york': 'US',
+  'america/chicago': 'US',
+  'america/denver': 'US',
+  'america/los_angeles': 'US',
+  'europe/london': 'GB'
+}
+const PHONE_DIALING_COUNTRY_MAP = [
+  ['+91', 'IN'],
+  ['+1', 'US'],
+  ['+44', 'GB'],
+  ['+61', 'AU'],
+  ['+65', 'SG'],
+  ['+971', 'AE']
+]
+const COUNTRY_TEXT_HINTS = [
+  [/\bindia\b|\bin\b/i, 'IN'],
+  [/\bunited states\b|\busa\b|\bus\b/i, 'US'],
+  [/\bunited kingdom\b|\buk\b|\bgb\b/i, 'GB'],
+  [/\baustralia\b|\bau\b/i, 'AU'],
+  [/\bsingapore\b|\bsg\b/i, 'SG'],
+  [/\buae\b|\bunited arab emirates\b|\bae\b/i, 'AE']
+]
 const DEFAULT_CALENDAR_FILTERS = {
   international: true,
   regional: true,
@@ -121,6 +152,323 @@ const DEFAULT_CALENDAR_FILTERS = {
   personal: true,
   weekend: true,
   inactive: false
+}
+
+function sanitizeCountryCode(value = '') {
+  const normalized = String(value || '').trim().toUpperCase()
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : ''
+}
+
+function toCalendarSlug(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 40) || 'event'
+}
+
+function resolveLocaleCountryCode() {
+  if (typeof navigator === 'undefined') return ''
+
+  const localeCandidates = [
+    navigator.language,
+    ...(Array.isArray(navigator.languages) ? navigator.languages : [])
+  ]
+
+  for (const locale of localeCandidates) {
+    const match = String(locale || '').match(/-([A-Za-z]{2})(?:$|[^A-Za-z])/)
+    if (match?.[1]) {
+      return sanitizeCountryCode(match[1])
+    }
+  }
+
+  return ''
+}
+
+async function fetchPublicJson(url) {
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json' }
+  })
+
+  if (!response.ok) {
+    throw new Error(`Public calendar API request failed (${response.status}).`)
+  }
+
+  return response.json()
+}
+
+async function detectRegionByPublicIp() {
+  const fallbackCountryCode = resolveLocaleCountryCode() || 'US'
+
+  try {
+    const payload = await fetchPublicJson(PUBLIC_IP_REGION_LOOKUP_URL)
+    const countryCode = sanitizeCountryCode(payload?.country_code || payload?.country) || fallbackCountryCode
+
+    return {
+      countryCode,
+      countryName: String(payload?.country_name || '').trim() || countryCode,
+      regionName: String(payload?.region || '').trim(),
+      cityName: String(payload?.city || '').trim(),
+      timezone: String(payload?.timezone || '').trim(),
+      source: 'ipapi'
+    }
+  } catch {
+    return {
+      countryCode: fallbackCountryCode,
+      countryName: fallbackCountryCode,
+      regionName: '',
+      cityName: '',
+      timezone: '',
+      source: 'locale-fallback'
+    }
+  }
+}
+
+function resolveTimezoneCountryCode() {
+  if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return ''
+
+  try {
+    const timezone = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').trim().toLowerCase()
+    return TIMEZONE_COUNTRY_MAP[timezone] || ''
+  } catch {
+    return ''
+  }
+}
+
+function resolveSystemTimezoneLabel() {
+  if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return ''
+
+  try {
+    return String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function inferCountryCodeFromText(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+
+  const exactCode = sanitizeCountryCode(text)
+  if (exactCode) return exactCode
+
+  for (const [pattern, countryCode] of COUNTRY_TEXT_HINTS) {
+    if (pattern.test(text)) return countryCode
+  }
+
+  return ''
+}
+
+function inferCountryCodeFromPhone(value = '') {
+  const phone = String(value || '').trim()
+  if (!phone) return ''
+
+  const normalized = phone.startsWith('+') ? phone : `+${phone}`
+  for (const [dialCode, countryCode] of PHONE_DIALING_COUNTRY_MAP) {
+    if (normalized.startsWith(dialCode)) return countryCode
+  }
+
+  return ''
+}
+
+function resolveCountryFromUserDetails(user = null, employee = null) {
+  const candidates = [
+    employee?.countryCode,
+    employee?.country,
+    employee?.country_name,
+    user?.countryCode,
+    user?.country,
+    user?.country_name,
+    employee?.workLocation,
+    employee?.address,
+    user?.address,
+    employee?.phone,
+    user?.phone,
+    user?.mobile,
+    user?.mobileNo,
+    user?.mobileNumber
+  ]
+
+  for (const value of candidates) {
+    const codeFromText = inferCountryCodeFromText(value)
+    if (codeFromText) return codeFromText
+    const codeFromPhone = inferCountryCodeFromPhone(value)
+    if (codeFromPhone) return codeFromPhone
+  }
+
+  return ''
+}
+
+function resolvePreferredCountryContext({ user = null, employee = null, ipCountryCode = '' } = {}) {
+  const detailsCountryCode = resolveCountryFromUserDetails(user, employee)
+  if (detailsCountryCode) return { countryCode: detailsCountryCode, source: 'user-details' }
+
+  const timezoneCountryCode = resolveTimezoneCountryCode()
+  if (timezoneCountryCode) return { countryCode: timezoneCountryCode, source: 'timezone' }
+
+  const localeCountryCode = resolveLocaleCountryCode()
+  if (localeCountryCode) return { countryCode: localeCountryCode, source: 'locale' }
+
+  const ipCountry = sanitizeCountryCode(ipCountryCode)
+  if (ipCountry) return { countryCode: ipCountry, source: 'ip' }
+
+  return { countryCode: 'US', source: 'default' }
+}
+
+function getCountryDisplayName(countryCode = '') {
+  const normalizedCountryCode = sanitizeCountryCode(countryCode)
+  if (!normalizedCountryCode) return ''
+
+  try {
+    if (typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function') {
+      const locale = (typeof navigator !== 'undefined' && (navigator.language || navigator.languages?.[0])) || 'en'
+      const displayNames = new Intl.DisplayNames([locale], { type: 'region' })
+      return displayNames.of(normalizedCountryCode) || normalizedCountryCode
+    }
+  } catch {
+    // Fallback to raw code when DisplayNames is unavailable.
+  }
+
+  return normalizedCountryCode
+}
+
+function mapToneToStatusType(tone = '') {
+  const normalizedTone = String(tone || '').trim().toLowerCase()
+  if (['success', 'ok'].includes(normalizedTone)) return 'success'
+  if (['danger', 'error'].includes(normalizedTone)) return 'error'
+  if (['warning', 'warn'].includes(normalizedTone)) return 'warning'
+  return 'info'
+}
+
+function dedupeCalendarEntries(entries = []) {
+  const seen = new Set()
+
+  return (Array.isArray(entries) ? entries : []).filter((entry) => {
+    const key = [
+      String(entry?.holidayDate || '').trim(),
+      String(entry?.scope || '').trim().toLowerCase(),
+      String(entry?.name || '').trim().toLowerCase(),
+      String(entry?.audience || '').trim().toLowerCase()
+    ].join('|')
+
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function toExternalHolidayEntry(record = {}, scope = 'international') {
+  const holidayDate = String(record?.date || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(holidayDate)) return null
+
+  const countryCode = sanitizeCountryCode(record?.countryCode)
+  const baseName = String(record?.name || record?.localName || 'Holiday').trim() || 'Holiday'
+  const displayName = scope === 'international'
+    ? `${baseName}${countryCode ? ` (${countryCode})` : ''}`
+    : baseName
+  const localName = String(record?.localName || '').trim()
+  const typeLabel = Array.isArray(record?.types) ? record.types.filter(Boolean).join(', ') : ''
+  const descriptionSegments = []
+
+  if (localName && localName.toLowerCase() !== baseName.toLowerCase()) {
+    descriptionSegments.push(`Local name: ${localName}.`)
+  }
+  if (typeLabel) {
+    descriptionSegments.push(`Type: ${typeLabel}.`)
+  }
+  descriptionSegments.push(scope === 'regional'
+    ? 'Regional public holiday lane synced from Nager.Date.'
+    : 'International public holiday lane synced from Nager.Date.')
+
+  return {
+    uid: `external-${scope}-${countryCode || 'xx'}-${holidayDate}-${toCalendarSlug(displayName)}`,
+    holidayDate,
+    name: displayName,
+    description: descriptionSegments.join(' ').trim(),
+    scope,
+    color: getHolidayScopeMeta(scope).color,
+    audience: 'org',
+    isActive: true,
+    allDay: true,
+    startTime: '',
+    endTime: '',
+    source: 'external',
+    isLocal: false,
+    ownerKey: '',
+    ownerLabel: ''
+  }
+}
+
+async function fetchRegionalHolidayFeed(year, countryCode) {
+  const normalizedCountryCode = sanitizeCountryCode(countryCode) || 'US'
+  const payload = await fetchPublicJson(`${PUBLIC_HOLIDAY_API_BASE_URL}/publicholidays/${year}/${normalizedCountryCode}`)
+  return Array.isArray(payload) ? payload : []
+}
+
+async function fetchInternationalHolidayFeed(year) {
+  const worldwidePayload = await fetchPublicJson(`${PUBLIC_HOLIDAY_API_BASE_URL}/nextpublicholidaysworldwide`)
+  const worldwideRows = Array.isArray(worldwidePayload) ? worldwidePayload : []
+  const scopedWorldwideRows = worldwideRows.filter((row) => String(row?.date || '').startsWith(`${year}-`))
+
+  if (scopedWorldwideRows.length) return scopedWorldwideRows
+
+  const fallbackResponses = await Promise.all(INTERNATIONAL_REFERENCE_COUNTRIES.map(async (countryCode) => {
+    try {
+      const items = await fetchRegionalHolidayFeed(year, countryCode)
+      return { countryCode, items }
+    } catch {
+      return { countryCode, items: [] }
+    }
+  }))
+
+  const groupedRows = new Map()
+  fallbackResponses.forEach(({ countryCode, items }) => {
+    ;(Array.isArray(items) ? items : []).forEach((item) => {
+      const name = String(item?.name || item?.localName || '').trim().toLowerCase()
+      const date = String(item?.date || '').trim()
+      if (!name || !date) return
+
+      const key = `${date}|${name}`
+      const existing = groupedRows.get(key) || {
+        sample: { ...item, countryCode },
+        countries: new Set()
+      }
+      existing.countries.add(countryCode)
+      groupedRows.set(key, existing)
+    })
+  })
+
+  return Array.from(groupedRows.values())
+    .filter((entry) => entry.countries.size >= 2)
+    .map((entry) => entry.sample)
+}
+
+async function loadExternalHolidayCalendar(year, countryCode) {
+  const normalizedYear = Number(year) || new Date().getFullYear()
+  const normalizedCountryCode = sanitizeCountryCode(countryCode) || 'US'
+
+  const [regionalRows, internationalRows] = await Promise.all([
+    fetchRegionalHolidayFeed(normalizedYear, normalizedCountryCode).catch(() => []),
+    fetchInternationalHolidayFeed(normalizedYear).catch(() => [])
+  ])
+
+  const regionalEntries = regionalRows
+    .map((entry) => toExternalHolidayEntry({ ...entry, countryCode: normalizedCountryCode }, 'regional'))
+    .filter(Boolean)
+  const internationalEntries = internationalRows
+    .map((entry) => toExternalHolidayEntry(entry, 'international'))
+    .filter(Boolean)
+
+  return {
+    entries: dedupeCalendarEntries([...internationalEntries, ...regionalEntries]),
+    meta: {
+      countryCode: normalizedCountryCode,
+      internationalCount: internationalEntries.length,
+      regionalCount: regionalEntries.length
+    }
+  }
 }
 
 function createCalendarUid(prefix = 'event') {
@@ -827,7 +1175,17 @@ function LeaveCancellationRequestModal({ record, reason, onReasonChange, onClose
 export default function LeaveShared({ workspaceType = 'request', tabs = [], initialTab = 'apply' }) {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { openConfirm, openStatus, withLoader } = useUi()
+  const { showConfirm, showStatus, runWithLoader } = useModal()
+  const withLoader = useCallback((loaderConfig, task) => runWithLoader(task, loaderConfig), [runWithLoader])
+  const openConfirm = useCallback((config = {}) => showConfirm({
+    ...config,
+    confirmLabel: config.confirmLabel || config.confirmText,
+    cancelLabel: config.cancelLabel || config.cancelText
+  }), [showConfirm])
+  const openStatus = useCallback((config = {}) => showStatus({
+    ...config,
+    type: config.type || mapToneToStatusType(config.tone)
+  }), [showStatus])
   const { user } = useAuth()
   const { showToast } = useToast()
   const calendarImportRef = useRef(null)
@@ -844,13 +1202,14 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const canUpdateLeaveType = hasModulePermission(user, PERMISSION_MODULES.leaveType, PERMISSION_ACTIONS.update)
   const canManageAllocations = hasAnyModulePermission(user, PERMISSION_MODULES.assignLeave, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
   const canReadLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.read)
-  const canCreateLeaveRequest = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.create)
-  const canReviewLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.manageLeave, PERMISSION_ACTIONS.create)
-  const canAccessManageLeaveQueue = canViewManageLeaveQueue || canReviewLeaveRequests
+  // Self apply-leave is enabled by default for all users, independent of role-matrix create mapping.
+  const canCreateOwnLeaveRequest = true
+  const canReviewLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.manageLeave, PERMISSION_ACTIONS.update)
+  const canAccessManageLeaveQueue = canViewManageLeaveQueue
   const canViewLeaveRequests = isManagementWorkspace ? canAccessManageLeaveQueue : canReadLeaveRequests
   const canViewApplyTab = isManagementWorkspace
-    ? canAccessManageLeaveQueue
-    : (canReadLeaveRequests || canCreateLeaveRequest || canViewMyLeaveBalance)
+    ? (canAccessManageLeaveQueue || canCreateOwnLeaveRequest || canReadLeaveRequests || canViewMyLeaveBalance)
+    : (canReadLeaveRequests || canCreateOwnLeaveRequest || canViewMyLeaveBalance)
   const resolvedTabs = Array.isArray(tabs) && tabs.length
     ? tabs
     : (isManagementWorkspace
@@ -869,6 +1228,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
   const [selectedHolidayMonth, setSelectedHolidayMonth] = useState(String(new Date().getMonth()))
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(toDateInputValue(new Date()))
+  const [expandedCalendarDate, setExpandedCalendarDate] = useState('')
   const [calendarView, setCalendarView] = useState('month')
   const [showWeekNumbers, setShowWeekNumbers] = useState(true)
   const [calendarFilters, setCalendarFilters] = useState(DEFAULT_CALENDAR_FILTERS)
@@ -895,6 +1255,8 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const todayDate = useMemo(() => getTodayDateInput(), [])
 
   const holidaysQueryKey = ['leave', 'holidays', selectedYear]
+  const publicRegionQueryKey = ['leave', 'holidays', 'public-region']
+  const profileRegionQueryKey = ['leave', 'holidays', 'profile-region', String(user?.uid || user?.email || 'anonymous')]
   const leaveTypesQueryKey = ['leave', 'types']
   const employeesQueryKey = ['employees', 'lookup-directory', 'leave-management']
   const myBalancesQueryKey = ['leave', 'balances', 'current-user', selectedYear]
@@ -903,6 +1265,43 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const pendingRequestsQueryKey = ['leave', 'requests', 'pending']
   const pendingCancellationRequestsQueryKey = ['leave', 'requests', 'pending-cancellations']
   const leavePreviewQueryKey = ['leave', 'preview', leaveForm.startDate, leaveForm.endDate]
+
+  const profileRegionQuery = useQuery({
+    queryKey: profileRegionQueryKey,
+    queryFn: () => withPersistentCache(profileRegionQueryKey, async () => {
+      const profile = await employeeService.getMyProfile()
+      return profile?.employee || null
+    }),
+    initialData: () => readCachedQuery(profileRegionQueryKey),
+    initialDataUpdatedAt: () => readCachedQueryUpdatedAt(profileRegionQueryKey),
+    enabled: canViewHolidayTab && Boolean(user?.uid || user?.email),
+    retry: 1,
+    staleTime: 30 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    refetchOnWindowFocus: false
+  })
+  const regionEmployee = profileRegionQuery.data || null
+  const detailsHolidayCountryCode = resolveCountryFromUserDetails(user, regionEmployee)
+  const shouldUsePublicIpRegion = canViewHolidayTab
+    && !detailsHolidayCountryCode
+    && (!Boolean(user?.uid || user?.email) || profileRegionQuery.isFetched || profileRegionQuery.isError)
+  const publicRegionQuery = useQuery({
+    queryKey: publicRegionQueryKey,
+    queryFn: () => withPersistentCache(publicRegionQueryKey, detectRegionByPublicIp),
+    initialData: () => readCachedQuery(publicRegionQueryKey),
+    initialDataUpdatedAt: () => readCachedQueryUpdatedAt(publicRegionQueryKey),
+    enabled: shouldUsePublicIpRegion,
+    retry: 1,
+    staleTime: 12 * 60 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    refetchOnWindowFocus: false
+  })
+  const detectedHolidayRegion = publicRegionQuery.data || null
+  const ipHolidayCountryCode = sanitizeCountryCode(detectedHolidayRegion?.countryCode)
+  const detectedHolidayCountryCode = sanitizeCountryCode(detailsHolidayCountryCode || ipHolidayCountryCode || 'US') || 'US'
+  const holidayRegionSource = detailsHolidayCountryCode
+    ? 'user-details'
+    : (ipHolidayCountryCode ? 'ip' : 'default')
 
   const holidaysQuery = useQuery({
     queryKey: holidaysQueryKey,
@@ -920,7 +1319,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(leaveTypesQueryKey, leaveService.getLeaveTypes),
     initialData: () => readCachedQuery(leaveTypesQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(leaveTypesQueryKey),
-    enabled: canViewManagementTab || canCreateLeaveRequest || canViewLeaveRequests || canViewMyLeaveBalance || canAccessManageLeaveQueue,
+    enabled: canViewManagementTab || canCreateOwnLeaveRequest || canViewLeaveRequests || canViewMyLeaveBalance || canAccessManageLeaveQueue,
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: 'always'
@@ -1048,7 +1447,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     queryFn: () => withPersistentCache(pendingCancellationRequestsQueryKey, leaveService.getPendingLeaveCancellationRequests),
     initialData: () => readCachedQuery(pendingCancellationRequestsQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(pendingCancellationRequestsQueryKey),
-    enabled: canReviewLeaveRequests,
+    enabled: canViewManageLeaveQueue,
     retry: 1,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
@@ -1212,7 +1611,20 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
   const holidayLegendItems = useMemo(() => getHolidayLegendItems(), [])
   const holidayCalendarDays = useMemo(() => getCalendarDays(calendarView, selectedYear, selectedHolidayMonth, selectedCalendarDate), [calendarView, selectedCalendarDate, selectedHolidayMonth, selectedYear])
-  const remoteCalendarEntries = useMemo(() => holidays.map((item) => ({ ...item, source: 'org', isLocal: false, audience: item.audience || 'org' })), [holidays])
+  useEffect(() => {
+    if (!expandedCalendarDate) return
+    if (holidayCalendarDays.some((date) => toDateInputValue(date) === expandedCalendarDate)) return
+    setExpandedCalendarDate('')
+  }, [expandedCalendarDate, holidayCalendarDays])
+  const remoteCalendarEntries = useMemo(() => {
+    const orgCalendarEntries = holidays.map((item) => ({ ...item, source: 'org', isLocal: false, audience: item.audience || 'org' }))
+    return dedupeCalendarEntries(orgCalendarEntries)
+  }, [holidays])
+  const adminCalendarEntries = useMemo(() => remoteCalendarEntries.filter((entry) => {
+    if (entry.isLocal) return false
+    if (String(entry.audience || '').trim().toLowerCase() !== 'org') return false
+    return String(entry.source || '').trim().toLowerCase() !== 'external'
+  }), [remoteCalendarEntries])
   const visibleLocalCalendarEntries = useMemo(() => localCalendarEntries.filter((item) => item.audience === 'org' || !calendarOwnerKey || String(item.ownerKey || '') === calendarOwnerKey), [calendarOwnerKey, localCalendarEntries])
   const calendarEntries = useMemo(() => sortCalendarEntries([...remoteCalendarEntries, ...visibleLocalCalendarEntries]), [remoteCalendarEntries, visibleLocalCalendarEntries])
   const filteredCalendarEntries = useMemo(() => calendarEntries.filter((entry) => {
@@ -1246,7 +1658,17 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   }, [calendarView, selectedCalendarDate, selectedHolidayMonthLabel])
   const selectedCalendarRows = useMemo(() => chunkDays(holidayCalendarDays, calendarView === 'month' ? 7 : holidayCalendarDays.length || 1), [calendarView, holidayCalendarDays])
   const visibleCalendarDateKeys = useMemo(() => holidayCalendarDays.map((date) => toDateInputValue(date)), [holidayCalendarDays])
-  const visibleRegisterHolidays = useMemo(() => (calendarView === 'month' ? visibleHolidays : filteredCalendarEntries.filter((holiday) => visibleCalendarDateKeys.includes(holiday.holidayDate))), [calendarView, filteredCalendarEntries, visibleCalendarDateKeys, visibleHolidays])
+  const visibleRegisterHolidays = useMemo(() => {
+    const calendarScopeRows = calendarView === 'month'
+      ? adminCalendarEntries.filter((holiday) => String(holiday.holidayDate || '').startsWith(visibleHolidayMonthKey))
+      : adminCalendarEntries.filter((holiday) => visibleCalendarDateKeys.includes(holiday.holidayDate))
+
+    return calendarScopeRows.filter((entry) => {
+      if (!entry.isActive && !calendarFilters.inactive) return false
+      if (!calendarFilters[entry.scope]) return false
+      return true
+    })
+  }, [adminCalendarEntries, calendarFilters, calendarView, visibleCalendarDateKeys, visibleHolidayMonthKey])
   const { items: sortedVisibleRegisterHolidays, sortConfig: holidayRegisterSortConfig, requestSort: requestHolidayRegisterSort } = useSortableData(visibleRegisterHolidays, {
     initialKey: 'date',
     initialDirection: 'asc',
@@ -1415,6 +1837,30 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const focusedDayHolidays = useMemo(() => holidaysByDate[selectedCalendarDate] || [], [holidaysByDate, selectedCalendarDate])
 
   const holidaySummary = useMemo(() => getHolidaySummary(calendarEntries), [calendarEntries])
+  const detectedHolidayRegionLabel = useMemo(() => {
+    const countryCode = detectedHolidayCountryCode
+    const countryName = getCountryDisplayName(countryCode)
+    if (holidayRegionSource === 'ip') {
+      const ipCountryName = String(detectedHolidayRegion?.countryName || '').trim() || countryName
+      const regionName = String(detectedHolidayRegion?.regionName || '').trim()
+      const cityName = String(detectedHolidayRegion?.cityName || '').trim()
+      if (cityName && regionName && ipCountryName) return `${cityName}, ${regionName}, ${ipCountryName} (${countryCode})`
+      if (regionName && ipCountryName) return `${regionName}, ${ipCountryName} (${countryCode})`
+      if (ipCountryName) return `${ipCountryName} (${countryCode})`
+    }
+    return countryName ? `${countryName} (${countryCode})` : countryCode
+  }, [detectedHolidayCountryCode, detectedHolidayRegion?.cityName, detectedHolidayRegion?.countryName, detectedHolidayRegion?.regionName, holidayRegionSource])
+  const holidayRegionCardMessage = useMemo(() => {
+    if (holidayRegionSource === 'user-details') {
+      return `Regional holiday view follows your profile country: ${detectedHolidayRegionLabel}.`
+    }
+
+    if (holidayRegionSource === 'ip') {
+      return `Profile country was not available, so regional holiday view is set from your current location: ${detectedHolidayRegionLabel}.`
+    }
+
+    return `Regional holiday view currently defaults to ${detectedHolidayRegionLabel}. Add your country in profile details for a personalized regional view.`
+  }, [detectedHolidayRegionLabel, holidayRegionSource])
   const myBalanceSummary = useMemo(() => getLeaveBalanceSummary(myBalances), [myBalances])
   const myRequestSummary = useMemo(() => getLeaveRequestSummary(myRequests), [myRequests])
   const pendingQueueCount = useMemo(() => pendingRequests.length + pendingCancellationRequests.length, [pendingCancellationRequests.length, pendingRequests.length])
@@ -1609,10 +2055,10 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   }
 
   async function runMutation(task, successTitle, successMessage, options = {}) {
-    const { errorTitle = 'Action failed', onError } = options
+    const { errorTitle = 'Action failed', onError, loaderConfig = {} } = options
 
     try {
-      await withLoader({ title: successTitle, message: successMessage }, task)
+      await withLoader({ title: successTitle, message: successMessage, ...loaderConfig }, task)
       return true
     } catch (error) {
       const message = getErrorMessage(error)
@@ -1670,6 +2116,11 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   }
 
   async function removeHoliday(holiday) {
+    if (String(holiday?.source || '').trim().toLowerCase() === 'external') {
+      openStatus({ tone: 'warning', title: 'Read-only entry', message: 'This entry is read-only and cannot be deleted from this screen.' })
+      return
+    }
+
     if (!canDeleteHolidayEntries) {
       openStatus({ tone: 'danger', title: 'Calendar access blocked', message: 'Your role does not have permission to delete holiday calendar entries.' })
       return
@@ -1714,7 +2165,11 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       openStatus({ tone: 'success', title: 'Leave type saved', message: 'The leave type catalog has been synchronized.' })
     }, 'Saving leave type', 'Updating leave type settings and refreshing allocations.', {
       errorTitle: leaveTypeModal.mode === 'edit' ? 'Leave type update failed' : 'Leave type creation failed',
-      onError: (message) => setLeaveTypeActionError(message)
+      onError: (message) => setLeaveTypeActionError(message),
+      loaderConfig: {
+        delayMs: 0,
+        minVisibleMs: 520
+      }
     })
 
     return saved
@@ -1741,7 +2196,11 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       openStatus({ tone: 'success', title: 'Balances generated', message: employeeUid ? 'Leave balances were generated for the selected employee.' : 'Leave balances were generated for the active workforce.' })
     }, 'Generating balances', 'Creating leave balance ledgers and syncing the latest totals.', {
       errorTitle: 'Default leave generation failed',
-      onError: (message) => setDefaultAllocationError(message)
+      onError: (message) => setDefaultAllocationError(message),
+      loaderConfig: {
+        delayMs: 0,
+        minVisibleMs: 520
+      }
     })
 
     return generated
@@ -1781,11 +2240,16 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       setManualGrant((current) => ({ ...current, leaveTypeUid: '', days: '' }))
       setManualGrantTouched({})
       openStatus({ tone: 'success', title: 'Special leave granted', message: 'The manual-grant leave has been posted to the employee ledger.' })
-    }, 'Granting special leave', 'Posting the manual-grant leave allocation and refreshing the employee ledger.')
+    }, 'Granting special leave', 'Posting the manual-grant leave allocation and refreshing the employee ledger.', {
+      loaderConfig: {
+        delayMs: 0,
+        minVisibleMs: 520
+      }
+    })
   }
 
   async function submitLeaveRequest() {
-    if (!canCreateLeaveRequest) {
+    if (!canCreateOwnLeaveRequest) {
       openStatus({ tone: 'danger', title: 'Leave access blocked', message: 'Your role does not have permission to submit leave requests.' })
       return
     }
@@ -2003,6 +2467,11 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   }
 
   function openHolidayEditor(mode, record = null) {
+    if (String(record?.source || '').trim().toLowerCase() === 'external') {
+      openStatus({ tone: 'warning', title: 'Read-only entry', message: 'This entry is read-only and cannot be edited from this screen.' })
+      return
+    }
+
     const requiredAction = mode === 'edit' ? PERMISSION_ACTIONS.update : PERMISSION_ACTIONS.create
     if (!hasModulePermission(user, PERMISSION_MODULES.holidayCalendar, requiredAction)) {
       openStatus({ tone: 'danger', title: 'Calendar access blocked', message: 'Your role does not have permission to edit holiday calendar entries.' })
@@ -2213,8 +2682,9 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             </div>
 
             <div className="leave-calendar-source-strip mb-3">
-              <div className="attendance-note-card mb-0 small text-muted">Authorized leave-management users can publish company, restricted, birthday, anniversary, meeting, task, and custom entries to the shared calendar. International and regional holidays stay view-only in the automatic holiday lanes. Every user can also keep their own meetings, tasks, and reminders in a personal calendar lane.</div>
-              <div className="attendance-note-card mb-0 small text-muted">Calendar sync bridge is handled through .ics import/export in this frontend build. Direct Google, Microsoft, Zoho, Meet, Teams, and Slack connectors still need backend OAuth wiring.</div>
+              <div className="attendance-note-card mb-0 small text-muted">Leave-management users can publish company, restricted, birthday, anniversary, meeting, task, and custom entries to the shared calendar. International and regional lanes remain read-only. Every user can also keep meetings, tasks, and reminders in a personal lane.</div>
+              <div className="attendance-note-card mb-0 small text-muted">Use <strong>Export .ics</strong> to download the current view and <strong>Import .ics</strong> to add calendar entries from a file.</div>
+              <div className="attendance-note-card attendance-note-card--full mb-0 small text-muted">{holidayRegionCardMessage}</div>
             </div>
 
             <div className="leave-calendar-legend leave-calendar-legend--filters">
@@ -2255,22 +2725,31 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                       const primaryEntry = holidayEntries[0] || null
                       const isToday = cellDate === toDateInputValue(new Date())
                       const isSelected = cellDate === selectedCalendarDate
+                      const isExpanded = expandedCalendarDate === cellDate
                       const isWeekend = isWeekendDate(date)
                       const maxVisibleItems = calendarView === 'month' ? 2 : 4
-                      const visibleItems = holidayEntries.slice(0, maxVisibleItems)
-                      const hiddenItemCount = holidayEntries.length - visibleItems.length
+                      const visibleItems = isExpanded ? holidayEntries : holidayEntries.slice(0, maxVisibleItems)
+                      const hiddenItemCount = isExpanded ? 0 : (holidayEntries.length - visibleItems.length)
                       const showWeekendBadge = isWeekend && calendarFilters.weekend
 
                       return (
                         <button
                           key={cellDate}
                           type="button"
-                          className={`leave-calendar-day${isCurrentMonth ? '' : ' is-muted'}${holidayEntries.length ? ' has-holiday' : ''}${isToday ? ' is-today' : ''}${isSelected ? ' is-selected' : ''}${isWeekend ? ' is-weekend' : ''}${primaryEntry ? ` tone-${getHolidayScopeMeta(primaryEntry.scope).tone}` : ''}`}
+                          className={`leave-calendar-day${isCurrentMonth ? '' : ' is-muted'}${holidayEntries.length ? ' has-holiday' : ''}${isToday ? ' is-today' : ''}${isSelected ? ' is-selected' : ''}${isExpanded ? ' is-expanded' : ''}${isWeekend ? ' is-weekend' : ''}${primaryEntry ? ` tone-${getHolidayScopeMeta(primaryEntry.scope).tone}` : ''}`}
                           style={primaryEntry ? getCalendarAccentStyle(primaryEntry) : undefined}
                           onClick={() => {
                             setSelectedCalendarDate(cellDate)
                             setSelectedYear(String(date.getFullYear()))
                             setSelectedHolidayMonth(String(date.getMonth()))
+                            if (holidayEntries.length > maxVisibleItems) {
+                              setExpandedCalendarDate((current) => (current === cellDate ? '' : cellDate))
+                            } else {
+                              setExpandedCalendarDate('')
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            setExpandedCalendarDate((current) => (current === cellDate ? '' : current))
                           }}
                         >
                           <div className="leave-calendar-day__topline">
@@ -2302,7 +2781,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
             <div className="attendance-note-card mt-3 mb-0 small text-muted">
               {isManagementWorkspace
-                ? 'This calendar now behaves like an organization planner: shared holiday lanes, filtered categories, weekend off-days in red, personal task and meeting lanes, and color-coded event types. Use .ics export/import as the current sync bridge.'
+                ? 'Use filters to focus on the entries you need. Weekend off-days are highlighted in red, and color coding helps you scan event types quickly.'
                 : 'Use the filters like Google Calendar to isolate holidays, meetings, tasks, birthdays, or your own reminders. Weekend off-days stay highlighted in red by default.'}
             </div>
           </CardShell>
@@ -2328,16 +2807,17 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                   </thead>
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((holiday) => {
-                      const canEditEntry = canUpdateHolidayEntries
-                      const canDeleteEntry = canDeleteHolidayEntries
+                      const isExternalEntry = String(holiday?.source || '').trim().toLowerCase() === 'external'
+                      const canEditEntry = !isExternalEntry && canUpdateHolidayEntries
+                      const canDeleteEntry = !isExternalEntry && canDeleteHolidayEntries
                       const canManageEntry = canEditEntry || canDeleteEntry
                       return (
                         <tr key={holiday.uid}>
                           <td><TableCellStack title={formatLeaveDate(holiday.holidayDate)} subtitle={new Date(holiday.holidayDate).toLocaleDateString(undefined, { weekday: 'long' })} /></td>
                           <td><TableCellStack title={formatCalendarTimeLabel(holiday)} subtitle={isWeekendDate(new Date(holiday.holidayDate)) ? 'Weekend context' : 'Working day'} /></td>
-                          <td><TableCellStack title={holiday.name} subtitle={holiday.isLocal ? (holiday.ownerLabel || 'Personal entry') : 'Organization calendar'} meta={holiday.scope ? getHolidayScopeMeta(holiday.scope).label : 'Calendar item'} /></td>
+                          <td><TableCellStack title={holiday.name} subtitle={holiday.isLocal ? (holiday.ownerLabel || 'Personal entry') : (isExternalEntry ? 'Public holiday feed' : 'Organization calendar')} meta={holiday.scope ? getHolidayScopeMeta(holiday.scope).label : 'Calendar item'} /></td>
                           <td><HolidayScopeBadge scope={holiday.scope} color={holiday.color} /></td>
-                          <td>{holiday.isLocal || holiday.audience === 'personal' ? <TableBadge value="My calendar" tone="success" /> : <TableBadge value="Organization" tone="blue" />}</td>
+                          <td>{holiday.isLocal || holiday.audience === 'personal' ? <TableBadge value="My calendar" tone="success" /> : (isExternalEntry ? <TableBadge value="Global feed" tone="neutral" /> : <TableBadge value="Organization" tone="blue" />)}</td>
                           <td className="small text-muted">{holiday.description || '—'}</td>
                           <td>{holiday.isActive ? <TableBadge value="Active" tone="success" /> : <TableBadge value="Inactive" tone="neutral" />}</td>
                           <td className="table-actions-cell">
@@ -2414,7 +2894,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
           <CardShell className="leave-section-card leave-section-card--allocation" title="Employee Leave Allocation">
             <div className="attendance-note-card leave-allocation-note mb-3 small text-muted">
-              The allocation workflow has two paths. Use <strong>Default Leaves</strong> to let the backend generate all eligible auto-allocation leave balances for the selected employee and year. Use <strong>Special Leaves</strong> only for leave types flagged with manual grant, then enter the days manually and post them to the ledger.
+              The allocation workflow has two paths. Use <strong>Default Leaves</strong> to generate all eligible auto-allocation balances for the selected employee and year. Use <strong>Special Leaves</strong> only for leave types flagged with manual grant, then enter and assign the exact days.
             </div>
 
             <div className="row g-3 mb-3">
@@ -2450,7 +2930,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                     <div className="leave-preview-grid leave-preview-grid--allocation">
                       <div><span>Employee</span><strong>{selectedEmployeeLabel}</strong><small>{selectedEmployee ? (selectedEmployee.department || 'No department mapped') : 'Choose an employee to generate the yearly default leave ledger.'}</small></div>
                       <div><span>Year</span><strong>{selectedYear}</strong><small>Generation will target the selected annual cycle.</small></div>
-                      <div><span>Allocation Model</span><strong>Auto allocation</strong><small>Only leave types marked for backend auto allocation will be created.</small></div>
+                      <div><span>Allocation Model</span><strong>Auto allocation</strong><small>Only leave types marked for auto allocation will be created.</small></div>
                       <div><span>Current Available</span><strong>{formatLeaveDays(employeeBalanceSummary.available)}</strong><small>{selectedEmployee ? `Current visible total for ${selectedYear}.` : 'No employee selected yet.'}</small></div>
                     </div>
                     <div className="d-flex justify-content-end mt-auto">
@@ -2556,7 +3036,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             )}
           </div>
 
-          {(!isManagementWorkspace && (canViewLeaveRequests || canCreateLeaveRequest)) ? (
+          {(canViewLeaveRequests || canCreateOwnLeaveRequest) ? (
             <CardShell title="Leave Request Planner">
               <div className="row g-3">
                 <div className="col-12 col-md-3">
@@ -2605,13 +3085,13 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                   <div className="leave-preview-card w-100 h-100 d-flex flex-column justify-content-between">
                     <div>
                       <div className="leave-preview-card__title">Submission Guidance</div>
-                      <div className="small text-muted">The request uses the backend leave preview API, which excludes weekends and active holidays before submission.</div>
+                      <div className="small text-muted">The leave preview excludes weekends and active holidays before submission.</div>
                       {selectedRequestBalance ? <div className="small text-muted mt-2">Available balance for the selected leave type: <strong>{formatLeaveDays(selectedRequestBalance.availableBalance)}</strong> day(s).</div> : null}
-                      {!canViewMyLeaveBalance ? <div className="small text-muted mt-2">Leave balance visibility is not enabled for your role. The backend will validate availability when you submit the request.</div> : null}
+                      {!canViewMyLeaveBalance ? <div className="small text-muted mt-2">Your role does not include leave-balance visibility. The request will still be validated during submission.</div> : null}
                       {missingRequestBalanceMessage ? <div className="text-warning small mt-2">{missingRequestBalanceMessage}</div> : null}
                       {insufficientLeaveBalanceMessage ? <div className="text-warning small mt-2">{insufficientLeaveBalanceMessage}</div> : null}
                     </div>
-                    <button type="button" className="btn btn-primary w-100 mt-3" disabled={!canCreateLeaveRequest || !currentEmployeeUid || !leaveForm.leaveTypeUid || !leaveForm.startDate || !leaveForm.endDate || !previewEnabled || !selectedRequestHasLedger || insufficientLeaveBalance || requestedAppliedDays <= 0} onClick={submitLeaveRequest}>Submit Request</button>
+                    <button type="button" className="btn btn-primary w-100 mt-3" disabled={!canCreateOwnLeaveRequest || !currentEmployeeUid || !leaveForm.leaveTypeUid || !leaveForm.startDate || !leaveForm.endDate || !previewEnabled || !selectedRequestHasLedger || insufficientLeaveBalance || requestedAppliedDays <= 0} onClick={submitLeaveRequest}>Submit Request</button>
                   </div>
                 </div>
               </div>
@@ -2654,7 +3134,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
             </CardShell>
           ) : null}
 
-          {(canViewLeaveRequests || canCreateLeaveRequest || canAccessManageLeaveQueue) ? (
+          {(canViewLeaveRequests || canCreateOwnLeaveRequest || canAccessManageLeaveQueue) ? (
             <CardShell title="Leave Requests">
               {leaveRequestsLoadError ? (
                 <div className="alert alert-warning mb-0">{getErrorMessage(leaveRequestsLoadError, 'Leave requests could not be loaded.')}</div>

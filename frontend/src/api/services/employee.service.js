@@ -379,22 +379,39 @@ function buildFallbackEmployeeFromUser(rawUser = {}) {
   }
 }
 
+function dedupeAccountStatusRecords(records = []) {
+  const seen = new Set()
+
+  return (Array.isArray(records) ? records : []).filter((record) => {
+    const recordKey = String(record?.uid || record?.email || record?.username || '')
+      .trim()
+      .toLowerCase()
+
+    if (!recordKey) return false
+    if (seen.has(recordKey)) return false
+    seen.add(recordKey)
+    return true
+  })
+}
+
 async function getRawCurrentUser() {
   const response = await http.get(endpoints.auth.me)
   return response.data?.user || {}
 }
 
-async function getEmployeeDirectoryRecords({ allowCacheFallback = false } = {}) {
+async function getEmployeeDirectoryRecords({ allowCacheFallback = false, suppressAccessError = false } = {}) {
   try {
     const response = await http.get(endpoints.employee.list)
     const employeeRecords = sortEmployees((Array.isArray(response.data) ? response.data : []).map(normalizeEmployee).filter(Boolean))
     writeCachedEmployeeDirectoryRecords(employeeRecords)
     return employeeRecords
   } catch (error) {
+    const statusCode = Number(error?.response?.status || 0)
     if (!allowCacheFallback) throw error
 
     const cachedRecords = readCachedEmployeeDirectoryRecords()
     if (cachedRecords.length) return cachedRecords
+    if (suppressAccessError && [401, 403, 404].includes(statusCode)) return []
 
     throw error
   }
@@ -480,7 +497,47 @@ export const employeeService = {
   },
 
   async getLookupDirectory() {
-    return getEmployeeDirectoryRecords()
+    const directoryRecords = await getEmployeeDirectoryRecords({ allowCacheFallback: true, suppressAccessError: true })
+    if (directoryRecords.length) return directoryRecords
+
+    const [lockedUsersResult, unlockedUsersResult] = await Promise.allSettled([
+      authService.getLockedUsers(),
+      authService.getUnlockedUsers()
+    ])
+
+    const lockedUsers = lockedUsersResult.status === 'fulfilled' ? lockedUsersResult.value : []
+    const unlockedUsers = unlockedUsersResult.status === 'fulfilled' ? unlockedUsersResult.value : []
+    const accountRows = dedupeAccountStatusRecords([...lockedUsers, ...unlockedUsers])
+
+    if (!accountRows.length) return directoryRecords
+
+    const fallbackDirectory = accountRows.map((account) => buildFallbackEmployeeFromUser({
+      uid: account.uid,
+      email: account.email,
+      username: account.username,
+      first_name: account.firstName,
+      last_name: account.lastName,
+      role_id: account.roleId
+    })).filter(Boolean)
+
+    // When list access is blocked for read-only manager/equivalent roles, try
+    // to hydrate each row through the detail endpoint and gracefully fall back
+    // to account-derived records when a row is not accessible.
+    const hydratedFallbackDirectory = await Promise.all(fallbackDirectory.map(async (employee) => {
+      const employeeUidCandidate = String(employee?.uid || employee?.userUid || '').trim()
+      if (!employeeUidCandidate) return employee
+      try {
+        return await getEmployeeDetailRecord(employeeUidCandidate, employee) || employee
+      } catch {
+        return employee
+      }
+    }))
+
+    return mergeEmployeeCollections(
+      directoryRecords,
+      fallbackDirectory,
+      hydratedFallbackDirectory
+    )
   },
 
   async getDirectory() {
@@ -790,17 +847,38 @@ export const employeeService = {
   },
 
   async getProfileRequests() {
-    const [employees, lockedUsers, unlockedUsers] = await Promise.all([
-      employeeService.getDirectory(),
+    const [employeesResult, lockedUsersResult, unlockedUsersResult] = await Promise.allSettled([
+      employeeService.getLookupDirectory(),
       authService.getLockedUsers(),
       authService.getUnlockedUsers()
     ])
 
-    const users = [...lockedUsers, ...unlockedUsers]
+    const employees = employeesResult.status === 'fulfilled'
+      ? employeesResult.value
+      : readCachedEmployeeDirectoryRecords()
+    const lockedUsers = lockedUsersResult.status === 'fulfilled' ? lockedUsersResult.value : []
+    const unlockedUsers = unlockedUsersResult.status === 'fulfilled' ? unlockedUsersResult.value : []
+    const users = dedupeAccountStatusRecords([...lockedUsers, ...unlockedUsers])
+
+    if (!users.length && lockedUsersResult.status === 'rejected' && unlockedUsersResult.status === 'rejected') {
+      throw lockedUsersResult.reason || unlockedUsersResult.reason
+    }
+
+    const employeesWithFallback = mergeEmployeeCollections(
+      employees,
+      users.map((account) => buildFallbackEmployeeFromUser({
+        uid: account.uid,
+        email: account.email,
+        username: account.username,
+        first_name: account.firstName,
+        last_name: account.lastName,
+        role_id: account.roleId
+      })).filter(Boolean)
+    )
     const employeeByUserUid = new Map()
     const employeeByEmail = new Map()
 
-    employees.forEach((employee) => {
+    employeesWithFallback.forEach((employee) => {
       const userUidKey = String(employee.userUid || '').trim()
       const emailKey = String(employee.email || '').trim().toLowerCase()
       if (userUidKey) employeeByUserUid.set(userUidKey, employee)
