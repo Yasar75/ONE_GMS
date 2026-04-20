@@ -83,9 +83,9 @@ import {
   PERMISSION_ACTIONS,
   PERMISSION_MODULES,
   filterAccessibleTabs,
+  hasAnyModulePermission,
   hasModulePermission,
   hasModuleVisibility,
-  isAdminBypassUser,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
 import { filterCollectionByQuery } from '../../../utils/search.js'
@@ -505,15 +505,14 @@ export default function AttendanceManagement() {
   const { showStatus, runWithLoader, showConfirm } = useModal()
   const { showToast } = useToast()
   const { user } = useAuth()
-  const isAdminUser = isAdminBypassUser(user)
   const canViewAttendanceRegister = hasModulePermission(user, PERMISSION_MODULES.attendanceLogs, PERMISSION_ACTIONS.read)
-  const canViewSelfAttendance = isAdminUser
-  const canViewShiftsTab = isAdminUser && hasModuleVisibility(user, [...PERMISSION_MODULES.shiftRoster, ...PERMISSION_MODULES.assignShift])
-  const canViewOwnRegularizations = isAdminUser
+  const canViewSelfAttendance = hasModulePermission(user, PERMISSION_MODULES.myAttendancePreview, PERMISSION_ACTIONS.read)
+  const canViewShiftsTab = hasModuleVisibility(user, [...PERMISSION_MODULES.shiftRoster, ...PERMISSION_MODULES.assignShift])
+  const canViewOwnRegularizations = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.read)
   const canViewRegularizationQueue = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.read)
-  const canSelfPunch = isAdminUser
+  const canSelfPunch = hasAnyModulePermission(user, PERMISSION_MODULES.myAttendancePreview, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
   const canModifyAttendance = ATTENDANCE_EDIT_API_AVAILABLE && hasModulePermission(user, PERMISSION_MODULES.attendanceLogs, PERMISSION_ACTIONS.update)
-  const canCreateRegularization = isAdminUser
+  const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
   const canReviewRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
   const canViewRegularizationLogs = canViewRegularizationQueue
   const canCreateShift = hasModulePermission(user, PERMISSION_MODULES.shiftRoster, PERMISSION_ACTIONS.create)
@@ -525,7 +524,7 @@ export default function AttendanceManagement() {
   const canUseSelfAttendance = canViewSelfAttendance || canSelfPunch || canViewOwnRegularizations || canCreateRegularization
   const canViewAttendanceTab = canViewAttendanceRegister
   const canViewRegularizationTab = canViewRegularizationQueue
-  const canViewOverview = isAdminUser && (canViewAttendanceRegister || canViewRegularizationQueue)
+  const canViewOverview = canViewAttendanceRegister || canViewRegularizationQueue
 
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'overview')

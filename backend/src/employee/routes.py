@@ -15,7 +15,7 @@ access_token_bearer = AccessTokenBearer()
 role_checker = Depends(RoleChecker(["admin", "HR"]))
 adminonly= Depends(AdminOnly)
 
-admin_module = "Employees Management"
+admin_module = "Employee Management"
 #profile_update_module= "Profile Update"
 
 ## Helper Function

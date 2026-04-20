@@ -775,8 +775,9 @@ export default function ProfilePage() {
   const { showStatus, runWithLoader } = useModal()
   const { showToast } = useToast()
   const isAdminUser = isAdminBypassUser(user)
-  const canLoadMetadata = isAdminUser
-  const canLoadRoles = isAdminUser
+  const canLoadMetadata = hasModulePermission(user, PERMISSION_MODULES.employeeMetadata, PERMISSION_ACTIONS.read)
+  const canLoadRoles = hasModulePermission(user, PERMISSION_MODULES.roles, PERMISSION_ACTIONS.read)
+  const canEditDirectoryProfile = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
   const { data: metadataEntries = [] } = useEmployeeMetadataQuery(canLoadMetadata)
   const { data: roles = [] } = useRoleDirectoryQuery(canLoadRoles)
 
@@ -944,12 +945,12 @@ export default function ProfilePage() {
     return !areWorkExperiencesEqual(buildWorkExperiencePayload(workExperienceDraft), buildComparableWorkExperience(selectedWorkExperience))
   }, [isWorkExperienceEditorOpen, selectedWorkExperience, workExperienceDraft])
   const mustCompleteProfile = hasLinkedEmployee && !profile?.profileCompletedAt
-  const canEditBasicDetails = hasLinkedEmployee && isAdminUser
-  const canEditSkills = hasLinkedEmployee && (isAdminUser || hasSkillWritePermission)
-  const canManageDocuments = hasLinkedEmployee && (isAdminUser || hasDocumentWritePermission)
+  const canEditBasicDetails = hasLinkedEmployee && canEditDirectoryProfile
+  const canEditSkills = hasLinkedEmployee && hasSkillWritePermission
+  const canManageDocuments = hasLinkedEmployee && hasDocumentWritePermission
   const canUploadDocuments = canManageDocuments
-  const canManageFamilyDetails = hasLinkedEmployee && (isAdminUser || hasFamilyDetailWritePermission)
-  const canManageWorkExperience = hasLinkedEmployee && (isAdminUser || hasWorkExperienceWritePermission)
+  const canManageFamilyDetails = hasLinkedEmployee && hasFamilyDetailWritePermission
+  const canManageWorkExperience = hasLinkedEmployee && hasWorkExperienceWritePermission
   const canEditProfilePhoto = hasLinkedEmployee
   const firstLoginDeadlineRaw = profile?.firstLoginDeadlineAt || user?.firstLoginDeadlineAt || ''
   const firstLoginDeadlineLabel = firstLoginDeadlineRaw ? formatDate(firstLoginDeadlineRaw) : ''
@@ -978,7 +979,7 @@ export default function ProfilePage() {
   const skillSetupRequired = mustCompleteProfile && !hasSavedSkills
   const familySetupRequired = mustCompleteProfile && !hasSavedFamilyDetails
   const documentSetupRequired = mustCompleteProfile && !hasSavedDocuments
-  const employeeProfileRequirementsMet = isAdminUser || Boolean(profile?.profileCompletedAt)
+  const employeeProfileRequirementsMet = canEditDirectoryProfile || Boolean(profile?.profileCompletedAt)
   const passwordValidation = useMemo(() => buildPasswordValidation(passwordDraft.new_password, passwordDraft.confirm_new_password), [passwordDraft.new_password, passwordDraft.confirm_new_password])
   const basicDetailErrors = useMemo(() => buildProfileBasicErrors(profileDraft, canEditBasicDetails, dobBounds), [canEditBasicDetails, dobBounds, profileDraft])
   const familyDetailErrors = useMemo(() => buildFamilyDetailErrors(familyDetailDraft), [familyDetailDraft])
@@ -1166,7 +1167,7 @@ export default function ProfilePage() {
       displayName: nextProfile?.nickname || fallbackFirstName,
       avatarUrl: nextProfile?.profileImageUrl || user?.avatarUrl || '',
       profileImageUrl: nextProfile?.profileImageUrl || user?.profileImageUrl || '',
-      canEditProfileDetails: isAdminUser ? true : (canEditBasicDetails || mustFinishProfile),
+      canEditProfileDetails: canEditBasicDetails || mustFinishProfile,
       canEditProfilePicture: nextProfile?.canEditProfilePicture ?? user?.canEditProfilePicture ?? null,
       mustCompleteProfile: resolvedMustCompleteProfile,
       mustChangePassword: resolvedMustChangePassword,

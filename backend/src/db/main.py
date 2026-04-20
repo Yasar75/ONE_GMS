@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -58,13 +59,15 @@ async_engine = create_async_engine(
 # ]
 
 
-async def _ensure_employee_columns(conn) -> None:
-    alter_statements = [
-        'ALTER TABLE employees ADD COLUMN IF NOT EXISTS client_email VARCHAR(255)',
-        "ALTER TABLE employees ADD COLUMN IF NOT EXISTS reporting_assignments JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ]
-    for stmt in alter_statements:
-        await conn.execute(text(stmt))
+# async def _ensure_employee_columns(conn) -> None:
+#     alter_statements = [
+#         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS role_type UUID',
+#         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS hr_employee_uid UUID',
+#         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS team_lead_employee_uid UUID',
+#         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS coordinator_employee_uid UUID',
+#     ]
+#     for stmt in alter_statements:
+#         await conn.execute(text(stmt))
 
 
 # async def _seed_employee_metadata(conn) -> None:
@@ -94,7 +97,8 @@ async def init_db() -> None:
         import src.db.models  # noqa: F401
 
         await conn.run_sync(SQLModel.metadata.create_all)
-        await _ensure_employee_columns(conn)
+       # await _ensure_employee_columns(conn)
+       # await _seed_employee_metadata(conn)
 
 
 async def get_session() -> AsyncSession:

@@ -39,7 +39,6 @@ class Employee(SQLModel, table=True):
     position: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
     department: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
     email: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(255), unique=True, nullable=True))
-    client_email: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(255), nullable=True))
     phone: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(50), nullable=True))
     join_date: Optional[date] = Field(default=None)
     status: EmployeeStatus = Field(default=EmployeeStatus.Active,sa_column=Column(pg.ENUM(EmployeeStatus, name="employee_status", create_type=True),nullable=False,server_default="Active",))
@@ -52,46 +51,16 @@ class Employee(SQLModel, table=True):
     blood_group: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(10), nullable=True))
     employee_type: Optional[str] = Field(default=None,sa_column=Column(pg.VARCHAR(100), nullable=True))
     work_location: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(120), nullable=True))
-    reporting_assignments: dict[str, str] = Field(
-        default_factory=dict,
-        sa_column=Column(
-            pg.JSONB,
-            nullable=False,
-            server_default=sa.text("'{}'::jsonb"),
-        ),
-    )
+    manager_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
+    hr_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
+    team_lead_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
+    coordinator_employee_uid: Optional[uuid.UUID] = Field(default=None,sa_column=Column(pg.UUID(as_uuid=True),ForeignKey("employees.uid", ondelete="SET NULL"),nullable=True,index=True,))
     role_type: Optional[uuid.UUID] = Field(default=None, sa_column=Column(pg.UUID(as_uuid=True), ForeignKey("roles.uid", ondelete="SET NULL"), nullable=True, index=True))
     created_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=datetime.utcnow,sa_column=Column(DateTime(timezone=True), nullable=False, onupdate=datetime.utcnow))
 
     def __repr__(self):
         return f"{self.employee_code} - {self.name} {self.created_at} "
-
-    def get_reporting_assignment_uid(self, assignment_key: str) -> Optional[uuid.UUID]:
-        raw_value = (self.reporting_assignments or {}).get(str(assignment_key or "").strip())
-        if not raw_value:
-            return None
-
-        try:
-            return uuid.UUID(str(raw_value))
-        except (TypeError, ValueError):
-            return None
-
-    @property
-    def manager_employee_uid(self) -> Optional[uuid.UUID]:
-        return self.get_reporting_assignment_uid("manager_employee_uid")
-
-    @property
-    def hr_employee_uid(self) -> Optional[uuid.UUID]:
-        return self.get_reporting_assignment_uid("hr_employee_uid")
-
-    @property
-    def team_lead_employee_uid(self) -> Optional[uuid.UUID]:
-        return self.get_reporting_assignment_uid("team_lead_employee_uid")
-
-    @property
-    def coordinator_employee_uid(self) -> Optional[uuid.UUID]:
-        return self.get_reporting_assignment_uid("coordinator_employee_uid")
 
 
 

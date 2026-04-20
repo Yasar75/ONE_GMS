@@ -53,7 +53,12 @@ import {
   markFieldsTouched
 } from '../../../utils/validation.js'
 import {
+  PERMISSION_ACTIONS,
+  PERMISSION_MODULES,
   filterAccessibleTabs,
+  hasAnyModulePermission,
+  hasModulePermission,
+  hasModuleVisibility,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
 import { useSortableData } from '../../../hooks/common/useSortableData.js'
@@ -149,13 +154,13 @@ export default function MarkAttendance() {
   const { showStatus, runWithLoader, showConfirm } = useModal()
   const { showToast } = useToast()
   const { user } = useAuth()
-  const canViewAttendanceLogs = true
-  const canSelfPunch = true
+  const canViewAttendanceLogs = hasModulePermission(user, PERMISSION_MODULES.myAttendancePreview, PERMISSION_ACTIONS.read)
+  const canSelfPunch = hasAnyModulePermission(user, PERMISSION_MODULES.myAttendancePreview, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
   // Employee shift panel should always use employee roster lookup for the logged-in employee.
-  const canViewMyShift = true
-  const canViewAttendanceTab = true
-  const canViewRegularizationTab = true
-  const canCreateRegularization = true
+  const canViewMyShift = hasModuleVisibility(user, PERMISSION_MODULES.myShift)
+  const canCreateRegularization = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.create)
+  const canViewRegularizationTab = hasModulePermission(user, PERMISSION_MODULES.manageRegularization, PERMISSION_ACTIONS.read) || canCreateRegularization
+  const canViewAttendanceTab = canViewAttendanceLogs || canSelfPunch || canViewMyShift
 
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'attendance')

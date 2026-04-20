@@ -11,19 +11,6 @@ from .constants import ACCESS_LEVELS, AVAILABLE_MODULES
 RoleNameStr = constr(strip_whitespace=True, min_length=1, max_length=100)
 DescriptionStr = constr(strip_whitespace=True, max_length=500)
 
-ROLE_NAME_ALIASES = {
-    "delivary": "Delivery",
-}
-
-
-def canonicalize_role_name(role_name: str) -> str:
-    cleaned_name = " ".join(str(role_name or "").split()).strip()
-    if not cleaned_name:
-        return ""
-
-    normalized_name = cleaned_name.lower()
-    return ROLE_NAME_ALIASES.get(normalized_name, cleaned_name)
-
 
 class RoleResponse(BaseModel):
     id: uuid.UUID = Field(..., description="Unique identifier for the role")
@@ -38,14 +25,6 @@ class RoleCreateModel(BaseModel):
     role_name: RoleNameStr = Field(..., description="Name of the role (must be unique)")
     access: dict = Field(..., description="Access dictionary")
     description: Optional[DescriptionStr] = Field(None, description="Description of the role")
-
-    @field_validator("role_name")
-    @classmethod
-    def normalize_role_name(cls, v: str) -> str:
-        role_name = canonicalize_role_name(v)
-        if not role_name:
-            raise ValueError("Role name cannot be empty")
-        return role_name
 
     @field_validator("access")
     @classmethod
@@ -121,13 +100,3 @@ class RoleUpdateModel(BaseModel):
                     )
 
         return v
-
-    @field_validator("role_name")
-    @classmethod
-    def normalize_role_name(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
-        role_name = canonicalize_role_name(v)
-        if not role_name:
-            raise ValueError("Role name cannot be empty")
-        return role_name

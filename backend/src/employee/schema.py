@@ -30,7 +30,6 @@ class EmployeeBase(BaseModel):
     position: Optional[str] 
     department: Optional[str] 
     email: Optional[EmailStr] 
-    client_email: Optional[EmailStr]
     phone: Optional[str] 
     join_date: Optional[date] 
     status: EmployeeStatus 
@@ -42,7 +41,10 @@ class EmployeeBase(BaseModel):
     blood_group: Optional[str]
     employee_type: Optional[str] 
     work_location: Optional[str] 
-    reporting_assignments: dict[str, Optional[uuid.UUID]] = PydField(default_factory=dict)
+    manager_employee_uid: Optional[uuid.UUID] 
+    hr_employee_uid: Optional[uuid.UUID] = None
+    team_lead_employee_uid: Optional[uuid.UUID] = None
+    coordinator_employee_uid: Optional[uuid.UUID] = None
     role_type: Optional[uuid.UUID] = None
     billing_status:Optional[str] 
     created_at: datetime
@@ -56,7 +58,6 @@ class EmployeeCreate(BaseModel):
     position: Optional[str] = " "
     department: Optional[str] = " "
     email: Optional[EmailStr] = " "
-    client_email: Optional[EmailStr] = " "
     phone: Optional[str] = " "
     join_date: Optional[date] = " "
     status: EmployeeStatus = EmployeeStatus.Active
@@ -69,7 +70,10 @@ class EmployeeCreate(BaseModel):
     blood_group: Optional[str] = " "
     employee_type: Optional[str] = " "
     work_location: Optional[str] = " "
-    reporting_assignments: dict[str, Optional[uuid.UUID]] = PydField(default_factory=dict)
+    manager_employee_uid: Optional[uuid.UUID] = " "
+    hr_employee_uid: Optional[uuid.UUID] = " "
+    team_lead_employee_uid: Optional[uuid.UUID] = " "
+    coordinator_employee_uid: Optional[uuid.UUID] = " "
     role_type: uuid.UUID = " "
 
 
@@ -80,7 +84,6 @@ class EmployeeUpdate(BaseModel):
     position: Optional[str] = " "
     department: Optional[str] = " "
     email: Optional[EmailStr] = " "
-    client_email: Optional[EmailStr] = " "
     phone: Optional[str] = " "
     join_date: Optional[date] = " "
     status: Optional[EmployeeStatus] = " "
@@ -92,7 +95,10 @@ class EmployeeUpdate(BaseModel):
     blood_group: Optional[str] = " "
     employee_type: Optional[str] = " "
     work_location: Optional[str] = " "
-    reporting_assignments: Optional[dict[str, Optional[uuid.UUID]]] = None
+    manager_employee_uid: Optional[uuid.UUID] = " "
+    hr_employee_uid: Optional[uuid.UUID] = " "
+    team_lead_employee_uid: Optional[uuid.UUID] = " "
+    coordinator_employee_uid: Optional[uuid.UUID] = " "
     role_type: Optional[uuid.UUID] = " "
 
 ###### Upload Profile Image and Nick Name ###########3

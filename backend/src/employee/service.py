@@ -1,8 +1,7 @@
 import uuid
 import logging
-import re
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import List, Optional
 from fastapi import BackgroundTasks
 from fastapi import HTTPException, status
 from sqlmodel import select, desc
@@ -19,8 +18,6 @@ from fastapi import UploadFile, File
 from src.utils.cloudinary_service import upload_employee_profile_image,delete_employee_profile_image
 
 logger = logging.getLogger(__name__)
-
-REPORTING_ASSIGNMENT_KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*_employee_uid$")
 
 
 def _utcnow() -> datetime:
@@ -81,81 +78,6 @@ async def _ensure_role_exists(session: AsyncSession, role_uid: Optional[uuid.UUI
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role_type. Role not found.")
 
 
-def _normalize_reporting_assignment_key(field_name: str) -> str:
-    raw_field_name = str(field_name or "").strip()
-    if not raw_field_name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reporting assignment keys cannot be empty.")
-
-    normalized_field_name = re.sub(r"(?<!^)(?=[A-Z])", "_", raw_field_name)
-    normalized_field_name = re.sub(r"[^A-Za-z0-9]+", "_", normalized_field_name).strip("_").lower()
-
-    if not normalized_field_name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reporting assignment keys must contain letters or numbers.")
-
-    if not normalized_field_name.endswith("_employee_uid"):
-        normalized_field_name = f"{normalized_field_name}_employee_uid"
-
-    if not REPORTING_ASSIGNMENT_KEY_PATTERN.fullmatch(normalized_field_name):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid reporting assignment key: {raw_field_name}.",
-        )
-
-    return normalized_field_name
-
-
-def _normalize_reporting_assignment_value(field_name: str, raw_value: Any) -> str | None:
-    if raw_value is None:
-        return None
-
-    if isinstance(raw_value, str) and not raw_value.strip():
-        return None
-
-    try:
-        return str(uuid.UUID(str(raw_value).strip()))
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{field_name} is invalid (employee UID is not a valid UUID).",
-        ) from exc
-
-
-def _normalize_reporting_assignments(raw_assignments: Any) -> dict[str, str]:
-    if raw_assignments is None:
-        return {}
-
-    if not isinstance(raw_assignments, dict):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="reporting_assignments must be an object keyed by position-based assignment names.",
-        )
-
-    normalized_assignments: dict[str, str] = {}
-    for raw_field_name, raw_value in raw_assignments.items():
-        field_name = _normalize_reporting_assignment_key(str(raw_field_name))
-        normalized_value = _normalize_reporting_assignment_value(field_name, raw_value)
-        if normalized_value is None:
-            continue
-        normalized_assignments[field_name] = normalized_value
-
-    return normalized_assignments
-
-
-async def _validate_reporting_assignments(
-    session: AsyncSession,
-    assignments: dict[str, str],
-    *,
-    current_employee_uid: Optional[uuid.UUID] = None,
-) -> None:
-    for field_name, employee_uid in assignments.items():
-        await _ensure_employee_exists(
-            session,
-            uuid.UUID(employee_uid),
-            field_name,
-            current_employee_uid=current_employee_uid,
-        )
-
-
 class EmployeeService:
 
     async def _get_linked_user_delete_blockers(self,session: AsyncSession,*,linked_user_uid: uuid.UUID,employee_uid: uuid.UUID,) -> list[str]:
@@ -190,11 +112,11 @@ class EmployeeService:
             await _ensure_employee_code_unique(session, employees_data.employee_code)
             await _ensure_employee_email_unique(session, employees_data.email)
             await _ensure_user_email_unique(session, employees_data.email)
+            await _ensure_employee_exists(session, employees_data.manager_employee_uid, "manager_employee_uid")
+            await _ensure_employee_exists(session, employees_data.hr_employee_uid, "hr_employee_uid")
+            await _ensure_employee_exists(session, employees_data.team_lead_employee_uid, "team_lead_employee_uid")
+            await _ensure_employee_exists(session, employees_data.coordinator_employee_uid, "coordinator_employee_uid")
             await _ensure_role_exists(session, employees_data.role_type)
-
-            reporting_assignments = _normalize_reporting_assignments(employees_data.reporting_assignments)
-
-            await _validate_reporting_assignments(session, reporting_assignments)
 
             temp_password = "Welcome@123"
             username = employees_data.email.split("@")[0] if employees_data.email else employees_data.employee_code
@@ -214,7 +136,6 @@ class EmployeeService:
             new_user = signup_result["user"]
 
             employee_dict = employees_data.model_dump()
-            employee_dict["reporting_assignments"] = reporting_assignments
             new_employee = Employee(**employee_dict,user_uid=new_user.uid)
 
             session.add(new_employee)
@@ -273,25 +194,22 @@ class EmployeeService:
                 await _ensure_employee_email_unique(session, employee_data.email, exclude_id=employee_uid)
                 await _ensure_user_email_unique(session, employee_data.email, exclude_user_uid=employee.user_uid)
 
+            if employee_data.manager_employee_uid is not None and employee_data.manager_employee_uid != employee.manager_employee_uid:
+                await _ensure_employee_exists(session, employee_data.manager_employee_uid, "manager_employee_uid", current_employee_uid=employee_uid)
+
+            if employee_data.hr_employee_uid is not None and employee_data.hr_employee_uid != employee.hr_employee_uid:
+                await _ensure_employee_exists(session, employee_data.hr_employee_uid, "hr_employee_uid", current_employee_uid=employee_uid)
+
+            if employee_data.team_lead_employee_uid is not None and employee_data.team_lead_employee_uid != employee.team_lead_employee_uid:
+                await _ensure_employee_exists(session, employee_data.team_lead_employee_uid, "team_lead_employee_uid", current_employee_uid=employee_uid)
+
+            if employee_data.coordinator_employee_uid is not None and employee_data.coordinator_employee_uid != employee.coordinator_employee_uid:
+                await _ensure_employee_exists(session, employee_data.coordinator_employee_uid, "coordinator_employee_uid", current_employee_uid=employee_uid)
+
             if employee_data.role_type is not None:
                 await _ensure_role_exists(session, employee_data.role_type)
 
-            fields_set = getattr(employee_data, "model_fields_set", set())
-            reporting_assignments: dict[str, str] | None = None
-
-            if "reporting_assignments" in fields_set:
-                reporting_assignments = _normalize_reporting_assignments(employee_data.reporting_assignments or {})
-
-            if reporting_assignments is not None:
-                await _validate_reporting_assignments(
-                    session,
-                    reporting_assignments,
-                    current_employee_uid=employee_uid,
-                )
-
             data = employee_data.model_dump(exclude_unset=True)
-            if reporting_assignments is not None:
-                data["reporting_assignments"] = reporting_assignments
 
             for key, value in data.items():
                 setattr(employee, key, value)

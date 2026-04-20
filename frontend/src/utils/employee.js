@@ -636,6 +636,10 @@ export function mapAttendanceApiStatus(value) {
 export function toEmployeeApiPayload(employee) {
   const { firstName, lastName } = splitFullName(employee.fullName)
   const reportingAssignments = normalizeReportingAssignments(employee)
+  const managerEmployeeUid = toNullableString(employee.managerEmployeeUid || reportingAssignments.manager_employee_uid)
+  const hrEmployeeUid = toNullableString(employee.hrEmployeeUid || reportingAssignments.hr_employee_uid)
+  const teamLeadEmployeeUid = toNullableString(employee.teamLeadEmployeeUid || reportingAssignments.team_lead_employee_uid)
+  const coordinatorEmployeeUid = toNullableString(employee.coordinatorEmployeeUid || reportingAssignments.coordinator_employee_uid)
 
   return {
     employee_code: toNullableString(employee.employeeCode || employee.id) || generateEmployeeId(),
@@ -656,6 +660,10 @@ export function toEmployeeApiPayload(employee) {
     blood_group: toNullableString(employee.bloodGroup),
     employee_type: toNullableString(employee.employeeType),
     work_location: toNullableString(employee.workLocation) || (employee.attendanceStatus === 'Remote' ? 'Remote' : 'Onsite'),
+    manager_employee_uid: managerEmployeeUid,
+    hr_employee_uid: hrEmployeeUid,
+    team_lead_employee_uid: teamLeadEmployeeUid,
+    coordinator_employee_uid: coordinatorEmployeeUid,
     reporting_assignments: Object.fromEntries(
       Object.entries(reportingAssignments)
         .map(([fieldName, employeeUid]) => [fieldName, toNullableString(employeeUid)])

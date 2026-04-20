@@ -843,11 +843,14 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const canCreateLeaveType = hasModulePermission(user, PERMISSION_MODULES.leaveType, PERMISSION_ACTIONS.create)
   const canUpdateLeaveType = hasModulePermission(user, PERMISSION_MODULES.leaveType, PERMISSION_ACTIONS.update)
   const canManageAllocations = hasAnyModulePermission(user, PERMISSION_MODULES.assignLeave, [PERMISSION_ACTIONS.create, PERMISSION_ACTIONS.update])
-  const canCreateLeaveRequest = !isManagementWorkspace
+  const canReadLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.read)
+  const canCreateLeaveRequest = hasModulePermission(user, PERMISSION_MODULES.leaveRequest, PERMISSION_ACTIONS.create)
   const canReviewLeaveRequests = hasModulePermission(user, PERMISSION_MODULES.manageLeave, PERMISSION_ACTIONS.create)
   const canAccessManageLeaveQueue = canViewManageLeaveQueue || canReviewLeaveRequests
-  const canViewLeaveRequests = !isManagementWorkspace || canAccessManageLeaveQueue
-  const canViewApplyTab = isManagementWorkspace ? canAccessManageLeaveQueue : true
+  const canViewLeaveRequests = isManagementWorkspace ? canAccessManageLeaveQueue : canReadLeaveRequests
+  const canViewApplyTab = isManagementWorkspace
+    ? canAccessManageLeaveQueue
+    : (canReadLeaveRequests || canCreateLeaveRequest || canViewMyLeaveBalance)
   const resolvedTabs = Array.isArray(tabs) && tabs.length
     ? tabs
     : (isManagementWorkspace
