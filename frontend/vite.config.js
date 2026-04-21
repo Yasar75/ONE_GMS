@@ -13,11 +13,6 @@ function buildProxyConfig(apiBaseUrl) {
       target: targetOrigin,
       changeOrigin: true,
       secure: false,
-      configure: (proxy) => {
-        proxy.on('proxyRes', (proxyRes) => {
-          delete proxyRes.headers['permissions-policy']
-        })
-      },
       rewrite: (path) => {
         const proxiedPath = path.replace(/^\/__api_proxy__/, '')
         return `${targetBasePath}${proxiedPath}` || '/'
@@ -28,7 +23,7 @@ function buildProxyConfig(apiBaseUrl) {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const apiBaseUrl = (env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+  const apiBaseUrl = (env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
 
   return {
     plugins: [react()],
@@ -39,19 +34,6 @@ export default defineConfig(({ mode }) => {
         },
         sass: {
           api: 'modern'
-        }
-      }
-    },
-    build: {
-      chunkSizeWarningLimit: 1000,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            react: ['react', 'react-dom', 'react-router-dom'],
-            query: ['@tanstack/react-query'],
-            charts: ['recharts'],
-            spreadsheets: ['xlsx']
-          }
         }
       }
     },
