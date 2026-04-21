@@ -899,7 +899,7 @@
   border-radius: 0.75rem;
   border: 1px solid rgba(255, 136, 0, 0.28);
   background: rgba(255, 136, 0, 0.1);
-  color: color-mix(in srgb, var(--gm-orange) 78%, var(--bs-body-color));
+  color: var(--gm-orange);
   font-size: 0.84rem;
   font-weight: 650;
 }
@@ -4639,8 +4639,8 @@
   z-index: 1;
   border-radius: 999px;
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .employee-action-btn__label {
@@ -7814,8 +7814,8 @@
   gap: 0.45rem;
   padding: 0.55rem 0.85rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--bs-border-color, #d6d9e0) 82%, transparent);
-  background: color-mix(in srgb, var(--bs-body-bg, #fff) 92%, #eef3fb 8%);
+  border: 1px solid rgba(214, 217, 224, 0.82);
+  background: #fbfcff;
   color: var(--bs-body-color, #1f2937);
   font-size: 0.9rem;
   font-weight: 600;
@@ -7827,13 +7827,13 @@
   width: 0.65rem;
   height: 0.65rem;
   border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--gm-blue, #2563eb) 38%, #9aa6bb);
+  border: 2px solid #7d98d2;
   background: transparent;
   transition: inherit;
 }
 
 .date-preset-filter__label:hover {
-  border-color: color-mix(in srgb, var(--gm-blue, #2563eb) 44%, var(--bs-border-color, #d6d9e0));
+  border-color: rgba(37, 99, 235, 0.44);
   transform: translateY(-1px);
 }
 
@@ -7842,9 +7842,9 @@
 }
 
 .date-preset-filter__input:checked + .date-preset-filter__label {
-  border-color: color-mix(in srgb, var(--gm-blue, #2563eb) 62%, white);
+  border-color: #7eacf3;
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(14, 165, 233, 0.1));
-  color: color-mix(in srgb, var(--gm-blue, #2563eb) 72%, #0f172a);
+  color: #1e4fb2;
   box-shadow: 0 12px 28px -22px rgba(37, 99, 235, 0.75);
 }
 
