@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from urllib.parse import urlparse
 
@@ -61,12 +62,11 @@ def register_middleware(app: FastAPI):
 
     frontend_origin = _normalize_origin(Config.FRONTEND_URL)
     backend_origin = _normalize_origin(Config.BACKEND_URL)
+    vercel_origin = _normalize_origin(os.getenv("VERCEL_URL"))
 
-    if frontend_origin and frontend_origin not in allowed_origins:
-        allowed_origins.append(frontend_origin)
-
-    if backend_origin and backend_origin not in allowed_origins:
-        allowed_origins.append(backend_origin)
+    for origin in (frontend_origin, backend_origin, vercel_origin):
+        if origin and origin not in allowed_origins:
+            allowed_origins.append(origin)
 
     app.add_middleware(
         CORSMiddleware,
@@ -86,12 +86,11 @@ def register_middleware(app: FastAPI):
 
     backend_host = _extract_host(Config.BACKEND_URL)
     frontend_host = _extract_host(Config.FRONTEND_URL)
+    vercel_host = _extract_host(os.getenv("VERCEL_URL"))
 
-    if backend_host and backend_host not in allowed_hosts:
-        allowed_hosts.append(backend_host)
-
-    if frontend_host and frontend_host not in allowed_hosts:
-        allowed_hosts.append(frontend_host)
+    for host in (backend_host, frontend_host, vercel_host):
+        if host and host not in allowed_hosts:
+            allowed_hosts.append(host)
 
     app.add_middleware(
         TrustedHostMiddleware,

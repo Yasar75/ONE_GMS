@@ -10,7 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.routes import auth_router
 from src.config import Config
-from src.db.main import init_db, async_engine
+from src.db.main import init_db, get_async_engine
 from src.errors import register_all_errors
 from src.roles.routes import role_router
 from src.employee.routes import employee_router
@@ -55,9 +55,17 @@ app = FastAPI(
 attendance_scheduler_task = None
 
 
+def running_on_vercel() -> bool:
+    return os.getenv("VERCEL") == "1"
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     global attendance_scheduler_task
+
+    if running_on_vercel():
+        logger.info("Running on Vercel. Skipping startup database sync and background scheduler.")
+        return
 
     try:
         await init_db()
@@ -67,7 +75,7 @@ async def startup_event() -> None:
 
     try:
         session_local = sessionmaker(
-            bind=async_engine,
+            bind=get_async_engine(),
             class_=AsyncSession,
             expire_on_commit=False,
         )
@@ -79,10 +87,6 @@ async def startup_event() -> None:
         logger.info("Daily attendance sync completed.")
     except Exception:
         logger.exception("Daily attendance sync failed during startup.")
-
-    if os.getenv("VERCEL") == "1":
-        logger.info("Running on Vercel. Skipping background scheduler.")
-        return
 
     try:
         attendance_scheduler_task = asyncio.create_task(attendance_scheduler_loop())

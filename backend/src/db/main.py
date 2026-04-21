@@ -1,4 +1,5 @@
 import uuid
+from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -9,19 +10,26 @@ from src.config import Config
 from src.db.db_url import build_db_config
 
 
-dbcfg = build_db_config(Config.DATABASE_URL)
+async_engine = None
 
-# Async SQLModel engine
-async_engine = create_async_engine(
-    url=dbcfg.url,
-    echo=True,
-    connect_args=dbcfg.connect_args,
-    pool_size=Config.DB_POOL_SIZE,
-    max_overflow=Config.DB_MAX_OVERFLOW,
-    pool_timeout=Config.DB_POOL_TIMEOUT,
-    pool_recycle=Config.DB_POOL_RECYCLE,
-    pool_pre_ping=True,
-)
+
+def get_async_engine():
+    global async_engine
+
+    if async_engine is None:
+        dbcfg = build_db_config(Config.DATABASE_URL)
+        async_engine = create_async_engine(
+            url=dbcfg.url,
+            echo=True,
+            connect_args=dbcfg.connect_args,
+            pool_size=Config.DB_POOL_SIZE,
+            max_overflow=Config.DB_MAX_OVERFLOW,
+            pool_timeout=Config.DB_POOL_TIMEOUT,
+            pool_recycle=Config.DB_POOL_RECYCLE,
+            pool_pre_ping=True,
+        )
+
+    return async_engine
 
 
 # DEFAULT_METADATA_ENTRIES = [
@@ -93,7 +101,7 @@ async_engine = create_async_engine(
 
 async def init_db() -> None:
     """Create all tables based on SQLModel metadata and patch additive schema changes."""
-    async with async_engine.begin() as conn:
+    async with get_async_engine().begin() as conn:
         import src.db.models  # noqa: F401
 
         await conn.run_sync(SQLModel.metadata.create_all)
@@ -103,7 +111,15 @@ async def init_db() -> None:
 
 async def get_session() -> AsyncSession:
     """Yield an AsyncSession for dependency injection."""
-    Session = sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        engine = get_async_engine()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    Session = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
     async with Session() as session:
         yield session

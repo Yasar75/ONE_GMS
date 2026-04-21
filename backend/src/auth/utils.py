@@ -12,6 +12,17 @@ passwd_context = CryptContext(schemes=["bcrypt"])
 
 ACCESS_TOKEN_EXPIRY = 3600
 
+
+def get_jwt_secret() -> str:
+    if not Config.JWT_SECRET:
+        raise RuntimeError("JWT_SECRET is not configured.")
+    return Config.JWT_SECRET
+
+
+def get_jwt_algorithm() -> str:
+    return Config.JWT_ALGORITHM or "HS256"
+
+
 def generate_password_hash(password: str) -> str:
     # hash = passwd_context.hash(password)
     # return hash
@@ -33,8 +44,8 @@ def create_access_token(user_data: dict, expiry: timedelta = None,refresh: bool=
 
     token = jwt.encode(
         payload= payload,
-        key= Config.JWT_SECRET,
-        algorithm= Config.JWT_ALGORITHM
+        key=get_jwt_secret(),
+        algorithm=get_jwt_algorithm()
     )
 
     return token 
@@ -43,8 +54,8 @@ def decode_token(token: str) -> dict:
     try:
         token_data = jwt.decode(
             jwt=token,
-            key=Config.JWT_SECRET,
-            algorithms=[Config.JWT_ALGORITHM],
+            key=get_jwt_secret(),
+            algorithms=[get_jwt_algorithm()],
         )
         return token_data
 
@@ -58,15 +69,17 @@ def decode_token(token: str) -> dict:
         raise InvalidToken()
 
 #### For Account Verification after user's account creation
-serializer= URLSafeTimedSerializer(secret_key= Config.JWT_SECRET, salt = "email-configuration")
+def get_url_safe_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(secret_key=get_jwt_secret(), salt="email-configuration")
+
 
 def create_url_safe_token(data: dict):
-    token = serializer.dumps(data)
+    token = get_url_safe_serializer().dumps(data)
     return token
 
 def decode_url_safe_token(token: str):
     try:
-        token_data = serializer.loads(token)
+        token_data = get_url_safe_serializer().loads(token)
         return token_data
     except Exception as e:
         logging.error(str(e))

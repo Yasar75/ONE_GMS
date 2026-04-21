@@ -37,21 +37,21 @@ DEFAULT_ROLE_MODULES = [
 ]
 
 class Settings(BaseSettings):
-    DATABASE_URL: str
-    JWT_SECRET: str
-    JWT_ALGORITHM: str
+    DATABASE_URL: str = ""
+    JWT_SECRET: str = ""
+    JWT_ALGORITHM: str = "HS256"
 
-    MAIL_USERNAME: str
-    MAIL_PASSWORD: str
-    MAIL_FROM: str
-    MAIL_PORT: int
-    MAIL_SERVER: str
-    MAIL_FROM_NAME: str
+    MAIL_USERNAME: str = ""
+    MAIL_PASSWORD: str = ""
+    MAIL_FROM: str = "no-reply@example.com"
+    MAIL_PORT: int = 587
+    MAIL_SERVER: str = ""
+    MAIL_FROM_NAME: str = "One GMS"
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
     USE_CREDENTIALS: bool = True
     VALIDATE_CERTS: bool = True
-    DOMAIN: str
+    DOMAIN: str = "localhost:8000"
 
     DB_POOL_SIZE: int = Field(default=2, ge=1)
     DB_MAX_OVERFLOW: int = Field(default=0, ge=0)
@@ -62,29 +62,29 @@ class Settings(BaseSettings):
     DB_SSL_CA_CERT: str | None = None
     DB_APP_NAME: str | None = None
 
-    FRONTEND_URL: str
-    BACKEND_URL: str
+    FRONTEND_URL: str = "http://localhost:5173"
+    BACKEND_URL: str = "http://localhost:8000"
 
     ## Attendance
-    MAX_WORKING_HOURS_PER_DAY: int
-    GRACE_MINUTES: int
-    TIME_ZONE: str
+    MAX_WORKING_HOURS_PER_DAY: int = 8
+    GRACE_MINUTES: int = 30
+    TIME_ZONE: str = "Asia/Kolkata"
     WORKING_DAYS_PER_WEEK: int = Field(default=5, ge=5, le=6)
 
     ## Role base access control
     MODULES_LIST: List[str] = Field(default_factory=lambda: DEFAULT_ROLE_MODULES.copy())
 
     ## Employees Documents
-    CLOUDINARY_CLOUD_NAME: str
-    CLOUDINARY_API_KEY: str
-    CLOUDINARY_API_SECRET: str
-    ALLOWED_EXTENSIONS: str
-    ALLOWED_MIME_TYPES: str
-    MAX_FILE_SIZE: int
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+    ALLOWED_EXTENSIONS: str = ".pdf,.png,.jpg,.jpeg"
+    ALLOWED_MIME_TYPES: str = "application/pdf,image/png,image/jpg,image/jpeg"
+    MAX_FILE_SIZE: int = 5242880
 
     ## SendGrid mail service.
-    APIKEY: str
-    FROM: str
+    APIKEY: str = ""
+    FROM: str = "no-reply@example.com"
 
     @property
     def WEEKEND_DAYS(self) -> Set[int]:

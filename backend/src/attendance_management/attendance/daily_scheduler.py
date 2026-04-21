@@ -7,7 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.attendance_management.attendance.service import attendance_service
 from src.config import Config
-from src.db.main import async_engine
+from src.db.main import get_async_engine
 
 IST = ZoneInfo(Config.TIME_ZONE)
 
@@ -21,7 +21,7 @@ def _seconds_until_next_run(hour: int = 0, minute: int = 5) -> float:
 
 
 async def _run_sync_for_today() -> None:
-    SessionLocal = sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
+    SessionLocal = sessionmaker(bind=get_async_engine(), class_=AsyncSession, expire_on_commit=False)
 
     async with SessionLocal() as session:
         await attendance_service.sync_daily_attendance(
