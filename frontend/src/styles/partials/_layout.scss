@@ -3,17 +3,14 @@ body,
 #root {
   height: 100%;
   min-height: 100dvh;
-  -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  /* include vendor-prefixed properties for broader compatibility */
 }
-
 body {
   overflow: hidden;
-}
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(37, 116, 220, 0.55) rgba(15, 23, 42, 0.08);
 }
 
 *::-webkit-scrollbar {
@@ -70,6 +67,7 @@ body {
   opacity: 0;
   filter: none;
   pointer-events: none;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -81,6 +79,7 @@ body {
   border-radius: 1rem;
   padding-block: 0.2rem 1rem;
   background: linear-gradient(180deg, rgba(var(--bs-body-bg-rgb), 0.94) 0%, rgba(var(--bs-body-bg-rgb), 0.84) 64%, rgba(var(--bs-body-bg-rgb), 0.72) 100%);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
 
@@ -171,7 +170,6 @@ body {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
 
@@ -217,6 +215,7 @@ body {
   overflow: clip;
   padding: 0.25rem 10px 0.9rem;
   background: linear-gradient(180deg, rgba(var(--bs-body-bg-rgb), 0.96) 0%, rgba(var(--bs-body-bg-rgb), 0.92) 70%, rgba(var(--bs-body-bg-rgb), 0) 100%);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   border-top-left-radius: 16PX;
   border-top-right-radius: 16PX;
@@ -237,6 +236,7 @@ body {
   background: var(--app-light-shell-bg-strong);
   border: 1px solid var(--app-light-surface-border);
   box-shadow: 0 16px 30px rgba(89, 107, 145, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  -webkit-backdrop-filter: blur(16px) saturate(118%);
   backdrop-filter: blur(16px) saturate(118%);
 }
 
@@ -246,6 +246,7 @@ body {
     linear-gradient(150deg, rgba(18, 29, 46, 0.98) 0%, rgba(13, 23, 39, 0.96) 48%, rgba(25, 28, 38, 0.95) 100%);
   border: 1px solid rgba(96, 165, 250, 0.16);
   box-shadow: 0 16px 34px rgba(2, 6, 23, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  -webkit-backdrop-filter: blur(16px) saturate(118%);
   backdrop-filter: blur(16px) saturate(118%);
 }
 
@@ -298,5 +299,6 @@ body {
 .glass {
   background: rgba(var(--bs-body-bg-rgb), 0.72);
   border: 1px solid rgba(var(--bs-border-color-rgb), 0.55);
+  -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
 }
