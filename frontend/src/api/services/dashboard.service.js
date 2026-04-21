@@ -1,6 +1,7 @@
 import { attendanceService } from './attendance.service.js'
 import { employeeService } from './employee.service.js'
 import { leaveService } from './leave.service.js'
+import { metadataService } from './metadata.service.js'
 import { projectService } from './project.service.js'
 import { storage } from '../../utils/storage.js'
 import { AUTH_STORAGE_KEYS } from '../../utils/auth.js'
@@ -82,6 +83,124 @@ function buildProjectStatusSplit(projects = []) {
   return Array.from(counts.entries()).map(([name, value]) => ({ name, value }))
 }
 
+function toTitleLabel(value) {
+  return String(value || 'Not set')
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    || 'Not set'
+}
+
+function buildCountSplit(records = [], valueAccessor, fallbackLabel = 'Not set') {
+  const counts = new Map()
+  ;(Array.isArray(records) ? records : []).forEach((record) => {
+    const rawValue = valueAccessor(record)
+    const label = toTitleLabel(rawValue || fallbackLabel)
+    counts.set(label, (counts.get(label) || 0) + 1)
+  })
+  return Array.from(counts.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((left, right) => right.value - left.value)
+}
+
+function buildAttendanceStatusSplit(attendance = []) {
+  const counts = new Map()
+  ;(Array.isArray(attendance) ? attendance : []).forEach((record) => {
+    const label = String(record.status || 'Not set').trim() || 'Not set'
+    counts.set(label, (counts.get(label) || 0) + 1)
+  })
+  return Array.from(counts.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((left, right) => right.value - left.value)
+}
+
+function buildEmployeeStatusSplit(employees = []) {
+  return buildCountSplit(employees, (employee) => (
+    employee.status
+    || employee.employmentStatus
+    || employee.employeeStatus
+    || employee.dojStatus
+  ))
+}
+
+function buildWorkLocationSplit(employees = []) {
+  return buildCountSplit(employees, (employee) => (
+    employee.workLocationTypeLabel
+    || employee.workLocationLabel
+    || employee.workLocationType
+    || employee.workLocation
+  ))
+}
+
+function buildAssignmentStatusSplit(assignments = []) {
+  return buildCountSplit(assignments, (assignment) => assignment.status)
+}
+
+function buildLeaveStatusSplit(requests = []) {
+  return buildCountSplit(requests, (request) => request.status)
+}
+
+function buildRoleUserSplit(employees = [], roles = []) {
+  const roleNameByUid = new Map((Array.isArray(roles) ? roles : [])
+    .map((role) => [String(role.uid || ''), role.roleName || role.role_name || ''])
+    .filter(([, roleName]) => String(roleName || '').trim()))
+
+  return buildCountSplit(employees, (employee) => (
+    employee.roleName
+    || roleNameByUid.get(String(employee.roleType || ''))
+    || 'Unassigned'
+  ))
+}
+
+function getProjectLabel(project) {
+  if (!project) return ''
+  return project.projectCode
+    ? `${project.projectName || project.projectCode} (${project.projectCode})`
+    : project.projectName || ''
+}
+
+function buildProjectTaskVolume(tasks = [], projects = []) {
+  const projectByUid = new Map((Array.isArray(projects) ? projects : []).map((project) => [String(project.uid || ''), project]))
+  const totals = new Map()
+
+  ;(Array.isArray(tasks) ? tasks : []).forEach((task) => {
+    const project = projectByUid.get(String(task.projectUid || ''))
+    const label = getProjectLabel(project) || `Project ${String(task.projectUid || '').slice(0, 6) || 'Unassigned'}`
+    totals.set(label, (totals.get(label) || 0) + sumTaskStatusVolume([task]))
+  })
+
+  return Array.from(totals.entries())
+    .map(([name, tasks]) => ({ name, tasks }))
+    .filter((entry) => entry.tasks > 0)
+    .sort((left, right) => right.tasks - left.tasks)
+    .slice(0, 8)
+}
+
+function buildProjectHours(tasks = [], projects = []) {
+  const projectByUid = new Map((Array.isArray(projects) ? projects : []).map((project) => [String(project.uid || ''), project]))
+  const totals = new Map()
+
+  ;(Array.isArray(tasks) ? tasks : []).forEach((task) => {
+    const project = projectByUid.get(String(task.projectUid || ''))
+    const label = getProjectLabel(project) || `Project ${String(task.projectUid || '').slice(0, 6) || 'Unassigned'}`
+    totals.set(label, (totals.get(label) || 0) + Number(task.hourWork || 0))
+  })
+
+  return Array.from(totals.entries())
+    .map(([name, hours]) => ({ name, hours }))
+    .filter((entry) => entry.hours > 0)
+    .sort((left, right) => right.hours - left.hours)
+    .slice(0, 8)
+}
+
+function buildLeaveReviewSplit(pendingRequests = [], pendingCancellationRequests = []) {
+  return [
+    { name: 'Pending Leave Requests', value: (Array.isArray(pendingRequests) ? pendingRequests : []).length },
+    { name: 'Pending Cancellations', value: (Array.isArray(pendingCancellationRequests) ? pendingCancellationRequests : []).length }
+  ].filter((entry) => entry.value > 0)
+}
+
 function buildDepartmentHours(tasks = [], employees = []) {
   const employeeByUid = new Map((Array.isArray(employees) ? employees : []).map((employee) => [String(employee.uid || ''), employee]))
   const totals = new Map()
@@ -131,6 +250,14 @@ function buildCurrentUserDashboardVariant() {
   return 'employee'
 }
 
+function getCurrentDashboardUser() {
+  return storage.get(AUTH_STORAGE_KEYS.user, null)
+}
+
+function canViewDashboardModules(user, modules = []) {
+  return hasModuleVisibility(user, modules)
+}
+
 async function safeRequest(requestFn, fallbackValue) {
   try {
     return await requestFn()
@@ -144,14 +271,35 @@ async function getCurrentYearHolidays() {
 }
 
 async function buildAdminDashboard() {
-  const [employees, attendance, pendingLeaveRequests, holidays, projects, assignments, tasks] = await Promise.all([
-    safeRequest(() => employeeService.getDirectory(), []),
-    safeRequest(() => attendanceService.getAllAttendance(), []),
-    safeRequest(() => leaveService.getPendingLeaveRequests(), []),
-    safeRequest(() => getCurrentYearHolidays(), []),
-    safeRequest(() => projectService.listAllProjects(), { items: [] }),
-    safeRequest(() => projectService.listAllProjectAssignments(), { items: [] }),
-    safeRequest(() => projectService.listAllProjectTasks(), { items: [] })
+  const currentUser = getCurrentDashboardUser()
+  const canViewEmployees = canViewDashboardModules(currentUser, PERMISSION_MODULES.employeeDirectory)
+  const canViewAttendance = canViewDashboardModules(currentUser, [
+    ...PERMISSION_MODULES.attendanceOverview,
+    ...PERMISSION_MODULES.manageRegularization,
+    ...PERMISSION_MODULES.shiftRoster,
+    ...PERMISSION_MODULES.assignShift
+  ])
+  const canViewLeave = canViewDashboardModules(currentUser, [
+    ...PERMISSION_MODULES.holidayCalendar,
+    ...PERMISSION_MODULES.leaveType,
+    ...PERMISSION_MODULES.assignLeave,
+    ...PERMISSION_MODULES.manageLeave
+  ])
+  const canViewProjects = canViewDashboardModules(currentUser, PERMISSION_MODULES.project)
+  const canViewAssignments = canViewDashboardModules(currentUser, PERMISSION_MODULES.projectAssignment)
+  const canViewTasks = canViewDashboardModules(currentUser, PERMISSION_MODULES.projectTask)
+  const canViewRoles = canViewDashboardModules(currentUser, PERMISSION_MODULES.roles)
+
+  const [employees, attendance, pendingLeaveRequests, pendingCancellationRequests, holidays, projects, assignments, tasks, roles] = await Promise.all([
+    canViewEmployees ? safeRequest(() => employeeService.getDirectory(), []) : [],
+    canViewAttendance ? safeRequest(() => attendanceService.getAllAttendance(), []) : [],
+    canViewLeave ? safeRequest(() => leaveService.getPendingLeaveRequests(), []) : [],
+    canViewLeave ? safeRequest(() => leaveService.getPendingLeaveCancellationRequests(), []) : [],
+    canViewLeave ? safeRequest(() => getCurrentYearHolidays(), []) : [],
+    canViewProjects ? safeRequest(() => projectService.listAllProjects(), { items: [] }) : { items: [] },
+    canViewAssignments ? safeRequest(() => projectService.listAllProjectAssignments(), { items: [] }) : { items: [] },
+    canViewTasks ? safeRequest(() => projectService.listAllProjectTasks(), { items: [] }) : { items: [] },
+    canViewRoles ? safeRequest(() => metadataService.getRoles(), []) : []
   ])
 
   const employeeItems = Array.isArray(employees) ? employees : []
@@ -159,9 +307,14 @@ async function buildAdminDashboard() {
   const projectItems = Array.isArray(projects.items) ? projects.items : []
   const assignmentItems = Array.isArray(assignments.items) ? assignments.items : []
   const taskItems = Array.isArray(tasks.items) ? tasks.items : []
+  const roleItems = Array.isArray(roles) ? roles : []
   const todayIsoDate = getTodayIsoDate()
   const todayAttendance = attendanceItems.filter((record) => String(record.attendanceDate || '') === todayIsoDate)
   const todayTasks = taskItems.filter((task) => String(task.taskDate || '') === todayIsoDate)
+  const absentToday = todayAttendance.filter((record) => String(record.status || '').toLowerCase() === 'absent').length
+  const activeAssignments = assignmentItems.filter((assignment) => ['assigned', 'active'].includes(String(assignment.status || '').toLowerCase())).length
+  const pendingLeaveCount = pendingLeaveRequests.length
+  const taskVolumeToday = sumTaskStatusVolume(todayTasks)
 
   const attendanceTrend = buildLastSevenDaySeries(attendanceItems, (record) => record.attendanceDate, (items) => ({
     present: items.filter((record) => ['present', 'remote'].includes(String(record.status || '').toLowerCase())).length,
@@ -175,15 +328,23 @@ async function buildAdminDashboard() {
   return {
     variant: 'admin',
     kpis: [
-      { label: 'Total Employees', value: employeeItems.length, helper: 'Directory records synced from backend.', tone: 'blue' },
-      { label: 'Present Today', value: todayAttendance.filter((record) => ['present', 'remote'].includes(String(record.status || '').toLowerCase())).length, helper: 'Attendance marked for today.', tone: 'green' },
-      { label: 'Hours Logged Today', value: todayTasks.reduce((total, task) => total + Number(task.hourWork || 0), 0), helper: 'Task hours logged today.', tone: 'teal' },
-      { label: 'Active Projects', value: projectItems.filter((project) => String(project.status || '').toLowerCase() === 'active').length, helper: 'Projects currently marked active.', tone: 'orange' }
+      { label: 'Absent Today', value: absentToday, helper: 'Attendance entries that need follow-up.', tone: 'orange' },
+      { label: 'Leave Reviews', value: pendingLeaveCount, helper: 'Pending leave requests waiting for action.', tone: 'purple' },
+      { label: 'Active Assignments', value: activeAssignments, helper: 'Current employee-project mappings.', tone: 'blue' },
+      { label: 'Task Updates Today', value: taskVolumeToday, helper: 'Status movement recorded today.', tone: 'teal' }
     ],
     charts: {
       attendanceTrend,
       taskHoursTrend,
       projectStatusSplit: buildProjectStatusSplit(projectItems),
+      projectTaskVolume: buildProjectTaskVolume(taskItems, projectItems),
+      projectHours: buildProjectHours(taskItems, projectItems),
+      attendanceStatusSplit: buildAttendanceStatusSplit(attendanceItems),
+      employeeStatusSplit: buildEmployeeStatusSplit(employeeItems),
+      workLocationSplit: buildWorkLocationSplit(employeeItems),
+      assignmentStatusSplit: buildAssignmentStatusSplit(assignmentItems),
+      roleUserSplit: buildRoleUserSplit(employeeItems, roleItems),
+      leaveReviewSplit: buildLeaveReviewSplit(pendingLeaveRequests, pendingCancellationRequests),
       departmentHours: buildDepartmentHours(taskItems, employeeItems),
       taskStatusSplit: buildTaskStatusSplit(taskItems)
     },
@@ -192,9 +353,9 @@ async function buildAdminDashboard() {
       holidayCalendar: buildUpcomingHolidayWidgets(holidays),
       recentlyJoined: buildRecentJoiners(employeeItems),
       updates: [
-        `${pendingLeaveRequests.length} leave request${pendingLeaveRequests.length === 1 ? '' : 's'} waiting for review.`,
-        `${assignmentItems.filter((assignment) => ['assigned', 'active'].includes(String(assignment.status || '').toLowerCase())).length} project assignment${assignmentItems.length === 1 ? '' : 's'} currently active.`,
-        `${sumTaskStatusVolume(todayTasks)} task status volume recorded today.`
+        `${pendingLeaveCount} leave request${pendingLeaveCount === 1 ? '' : 's'} waiting for review.`,
+        `${activeAssignments} project assignment${activeAssignments === 1 ? '' : 's'} currently active.`,
+        `${taskVolumeToday} task status update${taskVolumeToday === 1 ? '' : 's'} recorded today.`
       ],
       spotlightProjects: projectItems
         .slice()
@@ -210,14 +371,30 @@ async function buildAdminDashboard() {
 }
 
 async function buildEmployeeDashboard() {
+  const currentUser = getCurrentDashboardUser()
+  const canViewSelfAttendance = canViewDashboardModules(currentUser, [
+    ...PERMISSION_MODULES.myAttendancePreview,
+    ...PERMISSION_MODULES.myShift,
+    ...PERMISSION_MODULES.manageRegularization
+  ])
+  const canViewSelfLeave = canViewDashboardModules(currentUser, [
+    ...PERMISSION_MODULES.holidayCalendar,
+    ...PERMISSION_MODULES.leaveRequest,
+    ...PERMISSION_MODULES.myLeaveBalance
+  ])
+  const canViewProjects = canViewDashboardModules(currentUser, [
+    ...PERMISSION_MODULES.project,
+    ...PERMISSION_MODULES.projectAssignment
+  ])
+  const canViewTasks = canViewDashboardModules(currentUser, PERMISSION_MODULES.projectTask)
   const currentEmployee = await safeRequest(() => employeeService.getCurrentEmployee({ allowMissing: true }), null)
   const [attendance, leaveRequests, holidays, projects, assignments, tasks] = await Promise.all([
-    safeRequest(() => currentEmployee?.uid ? attendanceService.getAttendanceByEmployee(currentEmployee.uid) : Promise.resolve([]), []),
-    safeRequest(() => leaveService.getMyLeaveRequests(), []),
-    safeRequest(() => getCurrentYearHolidays(), []),
-    safeRequest(() => projectService.listAllProjects(), { items: [] }),
-    safeRequest(() => projectService.listAllProjectAssignments(), { items: [] }),
-    safeRequest(() => projectService.listAllProjectTasks(), { items: [] })
+    canViewSelfAttendance ? safeRequest(() => currentEmployee?.uid ? attendanceService.getAttendanceByEmployee(currentEmployee.uid) : Promise.resolve([]), []) : [],
+    canViewSelfLeave ? safeRequest(() => leaveService.getMyLeaveRequests(), []) : [],
+    canViewSelfLeave ? safeRequest(() => getCurrentYearHolidays(), []) : [],
+    canViewProjects ? safeRequest(() => projectService.listAllProjects(), { items: [] }) : { items: [] },
+    canViewProjects ? safeRequest(() => projectService.listAllProjectAssignments(), { items: [] }) : { items: [] },
+    canViewTasks ? safeRequest(() => projectService.listAllProjectTasks(), { items: [] }) : { items: [] }
   ])
 
   const projectItems = Array.isArray(projects.items) ? projects.items : []
@@ -239,18 +416,27 @@ async function buildEmployeeDashboard() {
     present: items.filter((record) => ['present', 'remote'].includes(String(record.status || '').toLowerCase())).length,
     leave: items.filter((record) => ['leave', 'on leave'].includes(String(record.status || '').toLowerCase())).length
   }))
+  const pendingLeaveCount = leaveRequests.filter((request) => String(request.status || '').toLowerCase() === 'pending').length
+  const assignedProjectCount = assignmentItems.length
+  const monthTaskVolume = sumTaskStatusVolume(monthTasks)
+  const presentRecordCount = attendanceItems.filter((record) => ['present', 'remote', 'worked'].includes(String(record.status || '').toLowerCase())).length
 
   return {
     variant: buildCurrentUserDashboardVariant(),
     kpis: [
-      { label: 'Hours This Month', value: monthTasks.reduce((total, task) => total + Number(task.hourWork || 0), 0), helper: 'Task hours logged in the current month.', tone: 'blue' },
-      { label: 'Task Entries', value: taskItems.length, helper: 'All task entries linked to you.', tone: 'teal' },
-      { label: 'Approved Tasks', value: monthTasks.reduce((total, task) => total + Number(task.taskApproved || 0), 0), helper: 'Approved volume this month.', tone: 'green' },
-      { label: 'Active Assignments', value: assignmentItems.filter((assignment) => ['assigned', 'active'].includes(String(assignment.status || '').toLowerCase())).length, helper: 'Current project assignments.', tone: 'orange' }
+      { label: 'Pending Leave', value: pendingLeaveCount, helper: 'Your leave requests still awaiting action.', tone: 'orange' },
+      { label: 'Assigned Projects', value: assignedProjectCount, helper: 'Projects currently mapped to you.', tone: 'blue' },
+      { label: 'Task Updates', value: monthTaskVolume, helper: 'Monthly task status movement.', tone: 'teal' },
+      { label: 'Worked Records', value: presentRecordCount, helper: 'Present or worked attendance records.', tone: 'green' }
     ],
     charts: {
       hoursTrend: taskHoursTrend,
       attendanceTrend,
+      projectTaskVolume: buildProjectTaskVolume(taskItems, projectItems),
+      projectHours: buildProjectHours(taskItems, projectItems),
+      attendanceStatusSplit: buildAttendanceStatusSplit(attendanceItems),
+      assignmentStatusSplit: buildAssignmentStatusSplit(assignmentItems),
+      leaveStatusSplit: buildLeaveStatusSplit(leaveRequests),
       taskStatusSplit: buildTaskStatusSplit(monthTasks),
       projectStatusSplit: buildProjectStatusSplit(projectItems.filter((project) => assignmentItems.some((assignment) => String(assignment.projectUid || '') === String(project.uid || ''))))
     },
@@ -259,9 +445,9 @@ async function buildEmployeeDashboard() {
       holidayCalendar: buildUpcomingHolidayWidgets(holidays),
       recentlyJoined: currentEmployee ? [{ name: currentEmployee.fullName || currentEmployee.employeeCode || 'You', dept: currentEmployee.departmentLabel || currentEmployee.department || 'Unassigned' }] : [],
       updates: [
-        `${leaveRequests.filter((request) => String(request.status || '').toLowerCase() === 'pending').length} leave request${leaveRequests.length === 1 ? '' : 's'} currently pending.`,
-        `${sumTaskStatusVolume(monthTasks)} task status volume recorded this month.`,
-        `${attendanceItems.filter((record) => String(record.status || '').toLowerCase() === 'present').length} present attendance record${attendanceItems.length === 1 ? '' : 's'} available.`
+        `${pendingLeaveCount} leave request${pendingLeaveCount === 1 ? '' : 's'} currently pending.`,
+        `${monthTaskVolume} task status update${monthTaskVolume === 1 ? '' : 's'} recorded this month.`,
+        `${presentRecordCount} worked attendance record${presentRecordCount === 1 ? '' : 's'} available.`
       ],
       assignedProjects: buildAssignedProjectWidgets(assignmentItems, projectItems)
     }

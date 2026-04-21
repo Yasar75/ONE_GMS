@@ -12,7 +12,7 @@ import { NotificationsProvider } from './app/providers/NotificationsProvider.jsx
 
 export default function RootApp() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ThemeProvider>
         <QueryProvider>
           <ToastProvider>

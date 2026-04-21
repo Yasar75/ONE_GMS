@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import PageHeader from '../../../components/common/PageHeader.jsx'
+import PageContentLoader from '../../../components/common/PageContentLoader.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
@@ -131,6 +132,15 @@ const ROLE_BADGE_HUE_PALETTE = [214, 174, 26, 352, 128, 262, 44, 192, 14, 286, 9
 const SYSTEM_ADMIN_ROLE_NAME = 'Admin'
 const BILLABLE_ASSIGNMENT_STATUSES = new Set(['assigned', 'active'])
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['released', 'hold', 'terminated', 'inactive', 'completed'])
+const EMPTY_LIST = Object.freeze([])
+const MAPPING_DRAFT_FIELDS = ['managerEmployeeUid', 'hrEmployeeUid', 'teamLeadEmployeeUid', 'coordinatorEmployeeUid']
+const REPORTING_ASSIGNMENT_OPTION_ORDER = ['manager_employee_uid', 'hr_employee_uid', 'team_lead_employee_uid', 'coordinator_employee_uid']
+const MAPPING_ASSIGNMENT_FIELD_CONFIG = {
+  managerEmployeeUid: { assignmentKey: 'manager_employee_uid', label: 'Manager' },
+  hrEmployeeUid: { assignmentKey: 'hr_employee_uid', label: 'HR' },
+  teamLeadEmployeeUid: { assignmentKey: 'team_lead_employee_uid', label: 'Team Lead' },
+  coordinatorEmployeeUid: { assignmentKey: 'coordinator_employee_uid', label: 'Coordinator' }
+}
 const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Profile Management', 'Employees Management', 'Attendance Management', 'Leave Management', 'Project Management', 'Task Management', 'Other']
 const ROLE_MODULE_VISUAL_CONFIG = [
   {
@@ -229,10 +239,6 @@ function isSystemAdminRoleName(roleName) {
 
 function normalizeEmployeeRoleName(roleName) {
   return String(roleName || '').trim().toLowerCase()
-}
-
-function isGenericEmployeeRole(roleName = '') {
-  return normalizeEmployeeRoleName(roleName) === 'employee'
 }
 
 function isEmployeeMapped(employee = {}) {
@@ -723,6 +729,10 @@ function createMappingDraft(employee) {
     teamLeadEmployeeUid: String(reportingAssignments.team_lead_employee_uid || ''),
     coordinatorEmployeeUid: String(reportingAssignments.coordinator_employee_uid || '')
   }
+}
+
+function areMappingDraftsEqual(left = {}, right = {}) {
+  return MAPPING_DRAFT_FIELDS.every((fieldName) => String(left?.[fieldName] || '') === String(right?.[fieldName] || ''))
 }
 
 function buildMappingAssignmentsPayload(draft = {}) {
@@ -1950,8 +1960,16 @@ function MappingModal({
   employeeOptions,
   onEmployeeChange,
   managerOptions,
-  hiddenEmployeeOptions
+  hrOptions,
+  teamLeadOptions,
+  coordinatorOptions,
+  hiddenEmployeeOptions,
+  warnings = {}
 }) {
+  const hiddenHrOptions = hrOptions || hiddenEmployeeOptions
+  const hiddenTeamLeadOptions = teamLeadOptions || hiddenEmployeeOptions
+  const hiddenCoordinatorOptions = coordinatorOptions || hiddenEmployeeOptions
+
   return (
     <ModalFrame
       open={open}
@@ -1965,7 +1983,7 @@ function MappingModal({
         </>
       )}
     >
-      <div className="row g-3">
+      <div className="row g-3 employee-mapping-modal-shell">
         <div className="col-12">
           <div className="attendance-note-card">
             <div className="fw-semibold">{employee ? employee.fullName : 'Select the employee to map'}</div>
@@ -1976,8 +1994,8 @@ function MappingModal({
             </div>
             <div className="small text-muted mt-1">
               {employee
-                ? 'Manager options are filtered from employee positions mapped to Manager.'
-                : 'Only employees with the Employee role are available here.'}
+                ? 'Manager-position employees are prioritized, but any employee can be selected.'
+                : 'Any employee can be selected for reporting assignment mapping.'}
             </div>
           </div>
         </div>
@@ -2000,6 +2018,9 @@ function MappingModal({
                 options={managerOptions}
                 placeholder="Select manager"
               />
+              {warnings.managerEmployeeUid ? (
+                <div className="employee-mapping-warning mt-2">{warnings.managerEmployeeUid}</div>
+              ) : null}
             </div>
 
             <div className="col-12 d-none" aria-hidden>
@@ -2007,9 +2028,12 @@ function MappingModal({
               <AppSelect
                 value={draft.hrEmployeeUid || ''}
                 onChange={(nextValue) => onChange('hrEmployeeUid', nextValue)}
-                options={hiddenEmployeeOptions}
+                options={hiddenHrOptions}
                 placeholder="Select HR"
               />
+              {warnings.hrEmployeeUid ? (
+                <div className="employee-mapping-warning mt-2">{warnings.hrEmployeeUid}</div>
+              ) : null}
             </div>
 
             <div className="col-12 d-none" aria-hidden>
@@ -2017,9 +2041,12 @@ function MappingModal({
               <AppSelect
                 value={draft.teamLeadEmployeeUid || ''}
                 onChange={(nextValue) => onChange('teamLeadEmployeeUid', nextValue)}
-                options={hiddenEmployeeOptions}
+                options={hiddenTeamLeadOptions}
                 placeholder="Select team lead"
               />
+              {warnings.teamLeadEmployeeUid ? (
+                <div className="employee-mapping-warning mt-2">{warnings.teamLeadEmployeeUid}</div>
+              ) : null}
             </div>
 
             <div className="col-12 d-none" aria-hidden>
@@ -2027,9 +2054,12 @@ function MappingModal({
               <AppSelect
                 value={draft.coordinatorEmployeeUid || ''}
                 onChange={(nextValue) => onChange('coordinatorEmployeeUid', nextValue)}
-                options={hiddenEmployeeOptions}
+                options={hiddenCoordinatorOptions}
                 placeholder="Select coordinator"
               />
+              {warnings.coordinatorEmployeeUid ? (
+                <div className="employee-mapping-warning mt-2">{warnings.coordinatorEmployeeUid}</div>
+              ) : null}
             </div>
           </>
         ) : (
@@ -2062,7 +2092,7 @@ export default function EmployeesManagement() {
   const canUpdateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
   const canDeleteEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.delete)
   const canManageEmployeeRequests = hasModulePermission(user, PERMISSION_MODULES.employeeStatus, PERMISSION_ACTIONS.update)
-  const { data: employeesData = [], isLoading, isError, error, refetch, isFetching } = useEmployeesQuery(canViewEntries)
+  const { data: employeesData = EMPTY_LIST, isLoading, isError, error, refetch, isFetching } = useEmployeesQuery(canViewEntries)
   const directoryErrorStatus = Number(error?.response?.status || 0)
   const directoryErrorMessage = String(error?.message || error?.response?.data?.detail || '')
   const isDirectoryAccessBlocked = isError
@@ -2081,15 +2111,21 @@ export default function EmployeesManagement() {
     : (canViewMetadata
       ? 'metadata'
       : (canViewRequests ? 'requests' : ''))
-  const { data: employeeLookup = [] } = useEmployeeLookupQuery(canViewEntries || canViewMapping)
-  const { data: metadataEntries = [] } = useEmployeeMetadataQuery(canReadEmployeeMetadata)
-  const { data: roles = [] } = useRoleDirectoryQuery(canReadRoles)
+  const { data: employeeLookup = EMPTY_LIST } = useEmployeeLookupQuery(canViewEntries || canViewMapping)
+  const { data: metadataEntries = EMPTY_LIST } = useEmployeeMetadataQuery(canReadEmployeeMetadata)
+  const shouldLoadRoleDirectory = canReadRoles || canViewEntries || canViewMapping || canViewRequests
+  const { data: roles = EMPTY_LIST } = useRoleDirectoryQuery(shouldLoadRoleDirectory)
   const projectAssignmentsQuery = useProjectAssignmentsQuery(canViewEntries || canViewMapping)
-  const { data: roleModules = [], isFetching: roleModulesFetching } = useRoleModulesQuery(canReadRoles)
-  const { data: phoneCountryOptionsData = [] } = usePhoneCountryOptionsQuery(canViewEntriesTab || canViewMetadata || canViewRequests)
-  const { addEmployee, bulkAddEmployees, updateEmployee, deleteEmployee } = useEmployeeDirectoryActions()
+  const { data: roleModules = EMPTY_LIST, isFetching: roleModulesFetching } = useRoleModulesQuery(canReadRoles)
+  const { data: phoneCountryOptionsData = EMPTY_LIST } = usePhoneCountryOptionsQuery(canViewEntriesTab || canViewMetadata || canViewRequests)
   const {
-    data: profileRequests = [],
+    bulkAddEmployees,
+    addEmployeeOptimistic,
+    updateEmployeeOptimistic,
+    deleteEmployeeOptimistic
+  } = useEmployeeDirectoryActions()
+  const {
+    data: profileRequests = EMPTY_LIST,
     isFetching: profileRequestsFetching,
     isError: profileRequestsErrorState,
     error: profileRequestsError
@@ -2097,6 +2133,7 @@ export default function EmployeesManagement() {
     queryKey: ['employees', 'profile-requests'],
     queryFn: employeeService.getProfileRequests,
     enabled: canViewRequests,
+    retry: false,
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: 'always'
@@ -2150,7 +2187,7 @@ export default function EmployeesManagement() {
   const [mappingModalOpen, setMappingModalOpen] = useState(false)
   const [mappingEmployee, setMappingEmployee] = useState(null)
   const [mappingSelectedEmployeeUid, setMappingSelectedEmployeeUid] = useState('')
-  const [mappingDraft, setMappingDraft] = useState(createMappingDraft(null))
+  const [mappingDraft, setMappingDraft] = useState(() => createMappingDraft(null))
 
   const canManageMetadataSection = (category, action) => {
     if (category === 'roles') {
@@ -2308,10 +2345,7 @@ export default function EmployeesManagement() {
   }), [assignmentStatusesByEmployeeUid, directoryRows, roleDirectory, metadataCatalog, employeeNameDirectory])
   const employeeDirectoryByUid = useMemo(() => new Map(employees.map((employee) => [String(employee.uid), employee])), [employees])
   const mappedEmployees = useMemo(() => employees.filter((employee) => isEmployeeMapped(employee)), [employees])
-  const mappingSelectableEmployees = useMemo(
-    () => employees.filter((employee) => isGenericEmployeeRole(employee.roleName)),
-    [employees]
-  )
+  const mappingSelectableEmployees = useMemo(() => employees, [employees])
   const roleBadgeAssignments = useMemo(() => buildRoleBadgeAssignments(
     [...roles.map((role) => role.roleName), ...employees.map((employee) => employee.roleName)],
     readCachedRoleBadgeAssignments()
@@ -2438,12 +2472,11 @@ export default function EmployeesManagement() {
     const selectedEmployee = selectedEmployeeValue ? employeeDirectoryByUid.get(selectedEmployeeValue) : null
 
     const optionEmployees = selectedEmployee
-      && isGenericEmployeeRole(selectedEmployee.roleName)
       && !mappingSelectableEmployees.some((employee) => String(employee.uid || '') === selectedEmployeeValue)
       ? [...mappingSelectableEmployees, selectedEmployee]
       : mappingSelectableEmployees
 
-    return optionEmployees
+    return [...optionEmployees]
       .sort((left, right) => String(left.fullName || left.employeeCode || '').localeCompare(String(right.fullName || right.employeeCode || '')))
       .map((employee) => ({
         value: employee.uid,
@@ -2451,18 +2484,6 @@ export default function EmployeesManagement() {
         description: `${employee.employeeCode || 'No code'} • ${employee.roleName || 'No role'} • ${employee.positionLabel || employee.position || 'No position'}`
       }))
   }, [employeeDirectoryByUid, mappingSelectableEmployees, mappingSelectedEmployeeUid])
-
-  const hiddenMappingEmployeeOptions = useMemo(() => ([
-    { value: '', label: 'Unassigned', description: 'No assignment selected' },
-    ...employees
-      .slice()
-      .sort((left, right) => String(left.fullName || left.employeeCode || '').localeCompare(String(right.fullName || right.employeeCode || '')))
-      .map((entry) => ({
-        value: entry.uid,
-        label: entry.fullName || entry.employeeCode || 'Employee',
-        description: `${entry.employeeCode || 'No code'} • ${entry.positionLabel || entry.position || 'No position'} • ${entry.departmentLabel || entry.department || 'No department'}`
-      }))
-  ]), [employees])
 
   const resolveMappingPositionValue = useCallback((value) => {
     const normalizedValue = String(value || '').trim()
@@ -2491,32 +2512,112 @@ export default function EmployeesManagement() {
     return normalizedValue
   }, [metadataCatalog])
 
-  const mappingManagerOptions = useMemo(() => {
-    const baseOptions = [{ value: '', label: 'Unassigned', description: 'Remove current manager assignment' }]
-    if (!mappingEmployee?.uid) return baseOptions
+  const getReportingAssignmentOptionRank = useCallback((entry, preferredAssignmentKey = '') => {
+    const assignmentKey = toReportingAssignmentKey(resolveMappingPositionValue(entry?.positionLabel || entry?.position || ''))
+    const preferredKey = String(preferredAssignmentKey || '').trim()
 
-    const selectedManagerUid = String(mappingDraft.managerEmployeeUid || '').trim()
-    const selectedManager = selectedManagerUid ? employeeDirectoryByUid.get(selectedManagerUid) : null
-    const candidateManagers = employees.filter((entry) => (
-      String(entry.uid || '') !== String(mappingEmployee.uid || '')
-      && toReportingAssignmentKey(resolveMappingPositionValue(entry.position || entry.positionLabel || '')) === 'manager_employee_uid'
-    ))
+    if (preferredKey && assignmentKey === preferredKey) return 0
 
-    const optionManagers = selectedManager && !candidateManagers.some((entry) => String(entry.uid || '') === selectedManagerUid)
-      ? [...candidateManagers, selectedManager]
-      : candidateManagers
+    const orderIndex = REPORTING_ASSIGNMENT_OPTION_ORDER.indexOf(assignmentKey)
+    if (orderIndex === -1) return REPORTING_ASSIGNMENT_OPTION_ORDER.length + 1
+
+    return preferredKey ? orderIndex + 1 : orderIndex
+  }, [resolveMappingPositionValue])
+
+  const sortMappingAssigneeOptions = useCallback((records = [], preferredAssignmentKey = '') => (
+    [...records].sort((left, right) => {
+      const rankCompare = getReportingAssignmentOptionRank(left, preferredAssignmentKey) - getReportingAssignmentOptionRank(right, preferredAssignmentKey)
+      if (rankCompare !== 0) return rankCompare
+
+      const leftName = String(left.fullName || left.employeeCode || '')
+      const rightName = String(right.fullName || right.employeeCode || '')
+      return leftName.localeCompare(rightName)
+    })
+  ), [getReportingAssignmentOptionRank])
+
+  const buildMappingAssigneeOptions = useCallback(({
+    selectedEmployeeUid = '',
+    preferredAssignmentKey = '',
+    unassignedDescription = 'No assignment selected',
+    labelFallback = 'Employee'
+  } = {}) => {
+    const selectedUid = String(selectedEmployeeUid || '').trim()
+    const currentEmployeeUid = String(mappingEmployee?.uid || '').trim()
+    const selectedRecord = selectedUid ? employeeDirectoryByUid.get(selectedUid) : null
+    const candidateEmployees = employees.filter((entry) => String(entry.uid || '') !== currentEmployeeUid)
+    const optionEmployees = selectedRecord
+      && String(selectedRecord.uid || '') !== currentEmployeeUid
+      && !candidateEmployees.some((entry) => String(entry.uid || '') === selectedUid)
+      ? [...candidateEmployees, selectedRecord]
+      : candidateEmployees
 
     return [
-      ...baseOptions,
-      ...optionManagers
-        .sort((left, right) => String(left.fullName || left.employeeCode || '').localeCompare(String(right.fullName || right.employeeCode || '')))
+      { value: '', label: 'Unassigned', description: unassignedDescription },
+      ...sortMappingAssigneeOptions(optionEmployees, preferredAssignmentKey)
         .map((entry) => ({
           value: entry.uid,
-          label: entry.fullName || entry.employeeCode || 'Manager',
+          label: entry.fullName || entry.employeeCode || labelFallback,
           description: `${entry.employeeCode || 'No code'} • ${entry.positionLabel || entry.position || 'No position'} • ${entry.departmentLabel || entry.department || 'No department'}`
         }))
     ]
-  }, [employeeDirectoryByUid, employees, mappingDraft.managerEmployeeUid, mappingEmployee, resolveMappingPositionValue])
+  }, [employeeDirectoryByUid, employees, mappingEmployee?.uid, sortMappingAssigneeOptions])
+
+  const hiddenMappingEmployeeOptions = useMemo(() => buildMappingAssigneeOptions({
+    unassignedDescription: 'No assignment selected'
+  }), [buildMappingAssigneeOptions])
+
+  const mappingManagerOptions = useMemo(() => buildMappingAssigneeOptions({
+    selectedEmployeeUid: mappingDraft.managerEmployeeUid,
+    preferredAssignmentKey: MAPPING_ASSIGNMENT_FIELD_CONFIG.managerEmployeeUid.assignmentKey,
+    unassignedDescription: 'Remove current manager assignment',
+    labelFallback: 'Manager'
+  }), [buildMappingAssigneeOptions, mappingDraft.managerEmployeeUid])
+
+  const mappingHrOptions = useMemo(() => buildMappingAssigneeOptions({
+    selectedEmployeeUid: mappingDraft.hrEmployeeUid,
+    preferredAssignmentKey: MAPPING_ASSIGNMENT_FIELD_CONFIG.hrEmployeeUid.assignmentKey,
+    unassignedDescription: 'Remove current HR assignment',
+    labelFallback: 'HR'
+  }), [buildMappingAssigneeOptions, mappingDraft.hrEmployeeUid])
+
+  const mappingTeamLeadOptions = useMemo(() => buildMappingAssigneeOptions({
+    selectedEmployeeUid: mappingDraft.teamLeadEmployeeUid,
+    preferredAssignmentKey: MAPPING_ASSIGNMENT_FIELD_CONFIG.teamLeadEmployeeUid.assignmentKey,
+    unassignedDescription: 'Remove current team lead assignment',
+    labelFallback: 'Team Lead'
+  }), [buildMappingAssigneeOptions, mappingDraft.teamLeadEmployeeUid])
+
+  const mappingCoordinatorOptions = useMemo(() => buildMappingAssigneeOptions({
+    selectedEmployeeUid: mappingDraft.coordinatorEmployeeUid,
+    preferredAssignmentKey: MAPPING_ASSIGNMENT_FIELD_CONFIG.coordinatorEmployeeUid.assignmentKey,
+    unassignedDescription: 'Remove current coordinator assignment',
+    labelFallback: 'Coordinator'
+  }), [buildMappingAssigneeOptions, mappingDraft.coordinatorEmployeeUid])
+
+  const getMappingPositionWarning = useCallback((employeeUid, assignmentKey) => {
+    const normalizedEmployeeUid = String(employeeUid || '').trim()
+    if (!normalizedEmployeeUid) return ''
+
+    const selectedRecord = employeeDirectoryByUid.get(normalizedEmployeeUid)
+    if (!selectedRecord) return ''
+
+    const expectedAssignmentKey = toReportingAssignmentKey(assignmentKey)
+    const selectedPosition = selectedRecord.positionLabel || selectedRecord.position || ''
+    const selectedAssignmentKey = toReportingAssignmentKey(resolveMappingPositionValue(selectedPosition))
+    if (selectedAssignmentKey === expectedAssignmentKey) return ''
+
+    const expectedLabel = formatReportingAssignmentLabel(expectedAssignmentKey) || 'selected assignment'
+    const selectedPositionLabel = selectedPosition || 'no position'
+    return `${selectedRecord.fullName || 'Selected employee'} is currently marked as ${selectedPositionLabel}, not the expected ${expectedLabel} position. You can still save this mapping.`
+  }, [employeeDirectoryByUid, resolveMappingPositionValue])
+
+  const mappingAssignmentWarnings = useMemo(() => (
+    MAPPING_DRAFT_FIELDS.reduce((warnings, fieldName) => {
+      const fieldConfig = MAPPING_ASSIGNMENT_FIELD_CONFIG[fieldName]
+      warnings[fieldName] = getMappingPositionWarning(mappingDraft[fieldName], fieldConfig.assignmentKey)
+      return warnings
+    }, {})
+  ), [getMappingPositionWarning, mappingDraft.coordinatorEmployeeUid, mappingDraft.hrEmployeeUid, mappingDraft.managerEmployeeUid, mappingDraft.teamLeadEmployeeUid])
 
   useEffect(() => {
     if (positionFilter === 'All') return
@@ -2716,15 +2817,21 @@ export default function EmployeesManagement() {
 
   useEffect(() => {
     const selectedEmployeeValue = String(mappingSelectedEmployeeUid || '').trim()
-    if (!selectedEmployeeValue) {
-      setMappingEmployee(null)
-      setMappingDraft(createMappingDraft(null))
-      return
-    }
+    const nextEmployee = selectedEmployeeValue ? (employeeDirectoryByUid.get(selectedEmployeeValue) || null) : null
+    const nextDraft = createMappingDraft(nextEmployee)
 
-    const nextEmployee = employeeDirectoryByUid.get(selectedEmployeeValue) || null
-    setMappingEmployee(nextEmployee)
-    setMappingDraft(createMappingDraft(nextEmployee))
+    setMappingEmployee((currentEmployee) => {
+      if (!nextEmployee) return currentEmployee ? null : currentEmployee
+
+      const currentEmployeeUid = String(currentEmployee?.uid || '')
+      const nextEmployeeUid = String(nextEmployee.uid || '')
+      const currentDraft = createMappingDraft(currentEmployee)
+
+      return currentEmployeeUid === nextEmployeeUid && areMappingDraftsEqual(currentDraft, nextDraft)
+        ? currentEmployee
+        : nextEmployee
+    })
+    setMappingDraft((currentDraft) => (areMappingDraftsEqual(currentDraft, nextDraft) ? currentDraft : nextDraft))
   }, [employeeDirectoryByUid, mappingSelectedEmployeeUid])
 
   useEffect(() => {
@@ -2959,27 +3066,28 @@ export default function EmployeesManagement() {
     }, selectedEmployee || {})
 
     try {
-      await runWithLoader(async () => {
-        if (employeeFormMode === 'create') {
-          await addEmployee(payload)
-        } else {
-          await updateEmployee(selectedEmployee.uid, payload)
-        }
-      }, {
-        title: employeeFormMode === 'create' ? 'Creating employee' : 'Updating employee',
-        message: employeeFormMode === 'create' ? 'Saving employee record and provisioning linked auth signup.' : 'Applying employee updates and syncing linked auth details.',
-        minVisibleMs: 700
-      })
+      const isCreateMode = employeeFormMode === 'create'
+      const { request } = isCreateMode
+        ? addEmployeeOptimistic(payload)
+        : updateEmployeeOptimistic(selectedEmployee.uid, payload)
 
       showStatus({
         type: 'success',
-        title: employeeFormMode === 'create' ? 'Employee created' : 'Employee updated',
-        message: employeeFormMode === 'create'
-          ? `${payload.fullName} was added successfully. Linked auth signup was provisioned with the default password Welcome@123.`
-          : `${payload.fullName} was updated successfully.`
+        title: isCreateMode ? 'Employee created' : 'Employee updated',
+        message: isCreateMode
+          ? `${payload.fullName} is visible now. Server sync and linked auth provisioning will finish in the background.`
+          : `${payload.fullName} is updated on the table now. Server sync is running in the background.`
       })
 
-      await queryClient.invalidateQueries({ queryKey: ['employees', 'profile'], exact: false })
+      void request
+        .then(() => queryClient.invalidateQueries({ queryKey: ['employees', 'profile'], exact: false }))
+        .catch((syncError) => {
+          showStatus({
+            type: 'error',
+            title: isCreateMode ? 'Employee creation reverted' : 'Employee update reverted',
+            message: syncError?.response?.data?.detail || syncError?.message || 'The server rejected the employee change, so the table was restored.'
+          })
+        })
 
       setIsEmployeeFormOpen(false)
       setEmployeeDraft(createEmptyEmployeeDraft())
@@ -2988,7 +3096,7 @@ export default function EmployeesManagement() {
       setEmployeeFormProfile(null)
       setSelectedEmployee(null)
     } catch (actionError) {
-      showStatus({ type: 'error', title: 'Employee save failed', message: actionError?.response?.data?.detail || actionError?.message || 'The employee request could not be completed.' })
+      showStatus({ type: 'error', title: 'Employee save failed', message: actionError?.response?.data?.detail || actionError?.message || 'The employee request could not be started.' })
     }
   }
 
@@ -3006,10 +3114,18 @@ export default function EmployeesManagement() {
     if (!accepted) return
 
     try {
-      await runWithLoader(() => deleteEmployee(employee.uid), { title: 'Deleting employee', message: 'Removing the selected employee record from the directory.', minVisibleMs: 650 })
-      showStatus({ type: 'success', title: 'Employee removed', message: `${employee.fullName} has been removed from the directory.` })
+      const { request } = deleteEmployeeOptimistic(employee.uid)
+      showStatus({ type: 'success', title: 'Employee removed', message: `${employee.fullName} was removed from the table. Server sync is running in the background.` })
+
+      void request.catch((syncError) => {
+        showStatus({
+          type: 'error',
+          title: 'Employee removal reverted',
+          message: syncError?.response?.data?.detail || syncError?.message || 'The server rejected the delete request, so the employee was restored.'
+        })
+      })
     } catch (actionError) {
-      showStatus({ type: 'error', title: 'Delete failed', message: actionError?.response?.data?.detail || actionError?.message || 'The employee could not be removed.' })
+      showStatus({ type: 'error', title: 'Delete failed', message: actionError?.response?.data?.detail || actionError?.message || 'The employee delete request could not be started.' })
     }
   }
 
@@ -3307,18 +3423,15 @@ export default function EmployeesManagement() {
         ...createMappingDraft(employee),
         managerEmployeeUid: ''
       }
-
-      await runWithLoader(() => updateEmployee(employee.uid, {
+      const optimisticPayload = {
         ...employee,
         managerEmployeeUid: '',
         hrEmployeeUid: clearedDraft.hrEmployeeUid || '',
         teamLeadEmployeeUid: clearedDraft.teamLeadEmployeeUid || '',
         coordinatorEmployeeUid: clearedDraft.coordinatorEmployeeUid || '',
         reportingAssignments: buildMappingAssignmentsPayload(clearedDraft)
-      }), {
-        title: 'Removing manager mapping',
-        message: `Clearing manager assignment for ${employee.fullName || 'the selected employee'}.`
-      })
+      }
+      const { request } = updateEmployeeOptimistic(employee.uid, optimisticPayload)
 
       if (mappingEmployee?.uid && String(mappingEmployee.uid) === String(employee.uid)) {
         closeMappingModal()
@@ -3327,10 +3440,18 @@ export default function EmployeesManagement() {
       showStatus({
         type: 'success',
         title: 'Mapping removed',
-        message: `${employee.fullName || 'The selected employee'} manager mapping has been removed.`
+        message: `${employee.fullName || 'The selected employee'} manager mapping was removed from the table. Server sync is running in the background.`
+      })
+
+      void request.catch((syncError) => {
+        showStatus({
+          type: 'error',
+          title: 'Mapping removal reverted',
+          message: syncError?.response?.data?.detail || syncError?.message || 'The server rejected the mapping removal, so the previous mapping was restored.'
+        })
       })
     } catch (actionError) {
-      showStatus({ type: 'error', title: 'Mapping removal failed', message: actionError?.response?.data?.detail || actionError?.message || 'The employee mapping could not be removed.' })
+      showStatus({ type: 'error', title: 'Mapping removal failed', message: actionError?.response?.data?.detail || actionError?.message || 'The mapping removal request could not be started.' })
     }
   }
 
@@ -3368,18 +3489,6 @@ export default function EmployeesManagement() {
       return
     }
 
-    if (selectedManager) {
-      const selectedManagerPosition = resolveMappingPositionValue(selectedManager.position || selectedManager.positionLabel || '')
-      if (toReportingAssignmentKey(selectedManagerPosition) !== 'manager_employee_uid') {
-        showStatus({
-          type: 'error',
-          title: 'Manager position mismatch',
-          message: `${selectedManager.fullName || 'Selected employee'} does not belong to a Manager position.`
-        })
-        return
-      }
-    }
-
     const nextMappingDraft = {
       managerEmployeeUid,
       hrEmployeeUid: String(mappingDraft.hrEmployeeUid || '').trim(),
@@ -3390,23 +3499,32 @@ export default function EmployeesManagement() {
     const nextAssignments = buildMappingAssignmentsPayload(nextMappingDraft)
 
     try {
-      await runWithLoader(() => updateEmployee(mappingEmployee.uid, {
+      const optimisticPayload = {
         ...mappingEmployee,
         managerEmployeeUid: nextMappingDraft.managerEmployeeUid,
         hrEmployeeUid: nextMappingDraft.hrEmployeeUid,
         teamLeadEmployeeUid: nextMappingDraft.teamLeadEmployeeUid,
         coordinatorEmployeeUid: nextMappingDraft.coordinatorEmployeeUid,
         reportingAssignments: nextAssignments
-      }), { title: 'Saving employee mapping', message: `Updating manager assignment for ${mappingEmployee.fullName}.` })
+      }
+      const { request } = updateEmployeeOptimistic(mappingEmployee.uid, optimisticPayload)
 
       showStatus({
         type: 'success',
         title: 'Mapping updated',
-        message: `${mappingEmployee.fullName} mapping has been updated successfully.`
+        message: `${mappingEmployee.fullName} mapping is updated on the table now. Server sync is running in the background.`
       })
       closeMappingModal()
+
+      void request.catch((syncError) => {
+        showStatus({
+          type: 'error',
+          title: 'Mapping update reverted',
+          message: syncError?.response?.data?.detail || syncError?.message || 'The server rejected the mapping update, so the previous mapping was restored.'
+        })
+      })
     } catch (actionError) {
-      showStatus({ type: 'error', title: 'Mapping update failed', message: actionError?.response?.data?.detail || actionError?.message || 'The employee mapping could not be saved.' })
+      showStatus({ type: 'error', title: 'Mapping update failed', message: actionError?.response?.data?.detail || actionError?.message || 'The mapping update request could not be started.' })
     }
   }
 
@@ -3501,10 +3619,7 @@ export default function EmployeesManagement() {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
         <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
-        <div className="card border-0 shadow-sm glass employee-directory-shell"><div className="card-body py-5 text-center"><div className="global-loader-spinner mb-3"><span /><span /></div><div className="fw-semibold mb-1">Loading employee management</div>
-      {/* Mapping tab is under development and will be available in a future release. */}
-      {/* <div className="text-muted small">Pulling directory, metadata, and mapping catalogs from the backend.</div></div></div> */}
-        <div className="text-muted small">Loading directory and metadata catalogs.</div></div></div>
+        <PageContentLoader cards={4} slowDelayMs={5000} showSlowLoader={false} />
       </div>
     )
   }
@@ -4243,7 +4358,11 @@ export default function EmployeesManagement() {
         employeeOptions={mappingModalEmployeeOptions}
         onEmployeeChange={handleMappingEmployeeChange}
         managerOptions={mappingManagerOptions}
+        hrOptions={mappingHrOptions}
+        teamLeadOptions={mappingTeamLeadOptions}
+        coordinatorOptions={mappingCoordinatorOptions}
         hiddenEmployeeOptions={hiddenMappingEmployeeOptions}
+        warnings={mappingAssignmentWarnings}
       />
     </div>
   )

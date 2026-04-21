@@ -4,7 +4,7 @@ function SkeletonBlock({ className = '' }) {
   return <div className={'skeleton-block ' + className} />
 }
 
-export default function PageContentLoader({ cards = 4, slowDelayMs = 2200, showSlowLoader = true }) {
+export default function PageContentLoader({ cards = 4, slowDelayMs = 5000, showSlowLoader = true }) {
   const [showSlowState, setShowSlowState] = useState(false)
 
   useEffect(() => {
@@ -13,7 +13,7 @@ export default function PageContentLoader({ cards = 4, slowDelayMs = 2200, showS
       return undefined
     }
 
-    const timerId = window.setTimeout(() => setShowSlowState(true), Math.max(900, Number(slowDelayMs) || 2200))
+    const timerId = window.setTimeout(() => setShowSlowState(true), Math.max(900, Number(slowDelayMs) || 5000))
     return () => window.clearTimeout(timerId)
   }, [showSlowLoader, slowDelayMs])
 

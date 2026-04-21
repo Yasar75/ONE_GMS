@@ -33,6 +33,7 @@ export function useRoleDirectoryQuery(enabled = true) {
     queryKey: roleQueryKey,
     queryFn: () => withPersistentCache(roleQueryKey, metadataService.getRoles),
     enabled,
+    retry: false,
     initialData: () => readCachedQuery(roleQueryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(roleQueryKey),
     staleTime: 10 * 60 * 1000,

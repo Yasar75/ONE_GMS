@@ -1464,7 +1464,8 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     retry: 0,
     staleTime: 30 * 1000,
     gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: 'always'
+    refetchOnWindowFocus: 'always',
+    meta: { suppressGlobalLoader: true }
   })
 
   useEffect(() => {
@@ -1587,10 +1588,9 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   }, [leaveForm.leaveTypeUid, requestLeaveTypeOptions])
 
   useEffect(() => {
-    if (requestedTab && requestedTab !== activeTab) {
-      setActiveTab(requestedTab)
-    }
-  }, [activeTab, requestedTab])
+    if (!requestedTab) return
+    setActiveTab((current) => (requestedTab !== current ? requestedTab : current))
+  }, [requestedTab])
 
   useEffect(() => {
     const nextTab = resolveAccessibleTab(availableTabs, activeTab, (tabKey) => {

@@ -382,10 +382,9 @@ export default function MarkAttendance() {
   }, [updateTabSearchParam])
 
   useEffect(() => {
-    if (requestedTab && requestedTab !== activeTab) {
-      setActiveTab(requestedTab)
-    }
-  }, [activeTab, requestedTab])
+    if (!requestedTab) return
+    setActiveTab((current) => (requestedTab !== current ? requestedTab : current))
+  }, [requestedTab])
 
   useEffect(() => {
     const nextTab = resolveAccessibleTab(availableTabs, activeTab, (tabKey) => {

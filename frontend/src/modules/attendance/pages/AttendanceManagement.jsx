@@ -840,10 +840,9 @@ export default function AttendanceManagement() {
   }, [updateTabSearchParam])
 
   useEffect(() => {
-    if (requestedTab && requestedTab !== activeTab) {
-      setActiveTab(requestedTab)
-    }
-  }, [activeTab, requestedTab])
+    if (!requestedTab) return
+    setActiveTab((current) => (requestedTab !== current ? requestedTab : current))
+  }, [requestedTab])
 
   const pinnedAttendanceRows = useMemo(() => prioritizeRowsByEmployee(sortedAttendanceRows, currentEmployeeUid), [currentEmployeeUid, sortedAttendanceRows])
   const pinnedPendingRegularizationRows = useMemo(() => prioritizeRowsByEmployee(sortedRegularizationRows, currentEmployeeUid), [currentEmployeeUid, sortedRegularizationRows])

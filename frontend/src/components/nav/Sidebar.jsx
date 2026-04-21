@@ -48,6 +48,7 @@ export default function Sidebar({ ui }) {
               key={it.to}
               to={it.to}
               className={({ isActive }) => `sidebar-link d-flex align-items-center gap-2 px-2 py-2 rounded ${isActive ? 'active' : ''}`.trim()}
+              onClick={ui.onSidebarNavigate}
             >
               <span className="sidebar-icon">{it.icon}</span>
               <span className={`sidebar-link-label small fw-semibold ${expanded ? 'is-visible' : ''}`.trim()}>{it.label}</span>

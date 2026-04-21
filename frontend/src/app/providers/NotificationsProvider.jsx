@@ -42,6 +42,21 @@ function normalizeNotificationState(value) {
   }
 }
 
+function areNotificationStatesEqual(leftState, rightState) {
+  const leftItems = normalizeNotificationState(leftState).items
+  const rightItems = normalizeNotificationState(rightState).items
+  const leftIds = Object.keys(leftItems)
+  const rightIds = Object.keys(rightItems)
+
+  if (leftIds.length !== rightIds.length) return false
+
+  return leftIds.every((id) => (
+    Object.prototype.hasOwnProperty.call(rightItems, id)
+    && leftItems[id]?.openedAt === rightItems[id]?.openedAt
+    && leftItems[id]?.readAt === rightItems[id]?.readAt
+  ))
+}
+
 function readNotificationState(storageKey) {
   if (!storageKey) return { items: {} }
   return normalizeNotificationState(storage.get(storageKey, { items: {} }))
@@ -346,6 +361,7 @@ function buildNotificationQueryOptions({ queryKey, queryFn, enabled }) {
     queryKey,
     queryFn: () => withPersistentCache(queryKey, queryFn),
     enabled,
+    retry: false,
     initialData: () => readCachedQuery(queryKey),
     initialDataUpdatedAt: () => readCachedQueryUpdatedAt(queryKey),
     staleTime: NOTIFICATION_STALE_MS,
@@ -452,6 +468,7 @@ export function NotificationsProvider({ children }) {
   const updateNotificationState = useCallback((updater) => {
     setNotificationState((currentState) => {
       const nextState = normalizeNotificationState(typeof updater === 'function' ? updater(currentState) : updater)
+      if (areNotificationStatesEqual(currentState, nextState)) return currentState
       if (notificationStateKey) storage.set(notificationStateKey, nextState)
       return nextState
     })

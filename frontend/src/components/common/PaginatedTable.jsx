@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, DoubleChevronLeftIcon, DoubleChevronRightIcon } from './AppIcons.jsx'
 
 const DEFAULT_ROWS_PER_PAGE_OPTIONS = [5, 10, 25, 50, 100]
@@ -54,11 +55,13 @@ export default function PaginatedTable({
     : normalizedRowsPerPageOptions[0]
 
   const rowsMenuRef = useRef(null)
+  const rowsMenuListRef = useRef(null)
   const [rowsPerPage, setRowsPerPage] = useState(resolvedDefaultRowsPerPage)
   const [currentPage, setCurrentPage] = useState(1)
   const [isRowsMenuOpen, setIsRowsMenuOpen] = useState(false)
   const [rowsMenuPlacement, setRowsMenuPlacement] = useState('top')
   const [rowsMenuMaxHeight, setRowsMenuMaxHeight] = useState(220)
+  const [rowsMenuStyle, setRowsMenuStyle] = useState({})
 
   useEffect(() => {
     setRowsPerPage((current) => (normalizedRowsPerPageOptions.includes(current) ? current : resolvedDefaultRowsPerPage))
@@ -78,20 +81,40 @@ export default function PaginatedTable({
       const triggerRect = rowsMenuRef.current?.getBoundingClientRect()
       if (!triggerRect) return
 
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0
       const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0
       const spaceBelow = Math.max(viewportHeight - triggerRect.bottom - 16, 120)
       const spaceAbove = Math.max(triggerRect.top - 16, 120)
       const prefersBottom = spaceBelow >= 184 || spaceBelow >= spaceAbove
+      const nextMaxHeight = Math.max(Math.min(prefersBottom ? spaceBelow : spaceAbove, 220), 120)
+      const menuWidth = Math.max(triggerRect.width, 92)
+      const menuLeft = Math.min(Math.max(triggerRect.left, 8), Math.max(viewportWidth - menuWidth - 8, 8))
+      const menuTop = prefersBottom
+        ? Math.min(triggerRect.bottom + 8, Math.max(viewportHeight - nextMaxHeight - 8, 8))
+        : Math.max(triggerRect.top - nextMaxHeight - 8, 8)
 
       setRowsMenuPlacement(prefersBottom ? 'bottom' : 'top')
-      setRowsMenuMaxHeight(Math.max(Math.min(prefersBottom ? spaceBelow : spaceAbove, 220), 120))
+      setRowsMenuMaxHeight(nextMaxHeight)
+      setRowsMenuStyle((current) => {
+        const nextStyle = {
+          top: `${menuTop}px`,
+          left: `${menuLeft}px`,
+          width: `${menuWidth}px`,
+          maxHeight: `${nextMaxHeight}px`,
+          bottom: 'auto'
+        }
+
+        return Object.entries(nextStyle).every(([key, value]) => current[key] === value)
+          ? current
+          : nextStyle
+      })
     }
 
     syncRowsMenuPlacement()
     window.setTimeout(syncRowsMenuPlacement, 0)
 
     function handlePointerDown(event) {
-      if (!rowsMenuRef.current?.contains(event.target)) {
+      if (!rowsMenuRef.current?.contains(event.target) && !rowsMenuListRef.current?.contains(event.target)) {
         setIsRowsMenuOpen(false)
       }
     }
@@ -125,6 +148,35 @@ export default function PaginatedTable({
   const endRow = totalRows ? Math.min(currentPage * rowsPerPage, totalRows) : 0
   const resolvedMaxHeight = typeof maxHeight === 'number' ? `${maxHeight}px` : maxHeight
   const paginationTokens = useMemo(() => buildPaginationTokens(currentPage, totalPages), [currentPage, totalPages])
+  const rowsPerPageMenu = isRowsMenuOpen ? (
+    <div
+      ref={rowsMenuListRef}
+      className={`table-pagination-select-menu table-pagination-select-menu-${rowsMenuPlacement}`.trim()}
+      role="listbox"
+      aria-label="Rows per page"
+      style={{ ...rowsMenuStyle, maxHeight: `${rowsMenuMaxHeight}px` }}
+    >
+      {normalizedRowsPerPageOptions.map((option) => {
+        const isSelected = option === rowsPerPage
+        return (
+          <button
+            key={option}
+            type="button"
+            className={`table-pagination-select-option ${isSelected ? 'is-selected' : ''}`.trim()}
+            onClick={() => {
+              setRowsPerPage(option)
+              setCurrentPage(1)
+              setIsRowsMenuOpen(false)
+            }}
+            role="option"
+            aria-selected={isSelected}
+          >
+            {option}
+          </button>
+        )
+      })}
+    </div>
+  ) : null
 
   return (
     <div className={`employee-table-wrap employee-table-wrap--paginated ${className}`.trim()}>
@@ -155,29 +207,7 @@ export default function PaginatedTable({
               <ChevronDownIcon />
             </button>
 
-            {isRowsMenuOpen ? (
-              <div className={`table-pagination-select-menu table-pagination-select-menu-${rowsMenuPlacement}`.trim()} role="listbox" aria-label="Rows per page" style={{ maxHeight: `${rowsMenuMaxHeight}px` }}>
-                {normalizedRowsPerPageOptions.map((option) => {
-                  const isSelected = option === rowsPerPage
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      className={`table-pagination-select-option ${isSelected ? 'is-selected' : ''}`.trim()}
-                      onClick={() => {
-                        setRowsPerPage(option)
-                        setCurrentPage(1)
-                        setIsRowsMenuOpen(false)
-                      }}
-                      role="option"
-                      aria-selected={isSelected}
-                    >
-                      {option}
-                    </button>
-                  )
-                })}
-              </div>
-            ) : null}
+            {rowsPerPageMenu && rowsMenuStyle.top && typeof document !== 'undefined' ? createPortal(rowsPerPageMenu, document.body) : null}
           </div>
         </div>
 

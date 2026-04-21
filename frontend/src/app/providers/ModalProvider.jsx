@@ -10,7 +10,9 @@ const DEFAULT_AUTO_LOADER = {
   title: 'Loading workspace',
   message: 'We are still fetching live data for this page.'
 }
-const AUTO_LOADER_DELAY_MS = 2400
+const AUTO_QUERY_LOADER_DELAY_MS = 5000
+const AUTO_MUTATION_LOADER_DELAY_MS = 220
+const LOADER_COMPLETION_MS = 420
 
 function shouldShowBlockingQueryLoader(query) {
   if (!query || query.state?.fetchStatus !== 'fetching') return false
@@ -28,6 +30,8 @@ export function ModalProvider({ children }) {
   const timerRef = useRef(null)
   const confirmResolverRef = useRef(null)
   const autoLoaderTimerRef = useRef(null)
+  const autoLoaderDelayRef = useRef(null)
+  const loaderCompletionTimerRef = useRef(null)
   const blockingFetchCount = useIsFetching({
     predicate: shouldShowBlockingQueryLoader
   })
@@ -38,6 +42,13 @@ export function ModalProvider({ children }) {
   const [statusModal, setStatusModal] = useState(null)
   const [confirmModal, setConfirmModal] = useState(null)
   const [loaderModal, setLoaderModal] = useState(null)
+
+  const clearLoaderCompletionTimer = useCallback(() => {
+    if (loaderCompletionTimerRef.current) {
+      window.clearTimeout(loaderCompletionTimerRef.current)
+      loaderCompletionTimerRef.current = null
+    }
+  }, [])
 
   const clearStatusTimer = useCallback(() => {
     if (timerRef.current) {
@@ -91,17 +102,23 @@ export function ModalProvider({ children }) {
   }, [confirmModal])
 
   const showLoader = useCallback((config = {}) => {
+    clearLoaderCompletionTimer()
     setLoaderModal({
       source: 'manual',
       title: config.title || 'Please wait',
       message: config.message || 'We are processing your request.',
       size: config.size || 'sm'
     })
-  }, [])
+  }, [clearLoaderCompletionTimer])
 
   const hideLoader = useCallback(() => {
-    setLoaderModal((current) => (current?.source === 'manual' ? null : current))
-  }, [])
+    clearLoaderCompletionTimer()
+    setLoaderModal((current) => (current?.source === 'manual' ? { ...current, completed: true } : current))
+    loaderCompletionTimerRef.current = window.setTimeout(() => {
+      loaderCompletionTimerRef.current = null
+      setLoaderModal((current) => (current?.source === 'manual' ? null : current))
+    }, LOADER_COMPLETION_MS)
+  }, [clearLoaderCompletionTimer])
 
   const runWithLoader = useCallback(async (task, config = {}) => {
     const minVisibleMs = config.minVisibleMs ?? 420
@@ -112,6 +129,7 @@ export function ModalProvider({ children }) {
     const showTimer = window.setTimeout(() => {
       shownAt = Date.now()
       didShowLoader = true
+      clearLoaderCompletionTimer()
       setLoaderModal({
         source: 'manual',
         title: config.title || 'Please wait',
@@ -130,55 +148,87 @@ export function ModalProvider({ children }) {
         if (remaining > 0) {
           await wait(remaining)
         }
+        setLoaderModal((current) => (current?.source === 'manual' ? { ...current, completed: true } : current))
+        await wait(LOADER_COMPLETION_MS)
         setLoaderModal((current) => (current?.source === 'manual' ? null : current))
       }
     }
-  }, [])
+  }, [clearLoaderCompletionTimer])
 
   useEffect(() => {
     if (loaderModal?.source === 'manual') {
       if (autoLoaderTimerRef.current) {
         window.clearTimeout(autoLoaderTimerRef.current)
         autoLoaderTimerRef.current = null
+        autoLoaderDelayRef.current = null
       }
 
       return undefined
     }
 
     const hasAutoActivity = (blockingFetchCount + blockingMutationCount) > 0
+    const nextAutoDelayMs = blockingMutationCount > 0
+      ? AUTO_MUTATION_LOADER_DELAY_MS
+      : AUTO_QUERY_LOADER_DELAY_MS
 
     if (hasAutoActivity) {
+      if (
+        autoLoaderTimerRef.current
+        && autoLoaderDelayRef.current !== nextAutoDelayMs
+        && loaderModal?.source !== 'auto'
+      ) {
+        window.clearTimeout(autoLoaderTimerRef.current)
+        autoLoaderTimerRef.current = null
+        autoLoaderDelayRef.current = null
+      }
+
       if (!autoLoaderTimerRef.current && loaderModal?.source !== 'auto') {
+        autoLoaderDelayRef.current = nextAutoDelayMs
         autoLoaderTimerRef.current = window.setTimeout(() => {
           autoLoaderTimerRef.current = null
+          autoLoaderDelayRef.current = null
+          clearLoaderCompletionTimer()
           setLoaderModal({
             source: 'auto',
             title: DEFAULT_AUTO_LOADER.title,
             message: DEFAULT_AUTO_LOADER.message,
             size: 'sm'
           })
-        }, AUTO_LOADER_DELAY_MS)
+        }, nextAutoDelayMs)
       }
     } else {
       if (autoLoaderTimerRef.current) {
         window.clearTimeout(autoLoaderTimerRef.current)
         autoLoaderTimerRef.current = null
+        autoLoaderDelayRef.current = null
       }
 
-      setLoaderModal((current) => (current?.source === 'auto' ? null : current))
+      if (loaderModal?.source === 'auto') {
+        if (!loaderModal.completed && !loaderCompletionTimerRef.current) {
+          setLoaderModal((current) => (current?.source === 'auto' ? { ...current, completed: true } : current))
+          loaderCompletionTimerRef.current = window.setTimeout(() => {
+            loaderCompletionTimerRef.current = null
+            setLoaderModal((current) => (current?.source === 'auto' ? null : current))
+          }, LOADER_COMPLETION_MS)
+        }
+      } else {
+        setLoaderModal((current) => (current?.source === 'auto' ? null : current))
+      }
     }
 
     return undefined
-  }, [blockingFetchCount, blockingMutationCount, loaderModal?.source])
+  }, [blockingFetchCount, blockingMutationCount, clearLoaderCompletionTimer, loaderModal?.completed, loaderModal?.source])
 
   useEffect(() => () => {
     clearStatusTimer()
+    clearLoaderCompletionTimer()
 
     if (autoLoaderTimerRef.current) {
       window.clearTimeout(autoLoaderTimerRef.current)
       autoLoaderTimerRef.current = null
+      autoLoaderDelayRef.current = null
     }
-  }, [clearStatusTimer])
+  }, [clearLoaderCompletionTimer, clearStatusTimer])
 
   const statusActionLabel = statusModal?.ctaLabel === false
     ? null
@@ -262,6 +312,7 @@ export function ModalProvider({ children }) {
           <GlobalLoaderContent
             title={loaderModal.title}
             message={loaderModal.message}
+            completed={Boolean(loaderModal.completed)}
           />
         ) : null}
       </ModalFrame>

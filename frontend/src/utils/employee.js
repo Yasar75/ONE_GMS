@@ -478,7 +478,7 @@ export function normalizeEmployee(record) {
     hrEmployeeUid: reportingAssignments.hr_employee_uid || '',
     teamLeadEmployeeUid: reportingAssignments.team_lead_employee_uid || '',
     coordinatorEmployeeUid: reportingAssignments.coordinator_employee_uid || '',
-    roleType: record.role_type || record.roleType || null,
+    roleType: record.role_type || record.roleType || record.role_uid || record.roleUid || record.role_id || record.roleId || null,
     roleName: record.role_name || record.roleName || ''
   }
 }
