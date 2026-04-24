@@ -274,51 +274,51 @@ function resolveSectionRoute(user, scope, moduleId = 'general') {
   return candidates.find((path) => canAccessAppPath(user, path)) || resolveHomePath(user)
 }
 
-function buildPulseFeedMetrics(scope, charts = {}, modules = []) {
+function buildPulseFeedMetrics(scope, charts = {}, modules = [], summary = {}) {
   const visibleModuleIds = new Set(ensureArray(modules).map((moduleConfig) => moduleConfig.id))
   const metricSet = scope === 'management'
     ? [
       {
         moduleId: 'workforce',
         label: 'Team members in scope',
-        value: getSplitTotal(charts.roleUserSplit?.length ? charts.roleUserSplit : charts.employeeStatusSplit)
+        value: summary?.teamMembersInScope ?? getSplitTotal(charts.roleUserSplit?.length ? charts.roleUserSplit : charts.employeeStatusSplit)
       },
       {
         moduleId: 'project',
         label: 'Projects tracked',
-        value: getSplitTotal(charts.projectStatusSplit)
+        value: summary?.projectsTracked ?? getSplitTotal(charts.projectStatusSplit)
       },
       {
         moduleId: 'leave',
         label: 'Leave queue items',
-        value: getSplitTotal(charts.leaveReviewSplit)
+        value: summary?.leaveQueueItems ?? getSplitTotal(charts.leaveReviewSplit)
       },
       {
         moduleId: 'task',
         label: 'Hours logged',
-        value: getSplitTotal(charts.taskHoursTrend, 'hours')
+        value: summary?.hoursLogged ?? getSplitTotal(charts.taskHoursTrend, 'hours')
       }
     ]
     : [
       {
         moduleId: 'project',
         label: 'Projects tracked',
-        value: getSplitTotal(charts.projectStatusSplit)
+        value: summary?.projectsTracked ?? getSplitTotal(charts.projectStatusSplit)
       },
       {
         moduleId: 'project',
         label: 'Assignment records',
-        value: getSplitTotal(charts.assignmentStatusSplit)
+        value: summary?.assignmentRecords ?? getSplitTotal(charts.assignmentStatusSplit)
       },
       {
         moduleId: 'leave',
         label: 'Leave requests by status',
-        value: getSplitTotal(charts.leaveStatusSplit)
+        value: summary?.leaveRequestCount ?? getSplitTotal(charts.leaveStatusSplit)
       },
       {
         moduleId: 'task',
         label: 'Hours logged',
-        value: getSplitTotal(charts.hoursTrend, 'hours')
+        value: summary?.hoursLogged ?? getSplitTotal(charts.hoursTrend, 'hours')
       }
     ]
 
@@ -387,16 +387,22 @@ function DashboardPulseRing({ label, value, total, tone = 'blue', meta }) {
   )
 }
 
-function DashboardPulsePanel({ user, scope, modules, updates, charts }) {
+function DashboardPulsePanel({ user, scope, modules, updates, charts, summary }) {
   const displayName = getDisplayName(user)
   const roleLabel = getRoleLabel(user)
-  const pulseBars = buildPulseFeedMetrics(scope, charts, modules)
+  const pulseBars = buildPulseFeedMetrics(scope, charts, modules, summary)
   const availableModules = DASHBOARD_MODULES.filter((moduleConfig) => moduleConfig.scope === 'both' || moduleConfig.scope === scope)
   const primarySplit = scope === 'management' ? charts?.projectStatusSplit : charts?.taskStatusSplit
   const secondarySplit = scope === 'management' ? charts?.attendanceStatusSplit : charts?.leaveStatusSplit
+  const workforceSplit = charts?.employeeStatusSplit?.length ? charts.employeeStatusSplit : charts?.roleUserSplit
   const primaryTotal = getSplitTotal(primarySplit)
   const secondaryTotal = getSplitTotal(secondarySplit)
-  const signalTotal = Math.max(primaryTotal + secondaryTotal, 1)
+  const workforceTotal = getSplitTotal(workforceSplit)
+  const projectRecordTotal = readNumericValue(summary?.projectRecords ?? primaryTotal)
+  const workforceRecordTotal = readNumericValue(summary?.employeeRecords ?? workforceTotal)
+  const signalTotal = scope === 'management'
+    ? Math.max(projectRecordTotal, workforceRecordTotal, 1)
+    : Math.max(primaryTotal + secondaryTotal, 1)
   const pulsePeak = Math.max(...pulseBars.map((metric) => readNumericValue(metric.value)), 1)
   const feedItems = ensureArray(updates).length
     ? ensureArray(updates).slice(0, 2)
@@ -438,17 +444,17 @@ function DashboardPulsePanel({ user, scope, modules, updates, charts }) {
         />
         <DashboardPulseRing
           label={scope === 'management' ? 'Projects in view' : 'Task updates'}
-          value={primaryTotal}
+          value={scope === 'management' ? projectRecordTotal : primaryTotal}
           total={signalTotal}
           tone="orange"
           meta={scope === 'management' ? 'Project records in the selected filters' : 'Task status changes in the current view'}
         />
         <DashboardPulseRing
-          label={scope === 'management' ? 'Attendance records' : 'Leave requests'}
-          value={secondaryTotal}
-          total={signalTotal}
+          label={scope === 'management' ? 'Employee records' : 'Leave requests'}
+          value={scope === 'management' ? workforceRecordTotal : secondaryTotal}
+          total={scope === 'management' ? Math.max(workforceRecordTotal, projectRecordTotal, 1) : signalTotal}
           tone="teal"
-          meta={scope === 'management' ? 'Attendance entries in the selected filters' : 'Leave requests in the current view'}
+          meta={scope === 'management' ? 'Employee records in the selected filters' : 'Leave requests in the current view'}
         />
       </div>
 
@@ -855,6 +861,7 @@ function DashboardLayout({ rawData, user, scope, title, tagline, buildSnapshot, 
         modules={modules}
         updates={dashboardData.widgets?.updates}
         charts={dashboardData.charts}
+        summary={dashboardData.summary}
       />
 
       <div className="dashboard-kpi-grid">

@@ -275,16 +275,35 @@ function inferCountryCodeFromPhone(value = '') {
 
 function resolveCountryFromUserDetails(user = null, employee = null) {
   const candidates = [
+    employee?.phoneCountryCode,
+    employee?.phone_country_code,
+    employee?.mobileCountryCode,
+    employee?.mobile_country_code,
+    employee?.phoneDialCode,
+    employee?.phone_dial_code,
     employee?.countryCode,
     employee?.country,
+    employee?.country_code,
     employee?.country_name,
+    employee?.nationality,
+    user?.phoneCountryCode,
+    user?.phone_country_code,
+    user?.mobileCountryCode,
+    user?.mobile_country_code,
+    user?.phoneDialCode,
+    user?.phone_dial_code,
     user?.countryCode,
     user?.country,
+    user?.country_code,
     user?.country_name,
+    user?.nationality,
     employee?.workLocation,
     employee?.address,
     user?.address,
     employee?.phone,
+    employee?.mobile,
+    employee?.mobileNo,
+    employee?.mobileNumber,
     user?.phone,
     user?.mobile,
     user?.mobileNo,
@@ -359,15 +378,44 @@ function dedupeCalendarEntries(entries = []) {
   })
 }
 
+function collapseInternationalHolidayRows(rows = []) {
+  const groupedRows = new Map()
+
+  ;(Array.isArray(rows) ? rows : []).forEach((item) => {
+    const date = String(item?.date || '').trim()
+    const name = String(item?.name || item?.localName || '').trim()
+    if (!date || !name) return
+
+    const key = `${date}|${name.toLowerCase()}`
+    const existing = groupedRows.get(key) || {
+      sample: { ...item, name },
+      countryCodes: new Set()
+    }
+
+    const countryCode = sanitizeCountryCode(item?.countryCode)
+    if (countryCode) {
+      existing.countryCodes.add(countryCode)
+    }
+
+    groupedRows.set(key, existing)
+  })
+
+  return Array.from(groupedRows.values()).map(({ sample, countryCodes }) => ({
+    ...sample,
+    countryCodes: Array.from(countryCodes).sort()
+  }))
+}
+
 function toExternalHolidayEntry(record = {}, scope = 'international') {
   const holidayDate = String(record?.date || '').trim()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(holidayDate)) return null
 
   const countryCode = sanitizeCountryCode(record?.countryCode)
+  const countryCodes = Array.isArray(record?.countryCodes)
+    ? record.countryCodes.map((value) => sanitizeCountryCode(value)).filter(Boolean)
+    : (countryCode ? [countryCode] : [])
   const baseName = String(record?.name || record?.localName || 'Holiday').trim() || 'Holiday'
-  const displayName = scope === 'international'
-    ? `${baseName}${countryCode ? ` (${countryCode})` : ''}`
-    : baseName
+  const displayName = baseName
   const localName = String(record?.localName || '').trim()
   const typeLabel = Array.isArray(record?.types) ? record.types.filter(Boolean).join(', ') : ''
   const descriptionSegments = []
@@ -378,12 +426,17 @@ function toExternalHolidayEntry(record = {}, scope = 'international') {
   if (typeLabel) {
     descriptionSegments.push(`Type: ${typeLabel}.`)
   }
+  if (scope === 'international' && countryCodes.length > 1) {
+    descriptionSegments.push(`Observed in ${countryCodes.length} countries.`)
+  }
   descriptionSegments.push(scope === 'regional'
     ? 'Regional public holiday lane synced from Nager.Date.'
     : 'International public holiday lane synced from Nager.Date.')
 
+  const uidCountryCode = scope === 'regional' ? (countryCodes[0] || countryCode || 'xx') : 'global'
+
   return {
-    uid: `external-${scope}-${countryCode || 'xx'}-${holidayDate}-${toCalendarSlug(displayName)}`,
+    uid: `external-${scope}-${uidCountryCode}-${holidayDate}-${toCalendarSlug(displayName)}`,
     holidayDate,
     name: displayName,
     description: descriptionSegments.join(' ').trim(),
@@ -397,7 +450,8 @@ function toExternalHolidayEntry(record = {}, scope = 'international') {
     source: 'external',
     isLocal: false,
     ownerKey: '',
-    ownerLabel: ''
+    ownerLabel: '',
+    countryCodes
   }
 }
 
@@ -411,8 +465,9 @@ async function fetchInternationalHolidayFeed(year) {
   const worldwidePayload = await fetchPublicJson(`${PUBLIC_HOLIDAY_API_BASE_URL}/nextpublicholidaysworldwide`)
   const worldwideRows = Array.isArray(worldwidePayload) ? worldwidePayload : []
   const scopedWorldwideRows = worldwideRows.filter((row) => String(row?.date || '').startsWith(`${year}-`))
+  const collapsedWorldwideRows = collapseInternationalHolidayRows(scopedWorldwideRows)
 
-  if (scopedWorldwideRows.length) return scopedWorldwideRows
+  if (collapsedWorldwideRows.length) return collapsedWorldwideRows
 
   const fallbackResponses = await Promise.all(INTERNATIONAL_REFERENCE_COUNTRIES.map(async (countryCode) => {
     try {
@@ -423,26 +478,12 @@ async function fetchInternationalHolidayFeed(year) {
     }
   }))
 
-  const groupedRows = new Map()
-  fallbackResponses.forEach(({ countryCode, items }) => {
-    ;(Array.isArray(items) ? items : []).forEach((item) => {
-      const name = String(item?.name || item?.localName || '').trim().toLowerCase()
-      const date = String(item?.date || '').trim()
-      if (!name || !date) return
+  const fallbackRows = fallbackResponses.flatMap(({ countryCode, items }) => (
+    (Array.isArray(items) ? items : []).map((item) => ({ ...item, countryCode }))
+  ))
+  const collapsedFallbackRows = collapseInternationalHolidayRows(fallbackRows)
 
-      const key = `${date}|${name}`
-      const existing = groupedRows.get(key) || {
-        sample: { ...item, countryCode },
-        countries: new Set()
-      }
-      existing.countries.add(countryCode)
-      groupedRows.set(key, existing)
-    })
-  })
-
-  return Array.from(groupedRows.values())
-    .filter((entry) => entry.countries.size >= 2)
-    .map((entry) => entry.sample)
+  return collapsedFallbackRows.filter((entry) => (entry.countryCodes?.length || 0) >= 2)
 }
 
 async function loadExternalHolidayCalendar(year, countryCode) {
@@ -1281,9 +1322,9 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     refetchOnWindowFocus: false
   })
   const regionEmployee = profileRegionQuery.data || null
-  const detailsHolidayCountryCode = resolveCountryFromUserDetails(user, regionEmployee)
+  const localHolidayCountryContext = resolvePreferredCountryContext({ user, employee: regionEmployee })
   const shouldUsePublicIpRegion = canViewHolidayTab
-    && !detailsHolidayCountryCode
+    && !['user-details', 'timezone', 'locale'].includes(localHolidayCountryContext.source)
     && (!Boolean(user?.uid || user?.email) || profileRegionQuery.isFetched || profileRegionQuery.isError)
   const publicRegionQuery = useQuery({
     queryKey: publicRegionQueryKey,
@@ -1297,11 +1338,14 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     refetchOnWindowFocus: false
   })
   const detectedHolidayRegion = publicRegionQuery.data || null
-  const ipHolidayCountryCode = sanitizeCountryCode(detectedHolidayRegion?.countryCode)
-  const detectedHolidayCountryCode = sanitizeCountryCode(detailsHolidayCountryCode || ipHolidayCountryCode || 'US') || 'US'
-  const holidayRegionSource = detailsHolidayCountryCode
-    ? 'user-details'
-    : (ipHolidayCountryCode ? 'ip' : 'default')
+  const resolvedHolidayCountryContext = resolvePreferredCountryContext({
+    user,
+    employee: regionEmployee,
+    ipCountryCode: detectedHolidayRegion?.countryCode
+  })
+  const detectedHolidayCountryCode = sanitizeCountryCode(resolvedHolidayCountryContext.countryCode) || 'US'
+  const holidayRegionSource = resolvedHolidayCountryContext.source || 'default'
+  const externalHolidaysQueryKey = ['leave', 'holidays', 'external', selectedYear, detectedHolidayCountryCode]
 
   const holidaysQuery = useQuery({
     queryKey: holidaysQueryKey,
@@ -1312,6 +1356,17 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     staleTime: 60 * 1000,
     gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: 'always'
+  })
+  const externalHolidaysQuery = useQuery({
+    queryKey: externalHolidaysQueryKey,
+    queryFn: () => withPersistentCache(externalHolidaysQueryKey, () => loadExternalHolidayCalendar(Number(selectedYear), detectedHolidayCountryCode)),
+    initialData: () => readCachedQuery(externalHolidaysQueryKey),
+    initialDataUpdatedAt: () => readCachedQueryUpdatedAt(externalHolidaysQueryKey),
+    enabled: canViewHolidayTab && activeTab === 'holiday',
+    retry: 1,
+    staleTime: 12 * 60 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    refetchOnWindowFocus: false
   })
 
   const leaveTypesQuery = useQuery({
@@ -1616,15 +1671,11 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     if (holidayCalendarDays.some((date) => toDateInputValue(date) === expandedCalendarDate)) return
     setExpandedCalendarDate('')
   }, [expandedCalendarDate, holidayCalendarDays])
+  const externalCalendarEntries = useMemo(() => dedupeCalendarEntries(externalHolidaysQuery.data?.entries || []), [externalHolidaysQuery.data?.entries])
   const remoteCalendarEntries = useMemo(() => {
     const orgCalendarEntries = holidays.map((item) => ({ ...item, source: 'org', isLocal: false, audience: item.audience || 'org' }))
-    return dedupeCalendarEntries(orgCalendarEntries)
-  }, [holidays])
-  const adminCalendarEntries = useMemo(() => remoteCalendarEntries.filter((entry) => {
-    if (entry.isLocal) return false
-    if (String(entry.audience || '').trim().toLowerCase() !== 'org') return false
-    return String(entry.source || '').trim().toLowerCase() !== 'external'
-  }), [remoteCalendarEntries])
+    return dedupeCalendarEntries([...orgCalendarEntries, ...externalCalendarEntries])
+  }, [externalCalendarEntries, holidays])
   const visibleLocalCalendarEntries = useMemo(() => localCalendarEntries.filter((item) => item.audience === 'org' || !calendarOwnerKey || String(item.ownerKey || '') === calendarOwnerKey), [calendarOwnerKey, localCalendarEntries])
   const calendarEntries = useMemo(() => sortCalendarEntries([...remoteCalendarEntries, ...visibleLocalCalendarEntries]), [remoteCalendarEntries, visibleLocalCalendarEntries])
   const filteredCalendarEntries = useMemo(() => calendarEntries.filter((entry) => {
@@ -1658,17 +1709,16 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   }, [calendarView, selectedCalendarDate, selectedHolidayMonthLabel])
   const selectedCalendarRows = useMemo(() => chunkDays(holidayCalendarDays, calendarView === 'month' ? 7 : holidayCalendarDays.length || 1), [calendarView, holidayCalendarDays])
   const visibleCalendarDateKeys = useMemo(() => holidayCalendarDays.map((date) => toDateInputValue(date)), [holidayCalendarDays])
-  const visibleRegisterHolidays = useMemo(() => {
-    const calendarScopeRows = calendarView === 'month'
-      ? adminCalendarEntries.filter((holiday) => String(holiday.holidayDate || '').startsWith(visibleHolidayMonthKey))
-      : adminCalendarEntries.filter((holiday) => visibleCalendarDateKeys.includes(holiday.holidayDate))
+  const visibleCalendarEntries = useMemo(() => {
+    if (calendarView === 'month') {
+      return filteredCalendarEntries.filter((holiday) => String(holiday.holidayDate || '').startsWith(visibleHolidayMonthKey))
+    }
 
-    return calendarScopeRows.filter((entry) => {
-      if (!entry.isActive && !calendarFilters.inactive) return false
-      if (!calendarFilters[entry.scope]) return false
-      return true
-    })
-  }, [adminCalendarEntries, calendarFilters, calendarView, visibleCalendarDateKeys, visibleHolidayMonthKey])
+    return filteredCalendarEntries.filter((holiday) => visibleCalendarDateKeys.includes(holiday.holidayDate))
+  }, [calendarView, filteredCalendarEntries, visibleCalendarDateKeys, visibleHolidayMonthKey])
+  const visibleRegisterHolidays = useMemo(() => (
+    visibleCalendarEntries.filter((holiday) => String(holiday?.source || '').trim().toLowerCase() !== 'external')
+  ), [visibleCalendarEntries])
   const { items: sortedVisibleRegisterHolidays, sortConfig: holidayRegisterSortConfig, requestSort: requestHolidayRegisterSort } = useSortableData(visibleRegisterHolidays, {
     initialKey: 'date',
     initialDirection: 'asc',
@@ -1833,7 +1883,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     }
   })
   const pinnedLeaveRequestRows = useMemo(() => prioritizeRowsByEmployee(sortedLeaveRequestRows, currentEmployeeUid), [currentEmployeeUid, sortedLeaveRequestRows])
-  const hasExportableCalendarEntries = sortedVisibleRegisterHolidays.length > 0
+  const hasExportableCalendarEntries = visibleCalendarEntries.length > 0
   const focusedDayHolidays = useMemo(() => holidaysByDate[selectedCalendarDate] || [], [holidaysByDate, selectedCalendarDate])
 
   const holidaySummary = useMemo(() => getHolidaySummary(calendarEntries), [calendarEntries])
@@ -1853,6 +1903,14 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const holidayRegionCardMessage = useMemo(() => {
     if (holidayRegionSource === 'user-details') {
       return `Regional holiday view follows your profile country: ${detectedHolidayRegionLabel}.`
+    }
+
+    if (holidayRegionSource === 'timezone') {
+      return `Regional holiday view follows your current timezone setting: ${detectedHolidayRegionLabel}.`
+    }
+
+    if (holidayRegionSource === 'locale') {
+      return `Regional holiday view follows your browser locale: ${detectedHolidayRegionLabel}.`
     }
 
     if (holidayRegionSource === 'ip') {
@@ -1962,7 +2020,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     }
 
     try {
-      const icsContent = buildIcsContent(sortedVisibleRegisterHolidays)
+      const icsContent = buildIcsContent(visibleCalendarEntries)
       const fileName = `one-gms-calendar-${selectedYear}-${String(Number(selectedHolidayMonth) + 1).padStart(2, '0')}.ics`
 
       if (typeof navigator !== 'undefined' && typeof navigator.msSaveOrOpenBlob === 'function') {
@@ -2739,9 +2797,12 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                           className={`leave-calendar-day${isCurrentMonth ? '' : ' is-muted'}${holidayEntries.length ? ' has-holiday' : ''}${isToday ? ' is-today' : ''}${isSelected ? ' is-selected' : ''}${isExpanded ? ' is-expanded' : ''}${isWeekend ? ' is-weekend' : ''}${primaryEntry ? ` tone-${getHolidayScopeMeta(primaryEntry.scope).tone}` : ''}`}
                           style={primaryEntry ? getCalendarAccentStyle(primaryEntry) : undefined}
                           onClick={() => {
-                            setSelectedCalendarDate(cellDate)
-                            setSelectedYear(String(date.getFullYear()))
-                            setSelectedHolidayMonth(String(date.getMonth()))
+                            const canUpdateCalendarFocus = calendarView !== 'month' || isCurrentMonth
+                            if (canUpdateCalendarFocus) {
+                              setSelectedCalendarDate(cellDate)
+                              setSelectedYear(String(date.getFullYear()))
+                              setSelectedHolidayMonth(String(date.getMonth()))
+                            }
                             if (holidayEntries.length > maxVisibleItems) {
                               setExpandedCalendarDate((current) => (current === cellDate ? '' : cellDate))
                             } else {
@@ -2831,7 +2892,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                         </tr>
                       )
                     }) : (
-                      <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No calendar entries are visible for {selectedCalendarLabel}. Adjust the filters or add a new event.</div></td></tr>
+                      <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No manual calendar entries are visible for {selectedCalendarLabel}. Add a new event to populate this register.</div></td></tr>
                     )}
                   </tbody>
                 </table>
