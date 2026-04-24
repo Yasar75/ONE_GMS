@@ -33,6 +33,7 @@ export function TableBadgeStack({ children, className = '' }) {
 
 export function TableActionButton({ icon, label, variant = 'view', className = '', style = {}, ...props }) {
   const safeLabel = String(label || '')
+  const labelChars = Math.min(Math.max(safeLabel.length, 4), 26)
 
   return (
     <button
@@ -40,7 +41,7 @@ export function TableActionButton({ icon, label, variant = 'view', className = '
       className={`employee-action-btn employee-action-btn-${variant} ${className}`.trim()}
       aria-label={safeLabel}
       data-label={safeLabel}
-      style={style}
+      style={{ '--action-label-chars': labelChars, ...style }}
       {...props}
     >
       {icon ? <span className="employee-action-btn__icon" aria-hidden="true">{icon}</span> : null}

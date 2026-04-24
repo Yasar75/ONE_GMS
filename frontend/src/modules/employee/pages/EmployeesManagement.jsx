@@ -168,6 +168,7 @@ const ROLE_MODULE_VISUAL_CONFIG = [
     title: 'Employees Management',
     modules: [
       { key: 'Employees Management', label: 'Employee Entries' },
+      { key: 'Employee Mapping', label: 'Employee Mapping' },
       { key: 'User Status', label: 'Employee Status' }
     ]
   },
@@ -251,15 +252,33 @@ function toCanonicalRoleModuleName(moduleName) {
 }
 
 function getRoleModuleDisplayName(moduleName) {
-  const canonicalModuleName = toCanonicalRoleModuleName(moduleName)
+  const rawModuleName = String(moduleName || '').trim()
+  if (ROLE_MODULE_VISUAL_META.displayNameByKey[rawModuleName]) {
+    return ROLE_MODULE_VISUAL_META.displayNameByKey[rawModuleName]
+  }
+
+  const canonicalModuleName = toCanonicalRoleModuleName(rawModuleName)
   if (!canonicalModuleName) return ''
   return ROLE_MODULE_VISUAL_META.displayNameByKey[canonicalModuleName] || canonicalModuleName
 }
 
 function getRoleModuleSortOrder(moduleName) {
-  const canonicalModuleName = toCanonicalRoleModuleName(moduleName)
+  const rawModuleName = String(moduleName || '').trim()
+  if (rawModuleName && ROLE_MODULE_VISUAL_META.sortOrderByKey[rawModuleName] != null) {
+    return ROLE_MODULE_VISUAL_META.sortOrderByKey[rawModuleName]
+  }
+
+  const canonicalModuleName = toCanonicalRoleModuleName(rawModuleName)
   if (!canonicalModuleName) return Number.MAX_SAFE_INTEGER
   return ROLE_MODULE_VISUAL_META.sortOrderByKey[canonicalModuleName] ?? Number.MAX_SAFE_INTEGER
+}
+
+function getRoleModuleAccessKey(moduleName) {
+  return toCanonicalRoleModuleName(moduleName) || String(moduleName || '').trim()
+}
+
+function getRoleModuleSelectedAccess(access = {}, moduleName = '') {
+  return access[getRoleModuleAccessKey(moduleName)] || []
 }
 
 function buildFullRoleAccess(modules = []) {
@@ -326,22 +345,28 @@ function dedupeRoleModules(modules = []) {
 }
 
 function getRoleModuleGroupName(moduleName) {
-  const canonicalModuleName = toCanonicalRoleModuleName(moduleName)
-  if (!canonicalModuleName) return 'Other'
-
-  const configuredGroup = ROLE_MODULE_VISUAL_META.groupNameByKey[canonicalModuleName]
+  const rawModuleName = String(moduleName || '').trim()
+  const configuredGroup = ROLE_MODULE_VISUAL_META.groupNameByKey[rawModuleName]
   if (configuredGroup) return configuredGroup
+
+  const canonicalModuleName = toCanonicalRoleModuleName(rawModuleName)
+  if (!canonicalModuleName) return 'Other'
 
   if (['Roles', 'Employee Metadata'].includes(canonicalModuleName)) return 'Administrative'
   if (['Profile Update', 'My Skills', 'Employee Skills', 'My Documents', 'Employee Documents', "Employee's Family Details", 'My Family Details', 'Employee Work Experience', 'My Work Experience'].includes(canonicalModuleName)) return 'Profile Management'
-  if (['Employees Management', 'User Status'].includes(canonicalModuleName)) return 'Employees Management'
+  if (['Employees Management', 'Employee Mapping', 'User Status'].includes(canonicalModuleName)) return 'Employees Management'
   if (['Attendance Overview', 'My Attendance Preview', 'Manage Regularization', 'Shift Roster', 'Assign Shift', 'My Shift'].includes(canonicalModuleName)) return 'Attendance Management'
   if (['Holiday Calendar', 'Assign Leave', 'My Leave Balance', 'Leave Request', 'Manage Leave', 'Leave type'].includes(canonicalModuleName)) return 'Leave Management'
   return 'Other'
 }
 
 function buildRoleModuleGroups(modules = []) {
-  const groupedModules = dedupeRoleModules(modules).reduce((accumulator, moduleName) => {
+  const visualModules = dedupeRoleModules(modules)
+  if (visualModules.includes('Employees Management') && !visualModules.includes('Employee Mapping')) {
+    visualModules.push('Employee Mapping')
+  }
+
+  const groupedModules = visualModules.reduce((accumulator, moduleName) => {
     if (ROLE_MODULE_VISUAL_META.hiddenModuleKeys.has(moduleName)) return accumulator
     const groupName = getRoleModuleGroupName(moduleName)
     accumulator[groupName] = accumulator[groupName] || []
@@ -1787,14 +1812,15 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
     if (isSystemAdminRole) return
     shouldNormalizeScrollRef.current = true
     const currentAccess = normalizeRoleAccess(draft.access)
-    const currentLevels = currentAccess[moduleName] || []
+    const accessKey = getRoleModuleAccessKey(moduleName)
+    const currentLevels = currentAccess[accessKey] || []
     const nextLevels = currentLevels.includes(accessLevel)
       ? currentLevels.filter((level) => level !== accessLevel)
       : ACCESS_LEVEL_OPTIONS.map((option) => option.key).filter((level) => currentLevels.includes(level) || level === accessLevel)
 
     const nextAccess = { ...currentAccess }
-    if (nextLevels.length) nextAccess[moduleName] = nextLevels
-    else delete nextAccess[moduleName]
+    if (nextLevels.length) nextAccess[accessKey] = nextLevels
+    else delete nextAccess[accessKey]
 
     updateRoleField('access', nextAccess)
   }
@@ -1803,10 +1829,11 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
     if (isSystemAdminRole) return
     shouldNormalizeScrollRef.current = true
     const currentAccess = normalizeRoleAccess(draft.access)
-    const shouldClear = groupModules.every((moduleName) => (currentAccess[moduleName] || []).includes(accessLevel))
+    const groupAccessKeys = Array.from(new Set(groupModules.map((moduleName) => getRoleModuleAccessKey(moduleName)).filter(Boolean)))
+    const shouldClear = groupAccessKeys.every((moduleName) => (currentAccess[moduleName] || []).includes(accessLevel))
     const nextAccess = { ...currentAccess }
 
-    groupModules.forEach((moduleName) => {
+    groupAccessKeys.forEach((moduleName) => {
       const currentLevels = currentAccess[moduleName] || []
       const nextLevels = shouldClear
         ? currentLevels.filter((level) => level !== accessLevel)
@@ -1876,7 +1903,7 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
             <div className="role-access-accordion d-flex flex-column gap-3">
               {moduleGroups.map((group) => {
                 const isExpanded = expandedGroups.includes(group.key)
-                const configuredCount = group.modules.filter((moduleName) => (selectedAccessMap[moduleName] || []).length).length
+                const configuredCount = group.modules.filter((moduleName) => getRoleModuleSelectedAccess(selectedAccessMap, moduleName).length).length
                 return (
                   <div className="role-access-group" key={group.key}>
                     <button type="button" className="role-access-group__trigger" onClick={() => toggleGroup(group.key)}>
@@ -1892,7 +1919,7 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
                         <div className="role-access-grid role-access-grid__header">
                           <div className="text-muted small fw-semibold">Sub-module / Tab</div>
                           {ACCESS_LEVEL_OPTIONS.map((option) => {
-                            const selectedCount = group.modules.filter((moduleName) => (selectedAccessMap[moduleName] || []).includes(option.key)).length
+                            const selectedCount = group.modules.filter((moduleName) => getRoleModuleSelectedAccess(selectedAccessMap, moduleName).includes(option.key)).length
                             const allSelected = selectedCount === group.modules.length && group.modules.length > 0
                             const partiallySelected = selectedCount > 0 && selectedCount < group.modules.length
 
@@ -1913,7 +1940,7 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
                         </div>
 
                         {group.modules.map((moduleName) => {
-                          const selectedAccess = selectedAccessMap[moduleName] || []
+                          const selectedAccess = getRoleModuleSelectedAccess(selectedAccessMap, moduleName)
                           return (
                             <div className="role-access-grid role-access-grid__row" key={moduleName}>
                               <div className="role-access-grid__module">
@@ -2083,14 +2110,17 @@ export default function EmployeesManagement() {
   const canReadEmployeeMetadata = hasModulePermission(user, PERMISSION_MODULES.employeeMetadata, PERMISSION_ACTIONS.read)
   const canReadEmployeeDirectory = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.read)
   const canReadEmployeeStatus = hasModulePermission(user, PERMISSION_MODULES.employeeStatus, PERMISSION_ACTIONS.read)
+  const canReadEmployeeMapping = hasModulePermission(user, PERMISSION_MODULES.employeeMapping, PERMISSION_ACTIONS.read)
   const canViewMetadata = canReadRoles || canReadEmployeeMetadata
   const canViewEntries = canReadEmployeeDirectory
-  // Mapping visibility follows Employee Entries visibility by design.
-  const canViewMapping = canViewEntries
+  const canViewMapping = canReadEmployeeMapping
   const canViewRequests = canReadEmployeeStatus
   const canCreateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.create)
   const canUpdateEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.update)
   const canDeleteEmployees = hasModulePermission(user, PERMISSION_MODULES.employeeDirectory, PERMISSION_ACTIONS.delete)
+  const canCreateEmployeeMapping = hasModulePermission(user, PERMISSION_MODULES.employeeMapping, PERMISSION_ACTIONS.create)
+  const canUpdateEmployeeMapping = hasModulePermission(user, PERMISSION_MODULES.employeeMapping, PERMISSION_ACTIONS.update)
+  const canDeleteEmployeeMapping = hasModulePermission(user, PERMISSION_MODULES.employeeMapping, PERMISSION_ACTIONS.delete)
   const canManageEmployeeRequests = hasModulePermission(user, PERMISSION_MODULES.employeeStatus, PERMISSION_ACTIONS.update)
   const { data: employeesData = EMPTY_LIST, isLoading, isError, error, refetch, isFetching } = useEmployeesQuery(canViewEntries)
   const directoryErrorStatus = Number(error?.response?.status || 0)
@@ -3377,8 +3407,8 @@ export default function EmployeesManagement() {
   }
 
   function openCreateMapping() {
-    if (!canUpdateEmployees) {
-      showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to update employee mapping.' })
+    if (!canCreateEmployeeMapping) {
+      showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to create employee mapping.' })
       return
     }
 
@@ -3389,7 +3419,7 @@ export default function EmployeesManagement() {
   }
 
   function openMappingModal(employee) {
-    if (!canUpdateEmployees) {
+    if (!canUpdateEmployeeMapping) {
       showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to update employee mapping.' })
       return
     }
@@ -3401,8 +3431,8 @@ export default function EmployeesManagement() {
   }
 
   async function handleDeleteMapping(employee) {
-    if (!canUpdateEmployees) {
-      showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to update employee mapping.' })
+    if (!canDeleteEmployeeMapping) {
+      showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to delete employee mapping.' })
       return
     }
 
@@ -3467,7 +3497,7 @@ export default function EmployeesManagement() {
   }
 
   async function handleSaveMapping() {
-    if (!canUpdateEmployees) {
+    if (!canUpdateEmployeeMapping) {
       showStatus({ type: 'error', title: 'Mapping access blocked', message: 'Your role does not have permission to update employee mapping.' })
       return
     }
@@ -3925,7 +3955,7 @@ export default function EmployeesManagement() {
                 placeholder="Search employee, code, position, or manager"
               />
               <div className="employee-toolbar-actions">
-                {canUpdateEmployees ? (
+                {canCreateEmployeeMapping ? (
                   <button type="button" className="btn btn-primary btn-icon-inline employee-toolbar-btn" onClick={openCreateMapping}>
                     <PlusIcon />
                     <span>Add Mapping</span>
@@ -4021,10 +4051,10 @@ export default function EmployeesManagement() {
                         </td>
                         <td className="employee-actions-cell">
                           <div className="employee-action-cluster">
-                            {canUpdateEmployees ? (
+                            {canUpdateEmployeeMapping || canDeleteEmployeeMapping ? (
                               <>
-                                <ActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openMappingModal(employee)} />
-                                <ActionButton icon={<TrashIcon />} label="Delete Mapping" variant="delete" onClick={() => handleDeleteMapping(employee)} />
+                                {canUpdateEmployeeMapping ? <ActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openMappingModal(employee)} /> : null}
+                                {canDeleteEmployeeMapping ? <ActionButton icon={<TrashIcon />} label="Delete Mapping" variant="delete" onClick={() => handleDeleteMapping(employee)} /> : null}
                               </>
                             ) : (
                               <div className="text-muted small">Read only</div>
