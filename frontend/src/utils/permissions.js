@@ -9,6 +9,7 @@ const ROLE_MODULE_ALIAS_MAP = {
   'Manage Roles': 'Roles',
   'Metadata Entries': 'Employee Metadata',
   'Employee Entries': 'Employees Management',
+  'Employee Mapping': 'Employees Management',
   'Employee Status': 'User Status',
   'All Employees Attendance Logs': 'Attendance Overview',
   'Mark Attendance': 'My Attendance Preview',
@@ -42,8 +43,9 @@ export const PERMISSION_MODULES = {
   roles: ['Roles', 'Manage Roles'],
   employeeMetadata: ['Employee Metadata', 'Metadata Entries'],
   employeeStatus: ['User Status', 'Employee Status'],
-  employeeManagement: ['Employees Management', 'Employee Management', 'Employee Entries'],
-  employeeDirectory: ['Employees Management', 'Employee Management', 'Employee Entries'],
+  employeeManagement: ['Employees Management', 'Employee Management', 'Employee Entries', 'Employee Mapping'],
+  employeeDirectory: ['Employees Management', 'Employee Management', 'Employee Entries', 'Employee Mapping'],
+  employeeMapping: ['Employee Mapping', 'Employees Management', 'Employee Management', 'Employee Entries'],
   employeeDocuments: ['Employee Documents'],
   myDocuments: ['My Documents'],
   employeeSkills: ['Employee Skills'],
@@ -258,7 +260,8 @@ export function normalizePermissionAccess(access = {}) {
       .filter(Boolean)))
 
     if (normalizedLevels.length) {
-      accumulator[canonicalModuleName] = normalizedLevels
+      const currentLevels = Array.isArray(accumulator[canonicalModuleName]) ? accumulator[canonicalModuleName] : []
+      accumulator[canonicalModuleName] = Array.from(new Set([...currentLevels, ...normalizedLevels]))
     }
 
     return accumulator
