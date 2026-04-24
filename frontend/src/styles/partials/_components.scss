@@ -2942,6 +2942,7 @@
   z-index: 4;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "limit status nav";
   align-items: center;
   gap: 1rem;
   padding: 0.8rem 1rem;
@@ -2953,6 +2954,7 @@
 }
 
 .table-pagination-limit {
+  grid-area: limit;
   display: inline-flex;
   align-items: center;
   gap: 0.75rem;
@@ -3060,14 +3062,17 @@
 }
 
 .table-pagination-status {
+  grid-area: status;
   min-width: 0;
   font-size: 0.82rem;
   font-weight: 550;
-  white-space: wrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: rgba(255, 255, 255, 0.86);
 }
 
 .table-pagination-nav {
+  grid-area: nav;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -3156,25 +3161,29 @@
   color: rgba(255, 255, 255, 0.74);
 }
 
-@media (max-width: 767.98px) {
+@media (max-width: 991.98px) {
   .table-pagination-bar {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "limit"
+      "nav"
+      "status";
     justify-items: stretch;
   }
 
   .table-pagination-limit,
-  .table-pagination-status,
   .table-pagination-nav {
     justify-content: space-between;
   }
 
   .table-pagination-status {
     font-size: 0.92rem;
+    text-align: left;
   }
 
   .table-pagination-nav {
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
 
   .table-pagination-pages {
@@ -6075,12 +6084,19 @@
   display: flex;
   flex-direction: column;
   gap: .5rem;
+  padding: .35rem .45rem .8rem;
+}
+
+.leave-calendar-rows {
+  display: flex;
+  flex-direction: column;
+  gap: .72rem;
 }
 
 .leave-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: .8rem;
+  gap: .72rem;
 }
 
 .leave-calendar-heading {
@@ -6091,11 +6107,11 @@
 }
 
 .leave-calendar-day {
-  min-height: 7.75rem;
+  min-height: 7.15rem;
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 1rem;
   background: rgba(255, 255, 255, 0.92);
-  padding: .8rem;
+  padding: .72rem;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -6188,13 +6204,17 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .leave-calendar-rows {
+    gap: .55rem;
+  }
+
   .leave-calendar-grid {
-    gap: .6rem;
+    gap: .55rem;
   }
 
   .leave-calendar-day {
-    min-height: 6.5rem;
-    padding: .65rem;
+    min-height: 6.1rem;
+    padding: .6rem;
   }
 }
 
@@ -6651,7 +6671,7 @@
 }
 
 .leave-calendar-grid.has-week-numbers {
-  grid-template-columns: 70px repeat(7, minmax(0, 1fr));
+  grid-template-columns: 64px repeat(7, minmax(0, 1fr));
 }
 
 .leave-calendar-week-heading,
@@ -6669,7 +6689,7 @@
 }
 
 .leave-calendar-week-badge {
-  min-height: 7.75rem;
+  min-height: 7.15rem;
   background: rgba(100, 116, 139, 0.12);
   color: var(--bs-secondary-color);
 }
@@ -6783,11 +6803,11 @@
   }
 
   .leave-calendar-grid.has-week-numbers {
-    grid-template-columns: 56px repeat(7, minmax(0, 1fr));
+    grid-template-columns: 52px repeat(7, minmax(0, 1fr));
   }
 
   .leave-calendar-week-badge {
-    min-height: 6.5rem;
+    min-height: 6.1rem;
   }
 }
 

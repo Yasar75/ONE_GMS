@@ -160,6 +160,10 @@ function sumHoursForTaskBucket(tasks = [], predicate = () => false) {
   ), 0)
 }
 
+function sumLoggedHours(tasks = []) {
+  return ensureArray(tasks).reduce((total, task) => total + Number(task.hourWork || 0), 0)
+}
+
 function buildDailyHoursSeries(tasks = [], start, end) {
   const totalDays = getDateDifferenceInDays(start, end)
   return Array.from({ length: totalDays + 1 }, (_, index) => {
@@ -532,8 +536,8 @@ function filterDashboardSources(rawSources = {}, filterState = {}, referenceDate
     ...filteredTasks.map((task) => String(task.projectUid || '').trim())
   ].filter(Boolean))
 
-  const shouldNarrowEmployeesByActivity = hasProjectFilter || hasAssignmentStatusFilter || range.hasDateFilter
-  const shouldNarrowProjectsByActivity = hasEmployeeFilter || hasAssignmentStatusFilter || range.hasDateFilter
+  const shouldNarrowEmployeesByActivity = hasProjectFilter || hasAssignmentStatusFilter
+  const shouldNarrowProjectsByActivity = hasEmployeeFilter || hasAssignmentStatusFilter
 
   const visibleEmployees = shouldNarrowEmployeesByActivity
     ? matchingEmployees.filter((employee) => relatedEmployeeUids.has(getSelectableEmployeeUid(employee)))
@@ -542,6 +546,8 @@ function filterDashboardSources(rawSources = {}, filterState = {}, referenceDate
   const visibleProjects = shouldNarrowProjectsByActivity
     ? matchingProjects.filter((project) => relatedProjectUids.has(String(project.uid || '').trim()))
     : matchingProjects
+
+  const pendingLeaveCount = filteredLeaveRequests.length + filteredLeaveCancellationRequests.length
 
   return {
     ...sources,
@@ -553,6 +559,16 @@ function filterDashboardSources(rawSources = {}, filterState = {}, referenceDate
     projects: visibleProjects,
     assignments: filteredAssignments,
     tasks: filteredTasks,
+    summary: {
+      employeeRecords: visibleEmployees.length,
+      projectRecords: visibleProjects.length,
+      teamMembersInScope: relatedEmployeeUids.size,
+      projectsTracked: relatedProjectUids.size,
+      leaveQueueItems: pendingLeaveCount,
+      assignmentRecords: filteredAssignments.length,
+      leaveRequestCount: filteredLeaveRequests.length,
+      hoursLogged: sumLoggedHours(filteredTasks)
+    },
     range
   }
 }
@@ -642,6 +658,12 @@ export function buildAdminDashboardSnapshot(rawSources = {}, filterState = {}) {
 
   return {
     variant: 'admin',
+    summary: {
+      ...filteredSources.summary,
+      leaveQueueItems: pendingLeaveCount,
+      activeAssignments,
+      taskActivity: taskVolume
+    },
     kpis: buildAdminKpis(filteredSources),
     charts: {
       attendanceTrend: buildLastSevenDaySeries(filteredSources.attendance, (record) => record.attendanceDate, (items) => ({
@@ -690,6 +712,11 @@ export function buildEmployeeDashboardSnapshot(rawSources = {}, filterState = {}
 
   return {
     variant: 'employee',
+    summary: {
+      ...filteredSources.summary,
+      assignedProjects: assignedProjectCount,
+      taskActivity: taskVolume
+    },
     kpis: buildEmployeeKpis(filteredSources),
     charts: {
       hoursTrend: buildHoursTrendSeries(filteredSources.tasks, filterState),
