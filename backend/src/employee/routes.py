@@ -49,7 +49,8 @@ async def _ensure_self_or_admin(employee_uid: uuid.UUID,session: AsyncSession,to
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,detail="You are allowed to access/update only your own profile unless you are an admin.")
 
 
-@employee_router.get("/", response_model=List[EmployeeBase], status_code=status.HTTP_200_OK,dependencies=[Depends(PermissionChecker(admin_module, "r"))])
+@employee_router.get("/", response_model=List[EmployeeBase], status_code=status.HTTP_200_OK)
+# ,dependencies=[Depends(PermissionChecker(admin_module, "r"))])
 async def get_all_employee(session: AsyncSession = Depends(get_session)):
     return await employee_service.get_all_employee(session)
 
