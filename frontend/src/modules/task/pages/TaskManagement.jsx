@@ -2392,7 +2392,7 @@ export default function TaskManagement() {
 
                 <div className="employee-toolbar employee-toolbar-top">
                   <div className="d-flex flex-column gap-2 flex-grow-1">
-                    <AppDatePresetFilter value={taskDatePreset} onChange={setTaskDatePreset} includeOverall={false} />
+                    <AppDatePresetFilter value={taskDatePreset} onChange={setTaskDatePreset} />
                     <AppSearchField className="employee-toolbar-search" value={taskSearch} onChange={(event) => setTaskSearch(event.target.value)} placeholder="Search by project, employee, assignment, or remarks" />
                   </div>
                   <div className="employee-toolbar-actions">

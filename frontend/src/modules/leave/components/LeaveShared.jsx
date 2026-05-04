@@ -5,11 +5,14 @@ import CardShell from '../../../components/common/CardShell.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
+import AppDatePresetFilter from '../../../components/common/AppDatePresetFilter.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import { TableActionButton, TableActionCluster, TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { AttendanceMetricCard, AttendanceTabs } from '../../attendance/components/AttendanceShared.jsx'
 import {
   CheckCircleIcon,
+  ExportIcon,
+  ImportIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
@@ -59,6 +62,7 @@ import {
   hasModuleVisibility,
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
+import { isDateRangeWithinPreset } from '../../../utils/datePresets.js'
 
 const HOLIDAY_SCOPE_OPTIONS = [
   { value: 'international', label: 'International holiday' },
@@ -110,6 +114,7 @@ const LOCAL_CALENDAR_STORAGE_KEY = 'one-gms-local-calendar-events'
 const PUBLIC_IP_REGION_LOOKUP_URL = 'https://ipapi.co/json/'
 const PUBLIC_HOLIDAY_API_BASE_URL = 'https://date.nager.at/api/v3'
 const INTERNATIONAL_REFERENCE_COUNTRIES = ['US', 'GB', 'IN', 'DE', 'AU', 'CA']
+const EXTERNAL_HOLIDAY_CACHE_VERSION = 'regional-feed-v2'
 const TIMEZONE_COUNTRY_MAP = {
   'asia/calcutta': 'IN',
   'asia/kolkata': 'IN',
@@ -138,6 +143,18 @@ const COUNTRY_TEXT_HINTS = [
   [/\bsingapore\b|\bsg\b/i, 'SG'],
   [/\buae\b|\bunited arab emirates\b|\bae\b/i, 'AE']
 ]
+const TIMEZONE_TEXT_HINTS = [
+  [/\basia[/\\_\s-]*(calcutta|kolkata)\b|\bindia standard time\b|\butc\s*\+?05:?30\b|\bgmt\s*\+?05:?30\b/i, 'IN']
+]
+const REGIONAL_HOLIDAY_FALLBACKS = {
+  IN: [
+    { monthDay: '01-26', name: 'Republic Day', localName: 'Republic Day' },
+    { monthDay: '05-01', name: 'Labour Day', localName: 'Labour Day' },
+    { monthDay: '08-15', name: 'Independence Day', localName: 'Independence Day' },
+    { monthDay: '10-02', name: 'Gandhi Jayanti', localName: 'Gandhi Jayanti' },
+    { monthDay: '12-25', name: 'Christmas Day', localName: 'Christmas Day' }
+  ]
+}
 const DEFAULT_CALENDAR_FILTERS = {
   international: true,
   regional: true,
@@ -237,6 +254,52 @@ function resolveTimezoneCountryCode() {
   }
 }
 
+function inferCountryCodeFromTimezone(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+
+  const normalizedTimezone = text.toLowerCase().replace(/\\/g, '/')
+  if (TIMEZONE_COUNTRY_MAP[normalizedTimezone]) return TIMEZONE_COUNTRY_MAP[normalizedTimezone]
+
+  for (const [timezone, countryCode] of Object.entries(TIMEZONE_COUNTRY_MAP)) {
+    if (normalizedTimezone.includes(timezone)) return countryCode
+  }
+
+  for (const [pattern, countryCode] of TIMEZONE_TEXT_HINTS) {
+    if (pattern.test(text)) return countryCode
+  }
+
+  return ''
+}
+
+function resolveCountryFromProfileTimezone(user = null, employee = null) {
+  const candidates = [
+    employee?.timezone,
+    employee?.timeZone,
+    employee?.time_zone,
+    employee?.profileTimezone,
+    employee?.profile_timezone,
+    employee?.preferredTimezone,
+    employee?.preferred_time_zone,
+    employee?.workTimezone,
+    employee?.work_timezone,
+    user?.timezone,
+    user?.timeZone,
+    user?.time_zone,
+    user?.profileTimezone,
+    user?.profile_timezone,
+    user?.preferredTimezone,
+    user?.preferred_time_zone
+  ]
+
+  for (const value of candidates) {
+    const countryCode = inferCountryCodeFromTimezone(value)
+    if (countryCode) return countryCode
+  }
+
+  return ''
+}
+
 function resolveSystemTimezoneLabel() {
   if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return ''
 
@@ -321,6 +384,9 @@ function resolveCountryFromUserDetails(user = null, employee = null) {
 }
 
 function resolvePreferredCountryContext({ user = null, employee = null, ipCountryCode = '' } = {}) {
+  const profileTimezoneCountryCode = resolveCountryFromProfileTimezone(user, employee)
+  if (profileTimezoneCountryCode) return { countryCode: profileTimezoneCountryCode, source: 'profile-timezone' }
+
   const detailsCountryCode = resolveCountryFromUserDetails(user, employee)
   if (detailsCountryCode) return { countryCode: detailsCountryCode, source: 'user-details' }
 
@@ -418,6 +484,7 @@ function toExternalHolidayEntry(record = {}, scope = 'international') {
   const displayName = baseName
   const localName = String(record?.localName || '').trim()
   const typeLabel = Array.isArray(record?.types) ? record.types.filter(Boolean).join(', ') : ''
+  const sourceLabel = String(record?.sourceLabel || 'Nager.Date').trim() || 'Nager.Date'
   const descriptionSegments = []
 
   if (localName && localName.toLowerCase() !== baseName.toLowerCase()) {
@@ -430,8 +497,8 @@ function toExternalHolidayEntry(record = {}, scope = 'international') {
     descriptionSegments.push(`Observed in ${countryCodes.length} countries.`)
   }
   descriptionSegments.push(scope === 'regional'
-    ? 'Regional public holiday lane synced from Nager.Date.'
-    : 'International public holiday lane synced from Nager.Date.')
+    ? `Regional public holiday lane synced from ${sourceLabel}.`
+    : `International public holiday lane synced from ${sourceLabel}.`)
 
   const uidCountryCode = scope === 'regional' ? (countryCodes[0] || countryCode || 'xx') : 'global'
 
@@ -455,10 +522,53 @@ function toExternalHolidayEntry(record = {}, scope = 'international') {
   }
 }
 
+function getRegionalHolidayFallbackRows(year, countryCode) {
+  const normalizedYear = Number(year) || new Date().getFullYear()
+  const normalizedCountryCode = sanitizeCountryCode(countryCode)
+  const fallbackRows = REGIONAL_HOLIDAY_FALLBACKS[normalizedCountryCode] || []
+
+  return fallbackRows.map((item) => ({
+    date: `${normalizedYear}-${item.monthDay}`,
+    name: item.name,
+    localName: item.localName || item.name,
+    countryCode: normalizedCountryCode,
+    global: true,
+    fixed: true,
+    counties: null,
+    launchYear: null,
+    types: ['Public'],
+    sourceLabel: 'regional fallback data'
+  }))
+}
+
+function mergeHolidayFeedRows(primaryRows = [], fallbackRows = []) {
+  const seen = new Set()
+
+  return [...(Array.isArray(primaryRows) ? primaryRows : []), ...(Array.isArray(fallbackRows) ? fallbackRows : [])]
+    .filter((row) => {
+      const date = String(row?.date || '').trim()
+      const name = String(row?.name || row?.localName || '').trim().toLowerCase()
+      if (!date || !name) return false
+
+      const key = [date, name, sanitizeCountryCode(row?.countryCode)].join('|')
+
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
 async function fetchRegionalHolidayFeed(year, countryCode) {
   const normalizedCountryCode = sanitizeCountryCode(countryCode) || 'US'
-  const payload = await fetchPublicJson(`${PUBLIC_HOLIDAY_API_BASE_URL}/publicholidays/${year}/${normalizedCountryCode}`)
-  return Array.isArray(payload) ? payload : []
+  const fallbackRows = getRegionalHolidayFallbackRows(year, normalizedCountryCode)
+
+  try {
+    const payload = await fetchPublicJson(`${PUBLIC_HOLIDAY_API_BASE_URL}/publicholidays/${year}/${normalizedCountryCode}`)
+    const rows = Array.isArray(payload) ? payload : []
+    return mergeHolidayFeedRows(rows, fallbackRows)
+  } catch {
+    return fallbackRows
+  }
 }
 
 async function fetchInternationalHolidayFeed(year) {
@@ -1292,6 +1402,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const [manualGrantTouched, setManualGrantTouched] = useState({})
   const [leaveForm, setLeaveForm] = useState({ leaveTypeUid: '', startDate: '', endDate: '', reason: '' })
   const [leaveFormTouched, setLeaveFormTouched] = useState({})
+  const [leaveDatePreset, setLeaveDatePreset] = useState('today')
 
   const todayDate = useMemo(() => getTodayDateInput(), [])
 
@@ -1324,7 +1435,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   const regionEmployee = profileRegionQuery.data || null
   const localHolidayCountryContext = resolvePreferredCountryContext({ user, employee: regionEmployee })
   const shouldUsePublicIpRegion = canViewHolidayTab
-    && !['user-details', 'timezone', 'locale'].includes(localHolidayCountryContext.source)
+    && !['profile-timezone', 'user-details', 'timezone', 'locale'].includes(localHolidayCountryContext.source)
     && (!Boolean(user?.uid || user?.email) || profileRegionQuery.isFetched || profileRegionQuery.isError)
   const publicRegionQuery = useQuery({
     queryKey: publicRegionQueryKey,
@@ -1345,7 +1456,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
   })
   const detectedHolidayCountryCode = sanitizeCountryCode(resolvedHolidayCountryContext.countryCode) || 'US'
   const holidayRegionSource = resolvedHolidayCountryContext.source || 'default'
-  const externalHolidaysQueryKey = ['leave', 'holidays', 'external', selectedYear, detectedHolidayCountryCode]
+  const externalHolidaysQueryKey = ['leave', 'holidays', 'external', EXTERNAL_HOLIDAY_CACHE_VERSION, selectedYear, detectedHolidayCountryCode]
 
   const holidaysQuery = useQuery({
     queryKey: holidaysQueryKey,
@@ -1716,9 +1827,9 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
     return filteredCalendarEntries.filter((holiday) => visibleCalendarDateKeys.includes(holiday.holidayDate))
   }, [calendarView, filteredCalendarEntries, visibleCalendarDateKeys, visibleHolidayMonthKey])
-  const visibleRegisterHolidays = useMemo(() => (
-    visibleCalendarEntries.filter((holiday) => String(holiday?.source || '').trim().toLowerCase() !== 'external')
-  ), [visibleCalendarEntries])
+  const visibleRegisterHolidays = useMemo(() => visibleCalendarEntries.filter((holiday) => (
+    String(holiday?.source || '').trim().toLowerCase() !== 'external'
+  )), [visibleCalendarEntries])
   const { items: sortedVisibleRegisterHolidays, sortConfig: holidayRegisterSortConfig, requestSort: requestHolidayRegisterSort } = useSortableData(visibleRegisterHolidays, {
     initialKey: 'date',
     initialDirection: 'asc',
@@ -1727,7 +1838,13 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       when: (holiday) => `${holiday.holidayDate || ''} ${holiday.startTime || (holiday.allDay ? '00:00' : '')}`.trim(),
       entry: (holiday) => `${holiday.name || ''} ${holiday.ownerLabel || ''}`.trim(),
       type: (holiday) => getHolidayScopeMeta(holiday.scope).label,
-      source: (holiday) => holiday.isLocal ? (holiday.ownerLabel || 'Personal entry') : 'Organization calendar',
+      source: (holiday) => {
+        if (holiday.isLocal) return holiday.ownerLabel || 'Personal entry'
+        if (String(holiday?.source || '').trim().toLowerCase() === 'external') {
+          return holiday.scope === 'regional' ? 'Regional public holiday feed' : 'International public holiday feed'
+        }
+        return 'Organization calendar'
+      },
       description: (holiday) => holiday.description || '',
       status: (holiday) => (holiday.isActive ? 'Active' : 'Inactive')
     }
@@ -1859,8 +1976,10 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
       rowsByUid.set(rowKey, request)
     })
 
-    return Array.from(rowsByUid.values())
-  }, [sortedMyRequests, sortedPendingCancellationRequests, sortedPendingRequests])
+    return Array.from(rowsByUid.values()).filter((request) => (
+      isDateRangeWithinPreset(request.startDate, request.endDate, leaveDatePreset)
+    ))
+  }, [leaveDatePreset, sortedMyRequests, sortedPendingCancellationRequests, sortedPendingRequests])
   const { items: sortedLeaveRequestRows, sortConfig: leaveRequestSortConfig, requestSort: requestLeaveRequestSort } = useSortableData(leaveRequestRows, {
     initialKey: 'dateRange',
     initialDirection: 'desc',
@@ -1883,7 +2002,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     }
   })
   const pinnedLeaveRequestRows = useMemo(() => prioritizeRowsByEmployee(sortedLeaveRequestRows, currentEmployeeUid), [currentEmployeeUid, sortedLeaveRequestRows])
-  const hasExportableCalendarEntries = visibleCalendarEntries.length > 0
+  const hasExportableCalendarEntries = visibleRegisterHolidays.length > 0
   const focusedDayHolidays = useMemo(() => holidaysByDate[selectedCalendarDate] || [], [holidaysByDate, selectedCalendarDate])
 
   const holidaySummary = useMemo(() => getHolidaySummary(calendarEntries), [calendarEntries])
@@ -1901,6 +2020,10 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     return countryName ? `${countryName} (${countryCode})` : countryCode
   }, [detectedHolidayCountryCode, detectedHolidayRegion?.cityName, detectedHolidayRegion?.countryName, detectedHolidayRegion?.regionName, holidayRegionSource])
   const holidayRegionCardMessage = useMemo(() => {
+    if (holidayRegionSource === 'profile-timezone') {
+      return `Regional holiday view follows your profile timezone: ${detectedHolidayRegionLabel}.`
+    }
+
     if (holidayRegionSource === 'user-details') {
       return `Regional holiday view follows your profile country: ${detectedHolidayRegionLabel}.`
     }
@@ -2020,7 +2143,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
     }
 
     try {
-      const icsContent = buildIcsContent(visibleCalendarEntries)
+      const icsContent = buildIcsContent(visibleRegisterHolidays)
       const fileName = `one-gms-calendar-${selectedYear}-${String(Number(selectedHolidayMonth) + 1).padStart(2, '0')}.ics`
 
       if (typeof navigator !== 'undefined' && typeof navigator.msSaveOrOpenBlob === 'function') {
@@ -2705,15 +2828,16 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                 <AppSelect value={calendarView} onChange={(value) => setCalendarView(String(value))} options={CALENDAR_VIEW_OPTIONS} placeholder="View" hideSelectedDescription />
                 <button
                   type="button"
-                  className={`btn btn-outline-primary employee-toolbar-btn${!hasExportableCalendarEntries ? ' btn-soft-disabled' : ''}`}
+                  className={`btn btn-outline-secondary btn-icon-inline employee-toolbar-btn${!hasExportableCalendarEntries ? ' btn-soft-disabled' : ''}`}
                   onClick={exportVisibleCalendar}
                   aria-disabled={!hasExportableCalendarEntries}
                   title={!hasExportableCalendarEntries ? 'Add calendar entries to enable export.' : 'Export the visible calendar as an .ics file.'}
                 >
+                  <ExportIcon />
                   <span>Export .ics</span>
                 </button>
-                {canCreateHolidayEntries ? <button type="button" className="btn btn-outline-primary employee-toolbar-btn" onClick={() => calendarImportRef.current?.click()}><span>Import .ics</span></button> : null}
-                {canCreateHolidayEntries ? <button type="button" className="btn btn-primary employee-toolbar-btn" onClick={() => openHolidayEditor('add')}><PlusIcon /><span>Add Event</span></button> : null}
+                {canCreateHolidayEntries ? <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-toolbar-btn" onClick={() => calendarImportRef.current?.click()}><ImportIcon /><span>Import .ics</span></button> : null}
+                {canCreateHolidayEntries ? <button type="button" className="btn btn-primary btn-icon-inline employee-toolbar-btn" onClick={() => openHolidayEditor('add')}><PlusIcon /><span>Add Event</span></button> : null}
               </div>
             )}
           >
@@ -2849,7 +2973,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
 
           <CardShell
             title={`Calendar Register • ${selectedCalendarLabel}`}
-            right={canCreateHolidayEntries ? <button type="button" className="btn btn-outline-info btn-sm" onClick={() => openHolidayEditor('add')}>Quick Add</button> : null}
+            right={canCreateHolidayEntries ? <button type="button" className="btn btn-primary btn-icon-inline employee-toolbar-btn" onClick={() => openHolidayEditor('add')}><PlusIcon /><span>Quick Add</span></button> : null}
           >
             <PaginatedTable rows={sortedVisibleRegisterHolidays}>
               {({ rows: paginatedRows }) => (
@@ -2876,9 +3000,9 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                         <tr key={holiday.uid}>
                           <td><TableCellStack title={formatLeaveDate(holiday.holidayDate)} subtitle={new Date(holiday.holidayDate).toLocaleDateString(undefined, { weekday: 'long' })} /></td>
                           <td><TableCellStack title={formatCalendarTimeLabel(holiday)} subtitle={isWeekendDate(new Date(holiday.holidayDate)) ? 'Weekend context' : 'Working day'} /></td>
-                          <td><TableCellStack title={holiday.name} subtitle={holiday.isLocal ? (holiday.ownerLabel || 'Personal entry') : (isExternalEntry ? 'Public holiday feed' : 'Organization calendar')} meta={holiday.scope ? getHolidayScopeMeta(holiday.scope).label : 'Calendar item'} /></td>
+                          <td><TableCellStack title={holiday.name} subtitle={holiday.isLocal ? (holiday.ownerLabel || 'Personal entry') : (isExternalEntry ? (holiday.scope === 'regional' ? 'Regional public holiday feed' : 'International public holiday feed') : 'Organization calendar')} meta={holiday.scope ? getHolidayScopeMeta(holiday.scope).label : 'Calendar item'} /></td>
                           <td><HolidayScopeBadge scope={holiday.scope} color={holiday.color} /></td>
-                          <td>{holiday.isLocal || holiday.audience === 'personal' ? <TableBadge value="My calendar" tone="success" /> : (isExternalEntry ? <TableBadge value="Global feed" tone="neutral" /> : <TableBadge value="Organization" tone="blue" />)}</td>
+                          <td>{holiday.isLocal || holiday.audience === 'personal' ? <TableBadge value="My calendar" tone="success" /> : (isExternalEntry ? <TableBadge value={holiday.scope === 'regional' ? 'Regional feed' : 'Global feed'} tone={holiday.scope === 'regional' ? 'blue' : 'neutral'} /> : <TableBadge value="Organization" tone="blue" />)}</td>
                           <td className="small text-muted">{holiday.description || '—'}</td>
                           <td>{holiday.isActive ? <TableBadge value="Active" tone="success" /> : <TableBadge value="Inactive" tone="neutral" />}</td>
                           <td className="table-actions-cell">
@@ -2892,7 +3016,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                         </tr>
                       )
                     }) : (
-                      <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No manual calendar entries are visible for {selectedCalendarLabel}. Add a new event to populate this register.</div></td></tr>
+                      <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No saved calendar entries are visible for {selectedCalendarLabel}. Public holiday feed entries stay on the calendar view only.</div></td></tr>
                     )}
                   </tbody>
                 </table>
@@ -3200,9 +3324,15 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
               {leaveRequestsLoadError ? (
                 <div className="alert alert-warning mb-0">{getErrorMessage(leaveRequestsLoadError, 'Leave requests could not be loaded.')}</div>
               ) : (
-                <PaginatedTable rows={pinnedLeaveRequestRows}>
-                  {({ rows: paginatedRows }) => (
-                    <table className="table employee-table workspace-table align-middle mb-0">
+                <>
+                  <div className="attendance-toolbar attendance-toolbar--register mb-3">
+                    <div className="employee-toolbar-left">
+                      <AppDatePresetFilter value={leaveDatePreset} onChange={setLeaveDatePreset} />
+                    </div>
+                  </div>
+                  <PaginatedTable rows={pinnedLeaveRequestRows}>
+                    {({ rows: paginatedRows }) => (
+                      <table className="table employee-table workspace-table align-middle mb-0">
                       <thead>
                         <tr>
                           {isManagementWorkspace ? <th><SortableHeader label="Employee" sortKey="employee" sortConfig={leaveRequestSortConfig} onSort={requestLeaveRequestSort} /></th> : null}
@@ -3247,9 +3377,10 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                           )
                         }) : <tr><td colSpan={isManagementWorkspace ? 9 : 8}><div className="employee-empty-state text-center py-5 text-muted">No leave requests are available right now.</div></td></tr>}
                       </tbody>
-                    </table>
-                  )}
-                </PaginatedTable>
+                      </table>
+                    )}
+                  </PaginatedTable>
+                </>
               )}
             </CardShell>
           ) : null}

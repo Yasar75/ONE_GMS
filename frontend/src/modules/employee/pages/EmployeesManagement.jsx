@@ -10,6 +10,7 @@ import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
 import AppSearchField from '../../../components/common/AppSearchField.jsx'
+import SearchHighlight from '../../../components/common/SearchHighlight.jsx'
 import EmployeeAdditionalDetailsEditor from '../components/EmployeeAdditionalDetailsEditor.jsx'
 import { AttendanceTabs } from '../../attendance/components/AttendanceShared.jsx'
 import { useEmployeesQuery } from '../../../hooks/employees/useEmployeesQuery.js'
@@ -1241,12 +1242,17 @@ function getGeneratedRoleBadgeStyle(value, roleBadgeStyleMap = null) {
   return getRoleBadgeStyleFromPaletteIndex(fallbackIndex)
 }
 
-function CellStack({ title, subtitle, meta = null, className = '' }) {
+function highlightSearchValue(value, query = '') {
+  if (typeof value !== 'string' && typeof value !== 'number') return value
+  return <SearchHighlight text={value} query={query} />
+}
+
+function CellStack({ title, subtitle, meta = null, className = '', highlightQuery = '' }) {
   return (
     <div className={`employee-cell-stack ${className}`.trim()}>
-      <div className="employee-cell-primary">{title || '—'}</div>
-      {subtitle ? <div className="employee-cell-secondary">{subtitle}</div> : null}
-      {meta ? <div className="employee-cell-meta">{meta}</div> : null}
+      <div className="employee-cell-primary">{title ? highlightSearchValue(title, highlightQuery) : '—'}</div>
+      {subtitle ? <div className="employee-cell-secondary">{highlightSearchValue(subtitle, highlightQuery)}</div> : null}
+      {meta ? <div className="employee-cell-meta">{highlightSearchValue(meta, highlightQuery)}</div> : null}
     </div>
   )
 }
@@ -2691,23 +2697,10 @@ export default function EmployeesManagement() {
     'phone',
     'status',
     'statusLabel',
-    'dateOfBirth',
-    'gender',
-    'genderLabel',
-    'bloodGroup',
-    'bloodGroupLabel',
-    'address',
-    'emergencyContact',
     'workLocation',
     'workLocationLabel',
     'employeeType',
     'employeeTypeLabel',
-    'managerName',
-    'hrEmployeeName',
-    'teamLeadName',
-    'coordinatorName',
-    'reportingAssignmentSummary',
-    'reportingAssignmentLabels',
     'assignmentStatusSummary',
     'billingStatus'
   ]).filter((employee) => {
@@ -3884,16 +3877,16 @@ export default function EmployeesManagement() {
                       {paginatedRows.length ? paginatedRows.map((employee) => (
                         <tr key={employee.uid || employee.id}>
                           <td className="employee-cell-wrap">
-                            <CellStack title={employee.fullName} subtitle={employee.employeeCode} className="employee-cell-wrap" />
+                            <CellStack title={employee.fullName} subtitle={employee.employeeCode} className="employee-cell-wrap" highlightQuery={deferredSearch} />
                           </td>
                           <td className="employee-cell-wrap employee-role-cell">
                             <CellStack title={<EmployeeBadge value={employee.roleName || 'Unassigned'} type="role" roleBadgeStyleMap={roleBadgeStyleMap} />} className="employee-cell-wrap" />
                           </td>
                           <td className="employee-cell-wrap">
-                            <CellStack title={employee.email || '—'} subtitle={employee.phone || '—'} className="employee-cell-wrap" />
+                            <CellStack title={employee.email || '—'} subtitle={employee.phone || '—'} className="employee-cell-wrap" highlightQuery={deferredSearch} />
                           </td>
                           <td className="employee-cell-wrap">
-                            <CellStack title={employee.positionLabel || employee.position || '—'} subtitle={employee.departmentLabel || employee.department || '—'} className="employee-cell-wrap" />
+                            <CellStack title={employee.positionLabel || employee.position || '—'} subtitle={employee.departmentLabel || employee.department || '—'} className="employee-cell-wrap" highlightQuery={deferredSearch} />
                           </td>
                           <td className="employee-cell-wrap">
                             <CellStack title={<EmployeeBadge value={employee.status || '—'} type="status" />} subtitle={formatDate(employee.joinDate)} className="employee-cell-wrap" />
