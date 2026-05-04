@@ -1,4 +1,5 @@
 import React from 'react'
+import SearchHighlight from './SearchHighlight.jsx'
 
 function sanitizeToken(value) {
   return String(value || '')
@@ -17,12 +18,17 @@ export function TableBadge({ value, tone = 'neutral', className = '' }) {
   )
 }
 
-export function TableCellStack({ title, subtitle, meta = null, className = '', align = 'start' }) {
+function renderHighlightableValue(value, query = '') {
+  if (typeof value !== 'string' && typeof value !== 'number') return value
+  return <SearchHighlight text={value} query={query} />
+}
+
+export function TableCellStack({ title, subtitle, meta = null, className = '', align = 'start', highlightQuery = '' }) {
   return (
     <div className={`employee-cell-stack table-cell-stack table-cell-stack-${align} ${className}`.trim()}>
-      <div className="employee-cell-primary table-cell-primary">{title || '—'}</div>
-      {subtitle ? <div className="employee-cell-secondary table-cell-secondary">{subtitle}</div> : null}
-      {meta ? <div className="employee-cell-meta table-cell-meta">{meta}</div> : null}
+      <div className="employee-cell-primary table-cell-primary">{title ? renderHighlightableValue(title, highlightQuery) : '—'}</div>
+      {subtitle ? <div className="employee-cell-secondary table-cell-secondary">{renderHighlightableValue(subtitle, highlightQuery)}</div> : null}
+      {meta ? <div className="employee-cell-meta table-cell-meta">{renderHighlightableValue(meta, highlightQuery)}</div> : null}
     </div>
   )
 }

@@ -57,3 +57,26 @@ export function isDateWithinPreset(dateValue, preset = 'today', referenceDate = 
 
   return date >= toStartOfDay(range.start) && date <= toEndOfDay(range.end)
 }
+
+export function isDateRangeWithinPreset(startValue, endValue = startValue, preset = 'today', referenceDate = new Date()) {
+  if (preset === 'overall') return true
+
+  if (!startValue && !endValue) return false
+
+  const startDate = startValue ? toStartOfDay(startValue) : null
+  const endDate = endValue ? toStartOfDay(endValue) : null
+  const hasValidStart = startDate && !Number.isNaN(startDate.getTime())
+  const hasValidEnd = endDate && !Number.isNaN(endDate.getTime())
+
+  if (!hasValidStart && !hasValidEnd) return false
+
+  const rangeStart = hasValidStart ? startDate : endDate
+  const rangeEnd = hasValidEnd ? endDate : startDate
+  const normalizedStart = rangeStart <= rangeEnd ? rangeStart : rangeEnd
+  const normalizedEnd = rangeEnd >= rangeStart ? rangeEnd : rangeStart
+  const presetRange = getPresetDateRange(preset, referenceDate)
+
+  if (!presetRange.start || !presetRange.end) return true
+
+  return normalizedStart <= toEndOfDay(presetRange.end) && normalizedEnd >= toStartOfDay(presetRange.start)
+}

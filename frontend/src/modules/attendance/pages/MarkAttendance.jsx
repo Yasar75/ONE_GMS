@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../../../components/common/PageHeader.jsx'
@@ -7,6 +7,8 @@ import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import PageContentLoader from '../../../components/common/PageContentLoader.jsx'
+import AppDatePresetFilter from '../../../components/common/AppDatePresetFilter.jsx'
+import AppSearchField from '../../../components/common/AppSearchField.jsx'
 import { SearchIcon } from '../../../components/common/AppIcons.jsx'
 import { TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { useMyPunchLogsQuery } from '../../../hooks/attendance/useMyPunchLogsQuery.js'
@@ -62,6 +64,8 @@ import {
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
 import { useSortableData } from '../../../hooks/common/useSortableData.js'
+import { filterCollectionByQuery } from '../../../utils/search.js'
+import { isDateWithinPreset } from '../../../utils/datePresets.js'
 
 const TAB_ITEMS = [
   { key: 'attendance', label: 'Mark Attendance', helper: 'Punches and log downloads' },
@@ -165,6 +169,12 @@ export default function MarkAttendance() {
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'attendance')
   const [selectedDate, setSelectedDate] = useState(todayDate)
+  const [attendanceDatePreset, setAttendanceDatePreset] = useState('today')
+  const [attendanceRegisterSearch, setAttendanceRegisterSearch] = useState('')
+  const deferredAttendanceRegisterSearch = useDeferredValue(attendanceRegisterSearch)
+  const [regularizationDatePreset, setRegularizationDatePreset] = useState('today')
+  const [regularizationSearch, setRegularizationSearch] = useState('')
+  const deferredRegularizationSearch = useDeferredValue(regularizationSearch)
   const [regularizationOpen, setRegularizationOpen] = useState(false)
   const [regularizationDraft, setRegularizationDraft] = useState(() => buildRegularizationDraft(todayDate, []))
   const [regularizationTouched, setRegularizationTouched] = useState({})
@@ -258,7 +268,14 @@ export default function MarkAttendance() {
       notes: (log) => log.invalidReason || ''
     }
   })
-  const { items: sortedRegularizations, sortConfig: regularizationsSortConfig, requestSort: requestRegularizationsSort } = useSortableData(regularizations, {
+  const filteredRegularizations = useMemo(() => (
+    filterCollectionByQuery(
+      (Array.isArray(regularizations) ? regularizations : []).filter((request) => isDateWithinPreset(request.regularizationDate, regularizationDatePreset)),
+      deferredRegularizationSearch,
+      ['regularizationDate', 'requestedPunchIn', 'requestedPunchOut', 'requestedWorkedHours', 'reason', 'status', 'reviewerNote', 'updatedAt', 'createdAt']
+    )
+  ), [deferredRegularizationSearch, regularizationDatePreset, regularizations])
+  const { items: sortedRegularizations, sortConfig: regularizationsSortConfig, requestSort: requestRegularizationsSort } = useSortableData(filteredRegularizations, {
     initialKey: 'regularizationDate',
     initialDirection: 'desc',
     accessors: {
@@ -282,7 +299,14 @@ export default function MarkAttendance() {
       employeeCode
     }))
   }, [attendanceRegisterQuery.data, currentEmployeeQuery.data?.employeeCode, currentEmployeeQuery.data?.fullName, user?.displayName, user?.firstName])
-  const { items: sortedAttendanceRegisterRows, sortConfig: attendanceRegisterSortConfig, requestSort: requestAttendanceRegisterSort } = useSortableData(attendanceRegisterRows, {
+  const filteredAttendanceRegisterRows = useMemo(() => (
+    filterCollectionByQuery(
+      attendanceRegisterRows.filter((row) => isDateWithinPreset(row.attendanceDate, attendanceDatePreset)),
+      deferredAttendanceRegisterSearch,
+      ['employeeName', 'employeeCode', 'attendanceDate', 'status', 'remarks']
+    )
+  ), [attendanceDatePreset, attendanceRegisterRows, deferredAttendanceRegisterSearch])
+  const { items: sortedAttendanceRegisterRows, sortConfig: attendanceRegisterSortConfig, requestSort: requestAttendanceRegisterSort } = useSortableData(filteredAttendanceRegisterRows, {
     initialKey: 'attendanceDate',
     initialDirection: 'desc',
     accessors: {
@@ -648,6 +672,12 @@ export default function MarkAttendance() {
           </div>
 
           <CardShell title="Attendance Register">
+            <div className="attendance-toolbar attendance-toolbar--register mb-3">
+              <div className="employee-toolbar-left">
+                <AppDatePresetFilter className="attendance-date-preset-row" value={attendanceDatePreset} onChange={setAttendanceDatePreset} />
+                <AppSearchField className="attendance-toolbar-search-row" value={attendanceRegisterSearch} onChange={(event) => setAttendanceRegisterSearch(event.target.value)} placeholder="Search date, status, or remarks" />
+              </div>
+            </div>
             <PaginatedTable rows={sortedAttendanceRegisterRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--attendance-register align-middle mb-0">
@@ -666,14 +696,14 @@ export default function MarkAttendance() {
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((row) => (
                       <tr key={row.uid}>
-                        <td><TableCellStack title={formatDate(row.attendanceDate)} subtitle={row.employeeCode} /></td>
+                        <td><TableCellStack title={formatDate(row.attendanceDate)} subtitle={row.employeeCode} highlightQuery={deferredAttendanceRegisterSearch} /></td>
                         <td><AttendanceBadge status={row.status} /></td>
                         <td><TableCellStack title={formatDateTime(row.firstPunchIn)} subtitle={formatTime(row.firstPunchIn)} /></td>
                         <td><TableCellStack title={formatDateTime(row.lastPunchOut)} subtitle={formatTime(row.lastPunchOut)} /></td>
                         <td><TableBadge value={formatHours(row.totalWorkedHours)} tone="blue" /></td>
                         <td><TableBadge value={formatHours(row.totalAssignedShiftHours)} tone="violet" /></td>
                         <td>{row.isRegularized ? <TableBadge value="Yes" tone="success" /> : <TableBadge value="No" tone="neutral" />}</td>
-                        <td className="text-muted small attendance-reason-cell">{row.remarks || '—'}</td>
+                        <td className="text-muted small attendance-reason-cell"><TableCellStack title={row.remarks || '—'} highlightQuery={deferredAttendanceRegisterSearch} /></td>
                       </tr>
                     )) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">No attendance records are currently available for your account.</div></td></tr>}
                   </tbody>
@@ -706,6 +736,12 @@ export default function MarkAttendance() {
           </CardShell>
 
           <CardShell title="Regularization Requested">
+            <div className="attendance-toolbar attendance-toolbar--register mb-3">
+              <div className="employee-toolbar-left">
+                <AppDatePresetFilter className="attendance-date-preset-row" value={regularizationDatePreset} onChange={setRegularizationDatePreset} />
+                <AppSearchField className="attendance-toolbar-search-row" value={regularizationSearch} onChange={(event) => setRegularizationSearch(event.target.value)} placeholder="Search date, status, reason, or reviewer note" />
+              </div>
+            </div>
             <PaginatedTable rows={sortedRegularizations}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-history align-middle mb-0">
@@ -724,14 +760,14 @@ export default function MarkAttendance() {
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((request) => (
                       <tr key={request.uid}>
-                        <td><TableCellStack title={formatDate(request.regularizationDate)} subtitle="Correction request" /></td>
-                        <td><TableCellStack title={formatDateTime(request.requestedPunchIn)} subtitle={formatTime(request.requestedPunchIn)} /></td>
-                        <td><TableCellStack title={formatDateTime(request.requestedPunchOut)} subtitle={formatTime(request.requestedPunchOut)} /></td>
+                        <td><TableCellStack title={formatDate(request.regularizationDate)} subtitle={request.regularizationDate || 'Correction request'} highlightQuery={deferredRegularizationSearch} /></td>
+                        <td><TableCellStack title={formatDateTime(request.requestedPunchIn)} subtitle={formatTime(request.requestedPunchIn)} highlightQuery={deferredRegularizationSearch} /></td>
+                        <td><TableCellStack title={formatDateTime(request.requestedPunchOut)} subtitle={formatTime(request.requestedPunchOut)} highlightQuery={deferredRegularizationSearch} /></td>
                         <td><TableBadge value={request.requestedWorkedHours == null ? '—' : formatHours(request.requestedWorkedHours)} tone="blue" /></td>
-                        <td className="small text-muted attendance-reason-cell">{request.reason}</td>
+                        <td className="small text-muted attendance-reason-cell"><TableCellStack title={request.reason || '—'} highlightQuery={deferredRegularizationSearch} /></td>
                         <td><RegularizationBadge status={request.status} /></td>
-                        <td className="small text-muted">{request.reviewerNote || '—'}</td>
-                        <td><TableCellStack title={formatDateTime(request.updatedAt || request.createdAt)} subtitle="Last update" /></td>
+                        <td className="small text-muted"><TableCellStack title={request.reviewerNote || '—'} highlightQuery={deferredRegularizationSearch} /></td>
+                        <td><TableCellStack title={formatDateTime(request.updatedAt || request.createdAt)} subtitle="Last update" highlightQuery={deferredRegularizationSearch} /></td>
                       </tr>
                     )) : <tr><td colSpan="8"><div className="employee-empty-state text-center py-5 text-muted">You have not submitted any attendance regularization requests yet.</div></td></tr>}
                   </tbody>

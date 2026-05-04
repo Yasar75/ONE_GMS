@@ -25,6 +25,10 @@ function collectSearchParts(value, parts) {
   if (normalized) parts.push(normalized)
 }
 
+function tokenizeSearchValue(value) {
+  return String(value || '').toLowerCase().match(/[a-z0-9]+/g) || []
+}
+
 export function buildSearchableText(record, selector = null) {
   const parts = []
 
@@ -42,7 +46,12 @@ export function buildSearchableText(record, selector = null) {
 export function matchesSearchQuery(record, query, selector = null) {
   const normalizedQuery = String(query || '').trim().toLowerCase()
   if (!normalizedQuery) return true
-  return buildSearchableText(record, selector).includes(normalizedQuery)
+
+  const queryTokens = tokenizeSearchValue(normalizedQuery)
+  if (!queryTokens.length) return true
+
+  const searchableTokens = tokenizeSearchValue(buildSearchableText(record, selector))
+  return queryTokens.every((queryToken) => searchableTokens.some((token) => token.startsWith(queryToken)))
 }
 
 export function filterCollectionByQuery(collection = [], query, selector = null) {

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarIcon,
-  DownloadIcon,
+  ExportIcon,
   HandIcon,
   PencilIcon,
   PlusIcon,
@@ -70,12 +70,12 @@ export function AttendanceTabs({ activeTab, onChange, tabs }) {
 export function DownloadActionGroup({ onCsv, onExcel, align = 'start' }) {
   return (
     <div className={`attendance-download-actions justify-content-${align}`}>
-      <button type="button" className="btn btn-light employee-toolbar-btn" onClick={onCsv}>
-        <DownloadIcon />
+      <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-toolbar-btn" onClick={onCsv}>
+        <ExportIcon />
         <span>CSV</span>
       </button>
-      <button type="button" className="btn btn-outline-primary employee-toolbar-btn" onClick={onExcel}>
-        <DownloadIcon />
+      <button type="button" className="btn btn-outline-secondary btn-icon-inline employee-toolbar-btn" onClick={onExcel}>
+        <ExportIcon />
         <span>Excel</span>
       </button>
     </div>

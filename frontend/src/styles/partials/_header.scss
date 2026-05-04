@@ -48,8 +48,13 @@
   padding: 2px;
   object-fit: contain;
   transform-origin: center;
-  transition: opacity 220ms ease, left 360ms cubic-bezier(0.22, 1, 0.36, 1), transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: opacity, left, transform;
+  backface-visibility: hidden;
+  transition:
+    opacity 380ms ease,
+    left 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 320ms ease;
+  will-change: opacity, left, transform, filter;
 }
 
 .brand-logo {
@@ -62,11 +67,12 @@
   padding: 5px;
   object-fit: contain;
   transform-origin: left center;
+  backface-visibility: hidden;
   transition:
-    opacity 220ms ease,
-    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
-    clip-path 380ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 260ms ease;
+    opacity 360ms ease,
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    clip-path 440ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 320ms ease;
   will-change: opacity, transform, clip-path;
 }
 
@@ -85,18 +91,25 @@
   max-width: calc(var(--sidebar-w) - 3.6rem);
   line-height: 1;
   transform-origin: left center;
-  transition: opacity 240ms ease, left 360ms cubic-bezier(0.22, 1, 0.36, 1), transform 360ms cubic-bezier(0.22, 1, 0.36, 1), filter 260ms ease;
+  transition:
+    opacity 340ms ease,
+    left 460ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 460ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 320ms ease,
+    font-size 320ms ease;
   will-change: opacity, left, transform, filter;
 }
 
 .app-brand--collapsed .brand-icon {
   left: var(--brand-collapsed-icon-left);
   opacity: 1;
-  transform: translate(0, -50%) scale(1);
+  transform: translate3d(0, -50%, 0) scale(1);
+  filter: blur(0);
 }
 
 .app-brand--collapsed .app-brand-title {
   left: var(--brand-title-left-collapsed);
+  font-size: clamp(1.62rem, 2.08vw, 2.36rem);
   opacity: 1;
   transform: translate(0, -50%) scale(1);
   filter: blur(0);
@@ -104,29 +117,31 @@
 
 .app-brand--collapsed .brand-logo {
   opacity: 0;
-  transform: translate(-14px, -50%) scale(0.98);
+  transform: translate3d(-10px, -50%, 0) scale(0.985);
   clip-path: inset(0 100% 0 0);
-  filter: blur(2px);
+  filter: blur(1.5px);
 }
 
 .app-brand--expanded .brand-icon {
   left: 0.15rem;
   opacity: 0;
-  transform: translate(-10px, -50%) scale(0.96);
+  transform: translate3d(-6px, -50%, 0) scale(0.98);
+  filter: blur(0.7px);
 }
 
 .app-brand--expanded .app-brand-title {
   left: var(--brand-title-left-expanded);
   opacity: 0;
-  transform: translate(22px, -50%) scale(0.99);
+  transform: translate(24px, -50%) scale(0.98);
   filter: blur(2px);
 }
 
 .app-brand--expanded .brand-logo {
   opacity: 1;
-  transform: translate(0, -50%) scale(1);
+  transform: translate3d(0, -50%, 0) scale(1);
   clip-path: inset(0 0 0 0);
   filter: blur(0);
+  transition-delay: 35ms, 0ms, 0ms, 35ms;
 }
 
 @media (prefers-reduced-motion: reduce) {

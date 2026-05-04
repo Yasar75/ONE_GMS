@@ -6,6 +6,7 @@ import PageHeader from '../../../components/common/PageHeader.jsx'
 import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
+import AppDatePresetFilter from '../../../components/common/AppDatePresetFilter.jsx'
 import AppSearchField from '../../../components/common/AppSearchField.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
@@ -44,6 +45,7 @@ import {
   pickImportValue
 } from '../../../utils/projectManagement.js'
 import { filterCollectionByQuery } from '../../../utils/search.js'
+import { isDateRangeWithinPreset } from '../../../utils/datePresets.js'
 import { getDateRangeValidationMessage, getRequiredFieldMessage, hasValidationErrors, markFieldsTouched } from '../../../utils/validation.js'
 
 const PROJECT_TAB_ITEMS = [
@@ -1023,6 +1025,7 @@ export default function ProjectManagement() {
   const scopedTabs = useMemo(() => (isTaskView ? TASK_TAB_ITEMS : PROJECT_TAB_ITEMS), [isTaskView])
 
   const [projectSearch, setProjectSearch] = useState('')
+  const [projectDatePreset, setProjectDatePreset] = useState('today')
   const [projectStatusFilter, setProjectStatusFilter] = useState('All')
   const [projectTimelineFilter, setProjectTimelineFilter] = useState('All')
   const [projectAssignmentCoverageFilter, setProjectAssignmentCoverageFilter] = useState('All')
@@ -1246,6 +1249,8 @@ export default function ProjectManagement() {
   const filteredProjects = useMemo(() => (
     filterCollectionByQuery(projectRows, deferredProjectSearch, ['projectCode', 'projectName', 'description', 'status', 'timelineBucket', 'assignmentCoverageBucket', 'taskCoverageBucket'])
       .filter((project) => {
+        const projectPresetEndDate = project.endDate || (project.startDate ? '9999-12-31' : '')
+        const matchDatePreset = isDateRangeWithinPreset(project.startDate, projectPresetEndDate, projectDatePreset)
         const matchStatus = projectStatusFilter === 'All' || String(project.status || '') === String(projectStatusFilter)
         const matchTimeline = projectTimelineFilter === 'All' || String(project.timelineBucket || '') === String(projectTimelineFilter)
         const matchAssignmentCoverage = projectAssignmentCoverageFilter === 'All'
@@ -1259,10 +1264,11 @@ export default function ProjectManagement() {
           || (projectTaskCoverageFilter === 'Hours Logged' && Number(project.taskTotalHours || 0) > 0)
           || (projectTaskCoverageFilter === 'No Hours' && Number(project.taskTotalHours || 0) === 0)
         const matchStartRange = isDateInRange(project.startDate, projectStartDateRange)
-        return matchStatus && matchTimeline && matchAssignmentCoverage && matchTaskCoverage && matchStartRange
+        return matchDatePreset && matchStatus && matchTimeline && matchAssignmentCoverage && matchTaskCoverage && matchStartRange
       })
   ), [
     deferredProjectSearch,
+    projectDatePreset,
     projectRows,
     projectStatusFilter,
     projectTimelineFilter,
@@ -2061,6 +2067,7 @@ export default function ProjectManagement() {
 
   function resetProjectFilters() {
     setProjectSearch('')
+    setProjectDatePreset('today')
     setProjectStatusFilter('All')
     setProjectTimelineFilter('All')
     setProjectAssignmentCoverageFilter('All')
@@ -2135,7 +2142,10 @@ export default function ProjectManagement() {
             <div className="card border-0 shadow-sm glass employee-directory-shell">
               <div className="card-body d-flex flex-column gap-3">
                 <div className="employee-toolbar employee-toolbar-top">
-                  <AppSearchField className="employee-toolbar-search" value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Search by project code, name, status, or description" />
+                  <div className="d-flex flex-column gap-2 flex-grow-1">
+                    <AppDatePresetFilter value={projectDatePreset} onChange={setProjectDatePreset} />
+                    <AppSearchField className="employee-toolbar-search" value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Search by project code, name, status, or description" />
+                  </div>
                   <div className="employee-toolbar-actions">
                     {canCreateProjects ? (
                       <button

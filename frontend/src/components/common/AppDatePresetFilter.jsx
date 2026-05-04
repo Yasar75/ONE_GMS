@@ -1,10 +1,10 @@
 import React, { useId, useMemo } from 'react'
 
 export const DATE_PRESET_OPTIONS = [
-  { value: 'overall', label: 'Overall' },
   { value: 'today', label: 'Today' },
   { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' }
+  { value: 'month', label: 'Month' },
+  { value: 'overall', label: 'Overall' }
 ]
 
 export function resolveDatePresetOptions({ includeOverall = true } = {}) {

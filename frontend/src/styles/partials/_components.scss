@@ -3428,6 +3428,20 @@
   backdrop-filter: blur(8px);
 }
 
+.search-result-highlight {
+  display: inline;
+  padding: 0 0.08rem;
+  border-radius: 0.24rem;
+  color: inherit;
+  background: rgba(255, 193, 7, 0.42);
+  box-shadow: 0 0 0 1px rgba(255, 193, 7, 0.25);
+}
+
+[data-bs-theme="dark"] .search-result-highlight {
+  background: rgba(255, 184, 92, 0.32);
+  box-shadow: 0 0 0 1px rgba(255, 184, 92, 0.26);
+}
+
 .employee-toolbar-btn {
   min-width: 140px;
 }
@@ -3457,6 +3471,15 @@
   gap: 0.75rem;
   width: 100%;
   flex: 1 1 100%;
+}
+
+.attendance-toolbar--register .attendance-date-preset-row {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.attendance-toolbar--register .attendance-toolbar-search-row {
+  grid-column: 1 / -1;
 }
 
 .attendance-toolbar--register .employee-search-field,

@@ -7,6 +7,7 @@ import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
 import PageContentLoader from '../../../components/common/PageContentLoader.jsx'
+import AppDatePresetFilter from '../../../components/common/AppDatePresetFilter.jsx'
 import AppSearchField from '../../../components/common/AppSearchField.jsx'
 import AppSelect from '../../../components/common/AppSelect.jsx'
 import AppDateRangeField from '../../../components/common/AppDateRangeField.jsx'
@@ -89,6 +90,7 @@ import {
   resolveAccessibleTab
 } from '../../../utils/permissions.js'
 import { filterCollectionByQuery } from '../../../utils/search.js'
+import { isDateWithinPreset } from '../../../utils/datePresets.js'
 
 const TAB_ITEMS = [
   { key: 'overview', label: 'Overview', helper: 'Unified workforce summary' },
@@ -530,6 +532,10 @@ export default function AttendanceManagement() {
   const [activeTab, setActiveTab] = useState(() => requestedTab || 'overview')
   const [searchTerm, setSearchTerm] = useState('')
   const deferredSearchTerm = useDeferredValue(searchTerm)
+  const [regularizationSearch, setRegularizationSearch] = useState('')
+  const deferredRegularizationSearch = useDeferredValue(regularizationSearch)
+  const [attendanceDatePreset, setAttendanceDatePreset] = useState('today')
+  const [regularizationDatePreset, setRegularizationDatePreset] = useState('today')
   const [statusFilter, setStatusFilter] = useState('All')
   const [regularizedFilter, setRegularizedFilter] = useState('All')
   const [dateRangeFilter, setDateRangeFilter] = useState({ start: '', end: '' })
@@ -697,15 +703,24 @@ export default function AttendanceManagement() {
   const filteredAttendanceRows = useMemo(() => {
     return filterCollectionByQuery(attendanceRows, deferredSearchTerm, ['employeeName', 'employeeCode', 'department', 'email', 'remarks']).filter((row) => {
       const matchesSearch = true
+      const matchesDatePreset = isDateWithinPreset(row.attendanceDate, attendanceDatePreset)
       const matchesStatus = statusFilter === 'All' || row.status === statusFilter
       const matchesRegularized = regularizedFilter === 'All'
         || (regularizedFilter === 'Regularized' && row.isRegularized)
         || (regularizedFilter === 'Standard' && !row.isRegularized)
       const matchesStartDate = !dateRangeFilter?.start || row.attendanceDate >= dateRangeFilter.start
       const matchesEndDate = !dateRangeFilter?.end || row.attendanceDate <= dateRangeFilter.end
-      return matchesSearch && matchesStatus && matchesRegularized && matchesStartDate && matchesEndDate
+      return matchesSearch && matchesDatePreset && matchesStatus && matchesRegularized && matchesStartDate && matchesEndDate
     })
-  }, [attendanceRows, dateRangeFilter, deferredSearchTerm, regularizedFilter, statusFilter])
+  }, [attendanceDatePreset, attendanceRows, dateRangeFilter, deferredSearchTerm, regularizedFilter, statusFilter])
+
+  const filteredRegularizationRows = useMemo(() => regularizationRows.filter((row) => (
+    isDateWithinPreset(row.regularizationDate, regularizationDatePreset)
+  )), [regularizationDatePreset, regularizationRows])
+
+  const filteredMyRegularizationRows = useMemo(() => myRegularizationRows.filter((row) => (
+    isDateWithinPreset(row.regularizationDate, regularizationDatePreset)
+  )), [myRegularizationRows, regularizationDatePreset])
 
   const { items: sortedAttendanceRows, sortConfig: attendanceSortConfig, requestSort: requestAttendanceSort } = useSortableData(filteredAttendanceRows, {
     initialKey: 'attendanceDate',
@@ -723,7 +738,7 @@ export default function AttendanceManagement() {
       remarks: (row) => row.remarks || ''
     }
   })
-  const { items: sortedRegularizationRows, sortConfig: regularizationSortConfig, requestSort: requestRegularizationSort } = useSortableData(regularizationRows, {
+  const { items: sortedRegularizationRows, sortConfig: regularizationSortConfig, requestSort: requestRegularizationSort } = useSortableData(filteredRegularizationRows, {
     initialKey: 'regularizationDate',
     initialDirection: 'desc',
     accessors: {
@@ -735,7 +750,7 @@ export default function AttendanceManagement() {
       status: (row) => row.status || ''
     }
   })
-  const { items: sortedMyRegularizationRows } = useSortableData(myRegularizationRows, {
+  const { items: sortedMyRegularizationRows } = useSortableData(filteredMyRegularizationRows, {
     initialKey: 'regularizationDate',
     initialDirection: 'desc',
     accessors: {
@@ -756,7 +771,7 @@ export default function AttendanceManagement() {
       rowsByUid.set(String(row.uid), { ...row, isOwnRecord: true })
     })
 
-    regularizationRows.forEach((row) => {
+    filteredRegularizationRows.forEach((row) => {
       const rowKey = String(row.uid)
       if (rowsByUid.has(rowKey)) {
         rowsByUid.set(rowKey, {
@@ -771,8 +786,21 @@ export default function AttendanceManagement() {
     })
 
     return Array.from(rowsByUid.values())
-  }, [regularizationRows, sortedMyRegularizationRows])
-  const { items: sortedRegularizationRequestRows, sortConfig: regularizationRequestSortConfig, requestSort: requestRegularizationRequestSort } = useSortableData(regularizationRequestRows, {
+  }, [filteredRegularizationRows, sortedMyRegularizationRows])
+  const searchedRegularizationRequestRows = useMemo(() => filterCollectionByQuery(regularizationRequestRows, deferredRegularizationSearch, [
+    'employeeName',
+    'employeeCode',
+    'regularizationDate',
+    'requestedPunchIn',
+    'requestedPunchOut',
+    'requestedWorkedHours',
+    'reason',
+    'status',
+    'reviewerNote',
+    'updatedAt',
+    'createdAt'
+  ]), [deferredRegularizationSearch, regularizationRequestRows])
+  const { items: sortedRegularizationRequestRows, sortConfig: regularizationRequestSortConfig, requestSort: requestRegularizationRequestSort } = useSortableData(searchedRegularizationRequestRows, {
     initialKey: 'regularizationDate',
     initialDirection: 'desc',
     accessors: {
@@ -1340,6 +1368,11 @@ export default function AttendanceManagement() {
 
             {canViewAttendanceRegister ? (
               <CardShell title="Attendance Register" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('attendance')}>Open manage tab</button>}>
+            <div className="attendance-toolbar attendance-toolbar--register mb-3">
+              <div className="employee-toolbar-left">
+                <AppDatePresetFilter className="attendance-date-preset-row" value={attendanceDatePreset} onChange={setAttendanceDatePreset} />
+              </div>
+            </div>
             <PaginatedTable rows={overviewAttendanceRows}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--attendance-preview align-middle mb-0">
@@ -1371,6 +1404,11 @@ export default function AttendanceManagement() {
 
             {canViewRegularizationQueue ? (
               <CardShell title="Pending Regularization Preview" right={<button type="button" className="btn btn-sm btn-outline-info" onClick={() => setActiveTab('regularization')}>Open full queue</button>}>
+            <div className="attendance-toolbar attendance-toolbar--register mb-3">
+              <div className="employee-toolbar-left">
+                <AppDatePresetFilter className="attendance-date-preset-row" value={regularizationDatePreset} onChange={setRegularizationDatePreset} />
+              </div>
+            </div>
             <PaginatedTable rows={previewRegularizations}>
               {({ rows: paginatedRows }) => (
                 <table className="table employee-table workspace-table workspace-table--regularization-preview align-middle mb-0">
@@ -1483,6 +1521,7 @@ export default function AttendanceManagement() {
             <CardShell title="Attendance Register" right={<DownloadActionGroup onCsv={() => downloadAttendanceRowsCsv(pinnedAttendanceRows, 'attendance-register.csv')} onExcel={() => downloadAttendanceRowsExcel(pinnedAttendanceRows, 'attendance-register.xls')} align="end" />}>
             <div className="attendance-toolbar attendance-toolbar--register mb-3">
   <div className="employee-toolbar-left">
+    <AppDatePresetFilter className="attendance-date-preset-row" value={attendanceDatePreset} onChange={setAttendanceDatePreset} />
     <AppSearchField value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search employee, department, code, or remarks" />
     <div className="employee-filter-field">
       <label className="form-label small text-muted mb-1">Status</label>
@@ -1531,16 +1570,16 @@ export default function AttendanceManagement() {
                   <tbody>
                     {paginatedRows.length ? paginatedRows.map((row) => (
                       <tr key={row.uid}>
-                        <td><TableCellStack title={formatDate(row.attendanceDate)} subtitle={row.employeeCode} /></td>
-                        <td><TableCellStack title={row.employeeName} subtitle={`${row.employeeCode}${row.email ? ` • ${row.email}` : ''}`} /></td>
-                        <td><TableBadge value={row.department || '—'} tone="neutral" /></td>
+                        <td><TableCellStack title={formatDate(row.attendanceDate)} subtitle={row.employeeCode} highlightQuery={deferredSearchTerm} /></td>
+                        <td><TableCellStack title={row.employeeName} subtitle={`${row.employeeCode}${row.email ? ` • ${row.email}` : ''}`} highlightQuery={deferredSearchTerm} /></td>
+                        <td><TableCellStack title={row.department || '—'} highlightQuery={deferredSearchTerm} /></td>
                         <td><AttendanceBadge status={row.status} /></td>
                         <td><TableCellStack title={formatDateTime(row.firstPunchIn)} subtitle={formatTime(row.firstPunchIn)} /></td>
                         <td><TableCellStack title={formatDateTime(row.lastPunchOut)} subtitle={formatTime(row.lastPunchOut)} /></td>
                         <td><TableBadge value={formatHours(row.totalWorkedHours)} tone="blue" /></td>
                         <td><TableBadge value={formatHours(row.totalAssignedShiftHours)} tone="violet" /></td>
                         <td>{row.isRegularized ? <TableBadge value="Yes" tone="success" /> : <TableBadge value="No" tone="neutral" />}</td>
-                        <td className="text-muted small attendance-reason-cell">{row.remarks || '—'}</td>
+                        <td className="text-muted small attendance-reason-cell"><TableCellStack title={row.remarks || '—'} highlightQuery={deferredSearchTerm} /></td>
                         <td className="table-actions-cell">
                           <TableActionCluster>
                             <TableActionButton icon={<ViewIcon />} label="View" variant="view" onClick={() => setSelectedRecord(row)} />
@@ -1669,6 +1708,12 @@ export default function AttendanceManagement() {
 
           {canViewRegularizationQueue ? (
             <CardShell title="Regularization Requests">
+              <div className="attendance-toolbar attendance-toolbar--register mb-3">
+                <div className="employee-toolbar-left">
+                  <AppDatePresetFilter className="attendance-date-preset-row" value={regularizationDatePreset} onChange={setRegularizationDatePreset} />
+                  <AppSearchField className="attendance-toolbar-search-row" value={regularizationSearch} onChange={(event) => setRegularizationSearch(event.target.value)} placeholder="Search employee, code, date, status, reason, or reviewer note" />
+                </div>
+              </div>
               <PaginatedTable rows={pinnedRegularizationRequestRows}>
                 {({ rows: paginatedRows }) => (
                   <table className="table employee-table workspace-table workspace-table--regularization-queue align-middle mb-0">
@@ -1687,13 +1732,13 @@ export default function AttendanceManagement() {
                     <tbody>
                       {paginatedRows.length ? paginatedRows.map((row) => (
                         <tr key={row.uid}>
-                          <td><TableCellStack title={row.employeeName} subtitle={row.employeeCode} /></td>
-                          <td><TableCellStack title={formatDate(row.regularizationDate)} subtitle="Submitted request" /></td>
-                          <td><TableCellStack title={formatDateTime(row.requestedPunchIn)} subtitle={formatTime(row.requestedPunchIn)} /></td>
-                          <td><TableCellStack title={formatDateTime(row.requestedPunchOut)} subtitle={formatTime(row.requestedPunchOut)} /></td>
+                          <td><TableCellStack title={row.employeeName} subtitle={row.employeeCode} highlightQuery={deferredRegularizationSearch} /></td>
+                          <td><TableCellStack title={formatDate(row.regularizationDate)} subtitle={row.regularizationDate || 'Submitted request'} highlightQuery={deferredRegularizationSearch} /></td>
+                          <td><TableCellStack title={formatDateTime(row.requestedPunchIn)} subtitle={formatTime(row.requestedPunchIn)} highlightQuery={deferredRegularizationSearch} /></td>
+                          <td><TableCellStack title={formatDateTime(row.requestedPunchOut)} subtitle={formatTime(row.requestedPunchOut)} highlightQuery={deferredRegularizationSearch} /></td>
                           <td><TableBadge value={row.requestedWorkedHours == null ? '—' : formatHours(row.requestedWorkedHours)} tone="blue" /></td>
                           <td><RegularizationBadge status={row.status} /></td>
-                          <td className="small text-muted">{row.reviewerNote || '—'}</td>
+                          <td className="small text-muted"><TableCellStack title={row.reviewerNote || '—'} highlightQuery={deferredRegularizationSearch} /></td>
                           <td className="table-actions-cell">
                             <TableActionCluster>
                               {canViewRegularizationLogs ? <TableActionButton icon={<ViewIcon />} label="Timeline" variant="view" onClick={() => setSelectedRegularizationLogRecord(row)} /> : null}
