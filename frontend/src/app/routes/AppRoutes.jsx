@@ -18,6 +18,8 @@ import LeaveManagement from '../../modules/leave/pages/LeaveManagement.jsx'
 import ProjectManagement from '../../modules/project/pages/ProjectManagement.jsx'
 import TaskManagement from '../../modules/task/pages/TaskManagement.jsx'
 import EmployeesOverview from '../../modules/task/pages/EmployeesOverview.jsx'
+import PayslipManagement from '../../modules/payslip/pages/PayslipManagement.jsx'
+import Payslip from '../../modules/payslip/pages/Payslip.jsx'
 
 import MarkAttendance from '../../modules/attendance/pages/MarkAttendance.jsx'
 import ApplyLeave from '../../modules/leave/pages/ApplyLeave.jsx'
@@ -43,10 +45,13 @@ export function AppRoutes() {
           <Route path="/admin/project-management" element={<ProjectManagement />} />
           <Route path="/admin/task-management" element={<TaskManagement />} />
           <Route path="/admin/task-management/employees/:employeeUid" element={<EmployeesOverview />} />
+          <Route path="/admin/payslip-management" element={<PayslipManagement />} />
+          <Route path="/admin/payslip-management/employees/:employeeUid" element={<PayslipManagement mode="employee" />} />
 
           <Route path="/employee/dashboard" element={<Dashboard />} />
           <Route path="/employee/attendance" element={<MarkAttendance />} />
           <Route path="/employee/apply-leave" element={<ApplyLeave />} />
+          <Route path="/employee/payslip" element={<Payslip />} />
           <Route path="/profile" element={<ProfilePage />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

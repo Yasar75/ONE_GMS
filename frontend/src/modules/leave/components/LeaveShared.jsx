@@ -210,7 +210,7 @@ async function fetchPublicJson(url) {
   })
 
   if (!response.ok) {
-    throw new Error(`Public calendar API request failed (${response.status}).`)
+    throw new Error(`Public holiday calendar request failed (${response.status}).`)
   }
 
   return response.json()
@@ -3109,7 +3109,7 @@ export default function LeaveShared({ workspaceType = 'request', tabs = [], init
                   <div className="d-flex flex-column gap-3 h-100">
                     <div>
                       <div className="fw-semibold">Default Leaves</div>
-                      <div className="small text-muted mt-1">Backend-driven generation for all active leave types that support auto allocation. Only employee and year are required.</div>
+                      <div className="small text-muted mt-1">Generate default yearly leave balances for active leave types that support auto allocation. Only employee and year are required.</div>
                     </div>
                     {defaultAllocationError ? <div className="alert alert-warning mb-0">{defaultAllocationError}</div> : null}
                     <div className="leave-preview-grid leave-preview-grid--allocation">

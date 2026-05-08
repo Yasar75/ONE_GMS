@@ -137,5 +137,13 @@ export const endpoints = {
     list: '/api/v1/Project-Task',
     create: '/api/v1/Project-Task',
     detail: (taskUid) => `/api/v1/Project-Task/${taskUid}`
+  },
+  payslip: {
+    upload: '/api/v1/employee-payslip/upload',
+    all: '/api/v1/employee-payslip/all',
+    my: '/api/v1/employee-payslip/my',
+    myDownloadUrl: '/api/v1/employee-payslip/my/download',
+    detail: (payslipUid) => `/api/v1/employee-payslip/${payslipUid}`,
+    download: (payslipUid) => `/api/v1/employee-payslip/${payslipUid}/download`
   }
 }

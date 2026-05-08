@@ -897,7 +897,7 @@ function AdminDashboardView() {
       user={user}
       scope="management"
       title="Dashboard"
-      tagline="Organization overview for the work that needs attention right now."
+      tagline="Overview of the employee, attendance, leave, project, task, and payroll areas ."
       buildSnapshot={buildAdminDashboardSnapshot}
     >
       {({ modules, dashboardData, createSectionAction }) => {
@@ -1046,7 +1046,7 @@ function EmployeeDashboardView() {
       user={user}
       scope="employee"
       title="Dashboard"
-      tagline="Your workspace view for attendance, leave, assigned projects, and task progress."
+      tagline="Overview of your attendance, leave, projects, and tasks."
       buildSnapshot={buildEmployeeDashboardSnapshot}
     >
       {({ modules, dashboardData, createSectionAction }) => {

@@ -1324,7 +1324,7 @@ export default function AttendanceManagement() {
     <div className="d-flex flex-column gap-3 attendance-module-page employee-directory-page">
       <PageHeader
         title="Attendance Management"
-        tagline="Switch between overview, attendance operations, shift control, and regularization workflows from one admin workspace."
+        tagline="Review attendance, manage shifts, and handle regularization requests."
       />
 
       <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />

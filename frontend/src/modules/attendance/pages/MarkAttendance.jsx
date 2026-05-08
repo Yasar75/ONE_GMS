@@ -364,7 +364,7 @@ export default function MarkAttendance() {
     if (myShiftAssignmentQuery.isError) {
       return {
         title: 'Assigned shift unavailable',
-        helper: 'Shift details are temporarily unavailable from the backend.'
+        helper: 'Shift details are temporarily unavailable.'
       }
     }
     if (!myShiftDetails) {
@@ -587,7 +587,7 @@ export default function MarkAttendance() {
     <div className="d-flex flex-column gap-3 attendance-module-page employee-attendance-page">
       <PageHeader
         title="Attendance"
-        tagline="Mark your attendance, inspect daily logs, and create regularization requests from one employee workspace."
+        tagline="Record your attendance, review daily logs, and submit regularization requests."
       />
 
       <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />

@@ -10,7 +10,7 @@ const APPLY_LEAVE_TABS = [
 export default function ApplyLeave() {
   return (
     <div>
-      <PageHeader title="Leave" tagline="Review the holiday calendar and submit leave requests from your self-service workspace." />
+      <PageHeader title="Leave" tagline="Review holidays, check balances, and submit leave requests." />
       <LeaveShared workspaceType="request" tabs={APPLY_LEAVE_TABS} initialTab="holiday" />
     </div>
   )

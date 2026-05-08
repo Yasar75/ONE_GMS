@@ -4648,7 +4648,6 @@
 .employee-table-dense td {
   padding: 0.9rem 0.75rem;
   font-size: 0.92rem;
-  vertical-align: top;
 }
 
 .employee-col-name {
@@ -5844,28 +5843,41 @@
 }
 
 .task-management-table {
-  min-width: 76rem;
+  table-layout: fixed;
+  min-width: 70rem;
 }
 
 .task-management-table .task-col-date {
-  width: 9rem;
+  width: 8.25rem;
 }
 
 .task-management-table .task-col-project,
 .task-management-table .task-col-employee {
-  width: 9.25rem;
+  width: 8.5rem;
 }
 
 .task-management-table .task-col-hours {
-  width: 7rem;
+  width: 5.25rem;
+}
+
+.task-management-table .task-col-count {
+  width: 6.15rem;
+}
+
+.task-management-table .task-col-progress {
+  width: 7.15rem;
 }
 
 .task-management-table .task-col-status {
+  width: 6.15rem;
+}
+
+.task-management-table .task-col-remarks {
   width: 7rem;
 }
 
 .task-management-table .task-col-actions {
-  width: 13.5rem;
+  width: 9.5rem;
 }
 
 .task-management-table .employee-actions-cell {
@@ -5885,6 +5897,109 @@
   max-width: 100%;
   margin-inline: auto;
   overflow: visible;
+}
+
+.task-management-table .task-count-cell {
+  text-align: center !important;
+  padding-inline: 0.32rem;
+}
+
+.task-management-table .task-count-cell .sortable-header {
+  width: 100%;
+  justify-content: center !important;
+}
+
+.task-management-table .task-count-cell .table-badge {
+  display: inline-flex;
+  margin-inline: auto;
+}
+
+.payslip-management-table {
+  min-width: 62rem;
+}
+
+.payslip-management-table .payslip-col-period {
+  width: 10rem;
+}
+
+.payslip-management-table .payslip-col-employee {
+  width: 13rem;
+}
+
+.payslip-management-table .payslip-col-file {
+  width: 18rem;
+}
+
+.payslip-management-table .payslip-col-count,
+.payslip-management-table .payslip-col-status {
+  width: 8.5rem;
+}
+
+.payslip-management-table .payslip-col-size {
+  width: 7rem;
+}
+
+.payslip-management-table .payslip-col-uploaded {
+  width: 10rem;
+}
+
+.payslip-management-table .payslip-col-actions {
+  width: 16rem;
+}
+
+.payslip-self-table {
+  min-width: 48rem;
+}
+
+.payslip-management-table .employee-actions-cell {
+  text-align: center;
+  vertical-align: middle;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.payslip-management-table .employee-actions-cell .employee-action-cluster,
+.payslip-management-table .employee-actions-cell .table-action-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline: auto;
+  overflow: visible;
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn,
+.payslip-management-table .employee-actions-cell .employee-action-btn {
+  inline-size: 2.72rem;
+  min-inline-size: 2.72rem;
+  max-inline-size: 2.72rem;
+  min-height: 2.72rem;
+  padding: 0.38rem;
+  justify-content: center;
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn:hover,
+.task-management-table .employee-actions-cell .employee-action-btn:focus-visible,
+.payslip-management-table .employee-actions-cell .employee-action-btn:hover,
+.payslip-management-table .employee-actions-cell .employee-action-btn:focus-visible {
+  inline-size: 2.72rem;
+  min-inline-size: 2.72rem;
+  max-inline-size: 2.72rem;
+  padding: 0.38rem;
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn__label,
+.task-management-table .employee-actions-cell .employee-action-btn:hover .employee-action-btn__label,
+.task-management-table .employee-actions-cell .employee-action-btn:focus-visible .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn:hover .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn:focus-visible .employee-action-btn__label {
+  max-inline-size: 0;
+  opacity: 0;
+  margin-inline-start: 0;
+  transform: none;
 }
 
 .metadata-action-cluster {
@@ -7835,6 +7950,38 @@
   }
 }
 
+.task-management-table .employee-actions-cell .employee-action-btn,
+.payslip-management-table .employee-actions-cell .employee-action-btn {
+  inline-size: 2.72rem;
+  min-inline-size: 2.72rem;
+  max-inline-size: 2.72rem;
+  min-height: 2.72rem;
+  padding: 0.38rem;
+  justify-content: center;
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn:hover,
+.task-management-table .employee-actions-cell .employee-action-btn:focus-visible,
+.payslip-management-table .employee-actions-cell .employee-action-btn:hover,
+.payslip-management-table .employee-actions-cell .employee-action-btn:focus-visible {
+  inline-size: 2.72rem;
+  min-inline-size: 2.72rem;
+  max-inline-size: 2.72rem;
+  padding: 0.38rem;
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn__label,
+.task-management-table .employee-actions-cell .employee-action-btn:hover .employee-action-btn__label,
+.task-management-table .employee-actions-cell .employee-action-btn:focus-visible .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn:hover .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn:focus-visible .employee-action-btn__label {
+  max-inline-size: 0;
+  opacity: 0;
+  margin-inline-start: 0;
+  transform: none;
+}
+
 /* Employee entries filter alignment and sizing normalization */
 .employee-module-page .employee-toolbar.employee-toolbar-filters:not(.project-toolbar-filters) {
   --employee-filter-column-min: 12.75rem;
@@ -8124,4 +8271,78 @@
   --date-preset-selected-border: rgba(129, 174, 255, 0.88);
   --date-preset-selected-bg: linear-gradient(135deg, rgba(37, 99, 235, 0.28), rgba(14, 165, 233, 0.16));
   --date-preset-selected-color: #eef6ff;
+}
+
+.task-management-table .employee-actions-cell {
+  min-width: 9.5rem;
+  overflow: visible;
+}
+
+.payslip-management-table .employee-actions-cell {
+  min-width: 10rem;
+  overflow: visible;
+}
+
+.task-management-table .employee-actions-cell .employee-action-cluster,
+.task-management-table .employee-actions-cell .table-action-cluster,
+.payslip-management-table .employee-actions-cell .employee-action-cluster,
+.payslip-management-table .employee-actions-cell .table-action-cluster {
+  max-width: none;
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn,
+.payslip-management-table .employee-actions-cell .employee-action-btn {
+  --action-expanded-inline-size: calc(2.55rem + (var(--action-label-chars, 6) * 0.58rem));
+  inline-size: max-content;
+  min-inline-size: var(--action-collapsed-inline-size, 2.72rem);
+  max-inline-size: var(--action-collapsed-inline-size, 2.72rem);
+  padding: 0.38rem;
+  overflow: hidden;
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn:hover,
+.task-management-table .employee-actions-cell .employee-action-btn:focus-visible,
+.payslip-management-table .employee-actions-cell .employee-action-btn:hover,
+.payslip-management-table .employee-actions-cell .employee-action-btn:focus-visible {
+  inline-size: var(--action-expanded-inline-size);
+  min-inline-size: var(--action-expanded-inline-size);
+  max-inline-size: var(--action-expanded-inline-size);
+  justify-content: flex-start;
+  padding-inline: 0.28rem 0.54rem;
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn__label {
+  max-inline-size: 0;
+  opacity: 0;
+  margin-inline-start: 0;
+  transform: translateX(-6px);
+}
+
+.task-management-table .employee-actions-cell .employee-action-btn:hover .employee-action-btn__label,
+.task-management-table .employee-actions-cell .employee-action-btn:focus-visible .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn:hover .employee-action-btn__label,
+.payslip-management-table .employee-actions-cell .employee-action-btn:focus-visible .employee-action-btn__label {
+  max-inline-size: calc(var(--action-label-chars, 6) * 0.58rem);
+  opacity: 1;
+  margin-inline-start: 0.34rem;
+  transform: translateX(0);
+}
+
+.task-management-table th.task-count-cell,
+.task-management-table td.task-count-cell {
+  text-align: center !important;
+}
+
+.task-management-table td.task-count-cell {
+  padding-inline: 0.25rem;
+}
+
+.task-management-table .task-count-cell .sortable-header {
+  justify-content: center !important;
+}
+
+.task-management-table .task-count-cell .table-badge {
+  display: inline-flex;
+  margin-inline: auto;
 }
