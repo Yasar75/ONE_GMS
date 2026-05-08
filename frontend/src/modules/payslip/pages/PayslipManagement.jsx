@@ -223,7 +223,6 @@ export default function PayslipManagement({ mode = 'management' }) {
 
   const deferredSearch = useDeferredValue(search)
   const employeeOptions = useMemo(() => buildEmployeeOptions(employees, false), [employees])
-  const employeeFilterOptions = useMemo(() => buildEmployeeOptions(employees, true), [employees])
   const yearOptions = useMemo(() => buildPayslipYearOptions(payslips), [payslips])
   const yearFilterOptions = useMemo(() => [{ value: 'All', label: 'All years', description: 'No year filter applied' }, ...yearOptions], [yearOptions])
   const monthFilterOptions = useMemo(() => [{ value: 'All', label: 'All months', description: 'No month filter applied' }, ...PAYSLIP_MONTH_OPTIONS], [])
@@ -253,12 +252,20 @@ export default function PayslipManagement({ mode = 'management' }) {
     return lookup
   }, [payslips])
 
-  const employeeSummaryRows = useMemo(() => {
-    const employeeSource = employees.length
-      ? employees
-      : Array.from(payslipsByEmployeeUid.keys()).map((employeeUid) => ({ uid: employeeUid }))
+  const employeesWithPayslipRecords = useMemo(() => {
+    if (!payslipsByEmployeeUid.size) return []
 
-    return employeeSource
+    if (!employees.length) {
+      return Array.from(payslipsByEmployeeUid.keys()).map((employeeUid) => ({ uid: employeeUid }))
+    }
+
+    return employees.filter((employee) => payslipsByEmployeeUid.has(String(employee.uid || '').trim()))
+  }, [employees, payslipsByEmployeeUid])
+
+  const employeeFilterOptions = useMemo(() => buildEmployeeOptions(employeesWithPayslipRecords, true), [employeesWithPayslipRecords])
+
+  const employeeSummaryRows = useMemo(() => {
+    return employeesWithPayslipRecords
       .filter((employee) => String(employee.uid || '').trim())
       .map((employee) => {
         const employeePayslips = payslipsByEmployeeUid.get(String(employee.uid || '')) || []
@@ -285,7 +292,7 @@ export default function PayslipManagement({ mode = 'management' }) {
           selectedPeriodStatus: periodPayslip ? 'Uploaded' : (monthFilter !== 'All' || yearFilter !== 'All' ? 'Pending' : '—')
         }
       })
-  }, [employees, monthFilter, payslipsByEmployeeUid, yearFilter])
+  }, [employeesWithPayslipRecords, monthFilter, payslipsByEmployeeUid, yearFilter])
 
   const detailRows = useMemo(() => (payslipsByEmployeeUid.get(String(routeEmployeeUid || '')) || []).map((payslip) => ({
     ...payslip,
@@ -350,9 +357,9 @@ export default function PayslipManagement({ mode = 'management' }) {
       .sort((left, right) => right - left)[0]
     const currentMonth = getCurrentPayslipMonth()
     const currentYear = getCurrentPayslipYear()
-    const employeeSourceCount = employees.length || payslipsByEmployeeUid.size
-    const pendingCurrentPeriod = employees.length
-      ? employees.filter((employee) => !(payslipsByEmployeeUid.get(String(employee.uid || '')) || [])
+    const employeeSourceCount = employeesWithPayslipRecords.length || payslipsByEmployeeUid.size
+    const pendingCurrentPeriod = employeeSourceCount
+      ? employeesWithPayslipRecords.filter((employee) => !(payslipsByEmployeeUid.get(String(employee.uid || '')) || [])
         .some((payslip) => Number(payslip.salaryMonth) === currentMonth && Number(payslip.salaryYear) === currentYear)).length
       : 0
 
@@ -363,7 +370,7 @@ export default function PayslipManagement({ mode = 'management' }) {
       fourthLabel: 'Pending This Month',
       fourthValue: pendingCurrentPeriod
     }
-  }, [detailRows, employees, isEmployeeView, payslips, payslipsByEmployeeUid])
+  }, [detailRows, employeesWithPayslipRecords, isEmployeeView, payslips, payslipsByEmployeeUid])
 
   function openUploadModal(employeeUid = '') {
     if (!canUploadPayslips) {
