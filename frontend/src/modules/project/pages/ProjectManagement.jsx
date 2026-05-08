@@ -50,11 +50,11 @@ import { getDateRangeValidationMessage, getRequiredFieldMessage, hasValidationEr
 
 const PROJECT_TAB_ITEMS = [
   { key: 'projects', label: 'Projects', helper: 'Create and maintain project records' },
-  { key: 'assignments', label: 'Project Assignment', helper: 'Map employees to projects through backend APIs' }
+  { key: 'assignments', label: 'Project Assignment', helper: 'Map employees to the projects they work on' }
 ]
 
 const TASK_TAB_ITEMS = [
-  { key: 'tasks', label: 'Task Management', helper: 'Manage tasks through Project-Task APIs' }
+  { key: 'tasks', label: 'Task Management', helper: 'Manage task entries across assigned projects' }
 ]
 
 const PROJECT_STATUS_OPTIONS = ['Draft', 'Planned', 'Active', 'On Hold', 'Completed', 'Terminated']
@@ -1756,7 +1756,7 @@ export default function ProjectManagement() {
         await queryClient.invalidateQueries({ queryKey: PROJECTS_QUERY_KEY })
       }, {
         title: projectFormMode === 'create' ? 'Creating project' : 'Updating project',
-        message: projectFormMode === 'create' ? 'Saving project record to backend API.' : 'Applying project updates to backend API.'
+        message: projectFormMode === 'create' ? 'Saving the project record.' : 'Applying project updates.'
       })
 
       setIsProjectFormOpen(false)
@@ -1794,7 +1794,7 @@ export default function ProjectManagement() {
         ])
       }, {
         title: assignmentFormMode === 'create' ? 'Creating assignment' : 'Updating assignment',
-        message: assignmentFormMode === 'create' ? 'Saving assignment through backend API.' : 'Applying assignment updates through backend API.'
+        message: assignmentFormMode === 'create' ? 'Saving the project assignment.' : 'Applying assignment updates.'
       })
 
       setIsAssignmentFormOpen(false)
@@ -1850,7 +1850,7 @@ export default function ProjectManagement() {
         await queryClient.invalidateQueries({ queryKey: PROJECT_TASKS_QUERY_KEY })
       }, {
         title: taskFormMode === 'create' ? 'Creating task record' : 'Updating task record',
-        message: taskFormMode === 'create' ? 'Saving task through backend API.' : 'Applying task updates through backend API.'
+        message: taskFormMode === 'create' ? 'Saving the task entry.' : 'Applying task updates.'
       })
 
       setIsTaskFormOpen(false)
@@ -1870,7 +1870,7 @@ export default function ProjectManagement() {
     const accepted = await showConfirm({
       modalTitle: 'Delete Project',
       title: `Delete ${project.projectName}?`,
-      message: 'This project and related records may be removed from backend storage.'
+      message: 'This project and its related records will be removed for users who can access this module.'
     })
     if (!accepted) return
 
@@ -1902,7 +1902,7 @@ export default function ProjectManagement() {
     const accepted = await showConfirm({
       modalTitle: 'Delete Assignment',
       title: `Delete assignment for ${assignment.employeeName}?`,
-      message: 'This assignment will be removed from backend Project-Assignment API.'
+      message: 'This employee will no longer be mapped to the selected project.'
     })
     if (!accepted) return
 
@@ -1933,7 +1933,7 @@ export default function ProjectManagement() {
     const accepted = await showConfirm({
       modalTitle: 'Delete Task',
       title: `Delete task on ${formatDate(task.taskDate)}?`,
-      message: 'This task record will be removed from backend Project-Task API.'
+      message: 'This task entry will be removed from the employee task history.'
     })
     if (!accepted) return
 
@@ -2097,8 +2097,8 @@ export default function ProjectManagement() {
 
   const pageHeaderTitle = isTaskView ? 'Task Management' : 'Project Management'
   const pageHeaderTagline = isTaskView
-    ? 'Backend-aligned task monitoring and operations using Project-Task APIs.'
-    : 'Backend-aligned project and assignment operations.'
+    ? 'Review task entries, project progress, and employee workloads.'
+    : 'Manage project records and employee assignments.'
   const emptyStateTitle = isTaskView
     ? 'Task module is not available for this account.'
     : 'Project module is not available for this account.'
@@ -2127,13 +2127,13 @@ export default function ProjectManagement() {
 
       {activeTab === 'projects' ? (
         projectsQuery.isLoading ? (
-          <StateCard title="Loading project management" message="Pulling project records from backend Project API." />
+          <StateCard title="Loading project management" message="Preparing the project records you can access." />
         ) : projectsQuery.isError ? (
-          <StateCard title="Project module could not be loaded" message={parseApiError(projectsQuery.error, 'The Project API request failed.')} actionLabel="Retry" onAction={projectsQuery.refetch} />
+          <StateCard title="Project module could not be loaded" message={parseApiError(projectsQuery.error, 'Project records could not be loaded.')} actionLabel="Retry" onAction={projectsQuery.refetch} />
         ) : (
           <>
             <div className="row g-3">
-              <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Total Projects" value={projects.length} helper="Projects synced from backend records." tone="blue" /></div>
+              <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Total Projects" value={projects.length} helper="Projects currently ." tone="blue" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Active Projects" value={projectMetrics.active} helper="Projects currently marked active." tone="green" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Planned / Draft" value={projectMetrics.planned} helper="Projects in planning stages." tone="teal" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Pending Dates" value={projectMetrics.unscheduled} helper="Projects missing start or end date." tone="orange" /></div>
@@ -2275,13 +2275,13 @@ export default function ProjectManagement() {
 
       {activeTab === 'assignments' ? (
         assignmentsQuery.isLoading ? (
-          <StateCard title="Loading project assignments" message="Pulling assignment records from backend Project-Assignment API." />
+          <StateCard title="Loading project assignments" message="Preparing the assignment records you can access." />
         ) : assignmentsQuery.isError ? (
-          <StateCard title="Assignment module could not be loaded" message={parseApiError(assignmentsQuery.error, 'The Project-Assignment API request failed.')} actionLabel="Retry" onAction={assignmentsQuery.refetch} />
+          <StateCard title="Assignment module could not be loaded" message={parseApiError(assignmentsQuery.error, 'Assignment records could not be loaded.')} actionLabel="Retry" onAction={assignmentsQuery.refetch} />
         ) : (
           <>
             <div className="row g-3">
-              <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Total Assignments" value={assignments.length} helper="Assignments synced from backend records." tone="blue" /></div>
+              <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Total Assignments" value={assignments.length} helper="Assignments currently ." tone="blue" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Active Assignments" value={assignmentMetrics.active} helper="Assignments in active state." tone="green" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Avg Allocation" value={`${assignmentMetrics.avgAllocation}%`} helper="Average allocation across assignments." tone="teal" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Employees" value={new Set(assignments.map((item) => item.employeeUid)).size} helper="Employees mapped to projects." tone="orange" /></div>
@@ -2375,13 +2375,13 @@ export default function ProjectManagement() {
 
       {activeTab === 'tasks' ? (
         tasksQuery.isLoading ? (
-          <StateCard title="Loading task management" message="Pulling task records from backend Project-Task API." />
+          <StateCard title="Loading task management" message="Preparing the task records you can access." />
         ) : tasksQuery.isError ? (
-          <StateCard title="Task module could not be loaded" message={parseApiError(tasksQuery.error, 'The Project-Task API request failed.')} actionLabel="Retry" onAction={tasksQuery.refetch} />
+          <StateCard title="Task module could not be loaded" message={parseApiError(tasksQuery.error, 'Task records could not be loaded.')} actionLabel="Retry" onAction={tasksQuery.refetch} />
         ) : (
           <>
             <div className="row g-3">
-              <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Task Entries" value={tasks.length} helper="Task records synced from backend." tone="blue" /></div>
+              <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Task Entries" value={tasks.length} helper="Task entries currently ." tone="blue" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Total Hours" value={taskMetrics.totalHours} helper="Sum of hours worked." tone="green" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Completed" value={taskMetrics.completed} helper="Total completed tasks." tone="teal" /></div>
               <div className="col-12 col-sm-6 col-xl-3"><MetricCard title="Approved" value={taskMetrics.approved} helper="Total approved tasks." tone="orange" /></div>

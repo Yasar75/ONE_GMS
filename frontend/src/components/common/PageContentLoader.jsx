@@ -90,7 +90,7 @@ export default function PageContentLoader({ cards = 4, slowDelayMs = 5000, showS
         <div className="page-content-loader__slow-state content-reveal" style={{ animationDelay: '300ms' }}>
           <div className="global-loader-spinner mb-2"><span /><span /></div>
           <div className="fw-semibold">Fetching live data…</div>
-          <div className="text-muted small">Still loading your workspace layout from the API.</div>
+          <div className="text-muted small">Still preparing your workspace layout.</div>
         </div>
       ) : null}
     </div>

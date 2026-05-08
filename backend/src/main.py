@@ -38,6 +38,7 @@ from src.transaction_history.routes import transaction_history_router
 from src.project_management.project.routes import project_router
 from src.project_management.project_assignment.routes import project_assignment_router
 from src.project_management.project_task.routes import project_task_router
+from src.payslip.routes import payslip_router
 
 from src.sendgrid_mail.routes import sendgrid_router
 from src.middleware import register_middleware
@@ -136,6 +137,8 @@ app.include_router(leave_request_router, prefix=f"/api/{version}/leave-requests"
 app.include_router(project_router, prefix=f"/api/{version}/Project", tags=["Project"])
 app.include_router(project_assignment_router, prefix=f"/api/{version}/Project-Assignment", tags=["Project Assignment"])
 app.include_router(project_task_router, prefix=f"/api/{version}/Project-Task", tags=["Project Task"])
+app.include_router(transaction_history_router, prefix=f"/api/{version}/transaction-history", tags=["Transaction History"])
+app.include_router(payslip_router, prefix=f"/api/{version}/employee-payslip", tags=["Payslip Upload & Download"])
 
 app.include_router(sendgrid_router, prefix=f"/api/{version}/sendgrid-mail", tags=["SendGridMail"])
 app.include_router(transaction_history_router, prefix=f"/api/{version}/transaction-history", tags=["Transaction History"])

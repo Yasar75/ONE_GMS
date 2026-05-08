@@ -247,6 +247,18 @@ export function ChecklistIcon({ className }) {
   )
 }
 
+export function FileTextIcon({ className }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 3v5h5" />
+      <path d="M8.5 12h7" />
+      <path d="M8.5 16h7" />
+      <path d="M8.5 8h2" />
+    </svg>
+  )
+}
+
 
 export function CheckIcon({ className }) {
   return (

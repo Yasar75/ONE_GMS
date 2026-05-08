@@ -1,6 +1,6 @@
 import React from 'react'
 import { canAccessAppPath, resolveDashboardVariant } from '../../utils/permissions.js'
-import { BriefcaseIcon, CalendarIcon, ChecklistIcon, ClockIcon, HomeIcon, UsersIcon } from '../common/AppIcons.jsx'
+import { BriefcaseIcon, CalendarIcon, ChecklistIcon, ClockIcon, FileTextIcon, HomeIcon, UsersIcon } from '../common/AppIcons.jsx'
 
 export function getNavItems(user) {
   const dashboardVariant = resolveDashboardVariant(user)
@@ -23,6 +23,9 @@ export function getNavItems(user) {
     if (canAccessAppPath(user, '/admin/task-management')) {
       items.push({ label: 'Task Management', to: '/admin/task-management', icon: <ChecklistIcon /> })
     }
+    if (canAccessAppPath(user, '/admin/payslip-management')) {
+      items.push({ label: 'Payslip Management', to: '/admin/payslip-management', icon: <FileTextIcon /> })
+    }
     return items
   }
 
@@ -34,6 +37,9 @@ export function getNavItems(user) {
   }
   if (canAccessAppPath(user, '/employee/apply-leave')) {
     items.push({ label: 'Leave', to: '/employee/apply-leave', icon: <CalendarIcon /> })
+  }
+  if (canAccessAppPath(user, '/employee/payslip')) {
+    items.push({ label: 'Payslip', to: '/employee/payslip', icon: <FileTextIcon /> })
   }
 
   return items

@@ -11,7 +11,7 @@ const LEAVE_MANAGEMENT_TABS = [
 export default function LeaveManagement() {
   return (
     <div>
-      <PageHeader title="Leave Management" tagline="Manage holidays, leave allocations, and leave workflows from one admin workspace." />
+      <PageHeader title="Leave Management" tagline="Manage holidays, leave allocations, and requests." />
       <LeaveShared workspaceType="management" tabs={LEAVE_MANAGEMENT_TABS} initialTab="holiday" />
     </div>
   )

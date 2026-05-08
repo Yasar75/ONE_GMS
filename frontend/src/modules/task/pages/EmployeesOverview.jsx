@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react'
+import React, { useDeferredValue, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Bar,
@@ -16,16 +17,25 @@ import {
 import AppDatePresetFilter from '../../../components/common/AppDatePresetFilter.jsx'
 import CardShell from '../../../components/common/CardShell.jsx'
 import KpiCard from '../../../components/common/KpiCard.jsx'
+import ModalFrame from '../../../components/common/ModalFrame.jsx'
 import PaginatedTable from '../../../components/common/PaginatedTable.jsx'
 import SortableHeader from '../../../components/common/SortableHeader.jsx'
-import { ChevronLeftIcon } from '../../../components/common/AppIcons.jsx'
-import { TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
+import AppSearchField from '../../../components/common/AppSearchField.jsx'
+import AppSelect from '../../../components/common/AppSelect.jsx'
+import { ChevronLeftIcon, PencilIcon, PlusIcon, TrashIcon } from '../../../components/common/AppIcons.jsx'
+import { TableActionButton, TableActionCluster, TableBadge, TableCellStack } from '../../../components/common/TablePrimitives.jsx'
 import { useSortableData } from '../../../hooks/common/useSortableData.js'
 import { useEmployeeLookupQuery } from '../../../hooks/employees/useEmployeeLookupQuery.js'
 import { useTaskAssignmentsQuery } from '../../../hooks/task/useTaskAssignmentsQuery.js'
-import { useTaskEntriesQuery } from '../../../hooks/task/useTaskEntriesQuery.js'
+import { TASK_ENTRIES_QUERY_KEY, useTaskEntriesQuery } from '../../../hooks/task/useTaskEntriesQuery.js'
 import { useTaskProjectsQuery } from '../../../hooks/task/useTaskProjectsQuery.js'
-import { formatDate } from '../../../utils/employee.js'
+import { projectService } from '../../../api/services/project.service.js'
+import { useAuth } from '../../../app/providers/AuthProvider.jsx'
+import { useModal } from '../../../app/providers/ModalProvider.jsx'
+import { normalizeApiError } from '../../../utils/apiError.js'
+import { formatDate, normalizeDateInput } from '../../../utils/employee.js'
+import { PERMISSION_ACTIONS, PERMISSION_MODULES, hasModulePermission } from '../../../utils/permissions.js'
+import { filterCollectionByQuery } from '../../../utils/search.js'
 import { buildTaskHoursChart, buildTaskStatusChartData, filterTasksByDatePreset, TASK_STATUS_CHART_CONFIG } from '../utils/taskInsights.js'
 
 function compactUid(value) {
@@ -58,7 +68,22 @@ function buildHourTicks(maxHours = 0, step = 1) {
 export default function EmployeesOverview() {
   const navigate = useNavigate()
   const { employeeUid = '' } = useParams()
-  const [datePreset, setDatePreset] = useState('today')
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const { showStatus, showConfirm, runWithLoader } = useModal()
+  const todayIsoDate = getTodayIsoDate()
+  const [datePreset, setDatePreset] = useState('overall')
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false)
+  const [taskModalMode, setTaskModalMode] = useState('create')
+  const [selectedTask, setSelectedTask] = useState(null)
+  const [taskDraft, setTaskDraft] = useState(() => createTaskDraft({ employeeUid, todayIsoDate }))
+  const [taskTouched, setTaskTouched] = useState({})
+  const [taskSearch, setTaskSearch] = useState('')
+  const deferredTaskSearch = useDeferredValue(taskSearch)
+  const taskPermissionModules = [...PERMISSION_MODULES.projectTask, ...PERMISSION_MODULES.project]
+  const canCreateTasks = hasModulePermission(user, taskPermissionModules, PERMISSION_ACTIONS.create)
+  const canUpdateTasks = hasModulePermission(user, taskPermissionModules, PERMISSION_ACTIONS.update)
+  const canDeleteTasks = hasModulePermission(user, taskPermissionModules, PERMISSION_ACTIONS.delete)
 
   const employeesQuery = useEmployeeLookupQuery(true)
   const projectsQuery = useTaskProjectsQuery(true)
@@ -73,6 +98,22 @@ export default function EmployeesOverview() {
   const employee = useMemo(() => employees.find((entry) => String(entry.uid || '') === String(employeeUid || '')) || null, [employeeUid, employees])
   const projectByUid = useMemo(() => new Map(projects.map((project) => [String(project.uid || ''), project])), [projects])
   const assignmentByUid = useMemo(() => new Map(assignments.map((assignment) => [String(assignment.uid || ''), assignment])), [assignments])
+  const projectOptions = useMemo(() => {
+    const employeeAssignments = assignments.filter((assignment) => String(assignment.employeeUid || '') === String(employeeUid || ''))
+    const mappedProjectUids = Array.from(new Set(employeeAssignments.map((assignment) => String(assignment.projectUid || '')).filter(Boolean)))
+    const sourceProjectUids = mappedProjectUids.length
+      ? mappedProjectUids
+      : projects.map((project) => String(project.uid || '')).filter(Boolean)
+
+    return sourceProjectUids.map((projectUid) => {
+      const project = projectByUid.get(projectUid)
+      return {
+        value: projectUid,
+        label: project ? `${project.projectName} (${project.projectCode})` : `Project ${compactUid(projectUid)}`,
+        description: project?.status || (mappedProjectUids.length ? 'Mapped project' : 'Project record')
+      }
+    })
+  }, [assignments, employeeUid, projectByUid, projects])
 
   const employeeTaskRows = useMemo(() => tasks
     .filter((task) => String(task.employeeUid || '') === String(employeeUid || ''))
@@ -96,6 +137,13 @@ export default function EmployeesOverview() {
     }), [assignmentByUid, employeeUid, projectByUid, tasks])
 
   const filteredTasks = useMemo(() => filterTasksByDatePreset(employeeTaskRows, datePreset), [datePreset, employeeTaskRows])
+  const visibleTaskRows = useMemo(() => filterCollectionByQuery(filteredTasks, deferredTaskSearch, [
+    'projectName',
+    'projectCode',
+    'assignmentStatus',
+    'remarks',
+    'taskDate'
+  ]), [filteredTasks, deferredTaskSearch])
   const taskStatusChartData = useMemo(() => buildTaskStatusChartData(filteredTasks), [filteredTasks])
   const hoursChart = useMemo(() => buildTaskHoursChart(employeeTaskRows, datePreset), [datePreset, employeeTaskRows])
   const totalHours = useMemo(() => filteredTasks.reduce((total, task) => total + Number(task.hourWork || 0), 0), [filteredTasks])
@@ -109,11 +157,11 @@ export default function EmployeesOverview() {
     + Number(task.taskReviewedValue || 0)
   ), 0), [filteredTasks])
 
-  const { items: sortedTasks, sortConfig, requestSort } = useSortableData(filteredTasks, {
-    initialKey: 'taskDate',
+  const { items: sortedTasks, sortConfig, requestSort } = useSortableData(visibleTaskRows, {
+    initialKey: 'updated',
     initialDirection: 'desc',
     accessors: {
-      taskDate: (task) => task.taskDate || '',
+      updated: (task) => task.updatedAt || task.createdAt || task.taskDate || '',
       project: (task) => `${task.projectName || ''} ${task.projectCode || ''}`.trim(),
       hours: (task) => Number(task.hourWork || 0),
       completed: (task) => Number(task.taskCompletedValue || 0),
@@ -125,10 +173,171 @@ export default function EmployeesOverview() {
     }
   })
 
+  const taskErrors = useMemo(() => buildTaskDraftErrors(taskDraft, todayIsoDate), [taskDraft, todayIsoDate])
+
   const maxHours = Math.max(...hoursChart.data.map((entry) => Number(entry.hours || 0)), 0)
   const hourTicks = buildHourTicks(maxHours, hoursChart.yAxisStep)
   const isLoading = employeesQuery.isLoading || projectsQuery.isLoading || assignmentsQuery.isLoading || tasksQuery.isLoading
   const isError = employeesQuery.isError || projectsQuery.isError || assignmentsQuery.isError || tasksQuery.isError
+
+  function resetTaskModal() {
+    setTaskModalMode('create')
+    setSelectedTask(null)
+    setTaskDraft(createTaskDraft({ employeeUid, todayIsoDate }))
+    setTaskTouched({})
+  }
+
+  function openCreateTask(seedTask = null) {
+    if (!canCreateTasks) {
+      showStatus({ type: 'error', title: 'Task access blocked', message: 'Your role does not have permission to add tasks.' })
+      return
+    }
+
+    setTaskModalMode('create')
+    setSelectedTask(null)
+    setTaskDraft(createTaskDraft({
+      employeeUid,
+      todayIsoDate,
+      task: seedTask
+        ? {
+            ...seedTask,
+            uid: '',
+            taskDate: todayIsoDate,
+            hourWork: TASK_DEFAULT_STANDARD_HOURS,
+            taskCompleted: 0,
+            taskInprogress: 0,
+            taskApproved: 0,
+            taskReviewed: 0,
+            taskRework: 0,
+            taskRejected: 0,
+            remarks: ''
+          }
+        : null
+    }))
+    setTaskTouched({})
+    setIsTaskModalOpen(true)
+  }
+
+  function openEditTask(task) {
+    if (!canUpdateTasks) {
+      showStatus({ type: 'error', title: 'Task access blocked', message: 'Your role does not have permission to edit tasks.' })
+      return
+    }
+
+    setTaskModalMode('edit')
+    setSelectedTask(task)
+    setTaskDraft(createTaskDraft({ employeeUid, todayIsoDate, task }))
+    setTaskTouched({})
+    setIsTaskModalOpen(true)
+  }
+
+  function handleTaskDraftChange(event) {
+    const { name, value } = event.target
+    setTaskDraft((current) => ({
+      ...current,
+      [name]: name === 'taskDate'
+        ? (normalizeDateInput(value || todayIsoDate) || todayIsoDate)
+        : value
+    }))
+  }
+
+  function handleTaskDraftBlur(event) {
+    const { name } = event.target
+    setTaskTouched((current) => ({ ...current, [name]: true }))
+  }
+
+  async function handleSaveTask() {
+    if (taskModalMode === 'create' && !canCreateTasks) {
+      showStatus({ type: 'error', title: 'Task access blocked', message: 'Your role does not have permission to add tasks.' })
+      return
+    }
+    if (taskModalMode === 'edit' && !canUpdateTasks) {
+      showStatus({ type: 'error', title: 'Task access blocked', message: 'Your role does not have permission to edit tasks.' })
+      return
+    }
+
+    const touchedFields = ['projectUid', 'taskDate', ...TASK_NUMBER_FIELDS.map((field) => field.key)]
+    setTaskTouched(touchedFields.reduce((accumulator, field) => ({ ...accumulator, [field]: true }), {}))
+    if (touchedFields.some((field) => taskErrors[field])) {
+      showStatus({ type: 'error', title: 'Task form is incomplete', message: 'Fill required fields and resolve validation errors before saving.' })
+      return
+    }
+
+    const projectAssignmentUid = resolveTaskAssignmentUid(assignments, {
+      employeeUid,
+      projectUid: taskDraft.projectUid,
+      preferredUid: taskDraft.projectAssignmentUid
+    })
+
+    if (!projectAssignmentUid) {
+      showStatus({
+        type: 'error',
+        title: 'Project mapping not found',
+        message: 'This employee is not mapped to the selected project. Update project assignments before saving the task.'
+      })
+      return
+    }
+
+    const payload = {
+      ...taskDraft,
+      employeeUid,
+      projectAssignmentUid,
+      taskDate: normalizeDateInput(taskDraft.taskDate || todayIsoDate) || todayIsoDate,
+      hourWork: parseNonNegativeInteger(taskDraft.hourWork, TASK_DEFAULT_STANDARD_HOURS),
+      taskCompleted: parseNonNegativeInteger(taskDraft.taskCompleted, 0),
+      taskInprogress: parseNonNegativeInteger(taskDraft.taskInprogress, 0),
+      taskApproved: parseNonNegativeInteger(taskDraft.taskApproved, 0),
+      taskReviewed: parseNonNegativeInteger(taskDraft.taskReviewed, 0),
+      taskRework: parseNonNegativeInteger(taskDraft.taskRework, 0),
+      taskRejected: parseNonNegativeInteger(taskDraft.taskRejected, 0)
+    }
+
+    try {
+      await runWithLoader(async () => {
+        if (taskModalMode === 'edit') await projectService.updateProjectTask(selectedTask.uid, payload)
+        else await projectService.createProjectTask(payload)
+        await queryClient.invalidateQueries({ queryKey: TASK_ENTRIES_QUERY_KEY })
+      }, {
+        title: taskModalMode === 'edit' ? 'Updating task' : 'Adding task',
+        message: taskModalMode === 'edit' ? 'Applying task updates.' : 'Saving the new task entry.'
+      })
+
+      setIsTaskModalOpen(false)
+      resetTaskModal()
+      showStatus({ type: 'success', title: taskModalMode === 'edit' ? 'Task updated' : 'Task added', message: taskModalMode === 'edit' ? 'Task has been updated successfully.' : 'Task has been added successfully.' })
+    } catch (error) {
+      showStatus({ type: 'error', title: taskModalMode === 'edit' ? 'Task update failed' : 'Task creation failed', message: normalizeApiError(error, 'The task could not be saved.') })
+    }
+  }
+
+  async function handleDeleteTask(task) {
+    if (!canDeleteTasks) {
+      showStatus({ type: 'error', title: 'Task access blocked', message: 'Your role does not have permission to delete tasks.' })
+      return
+    }
+
+    const accepted = await showConfirm({
+      modalTitle: 'Delete Task',
+      title: `Delete task on ${formatDate(task.taskDate)}?`,
+      message: 'This task entry will be removed from the employee task history.',
+      confirmLabel: 'Delete'
+    })
+    if (!accepted) return
+
+    try {
+      await runWithLoader(async () => {
+        await projectService.deleteProjectTask(task.uid)
+        await queryClient.invalidateQueries({ queryKey: TASK_ENTRIES_QUERY_KEY })
+      }, {
+        title: 'Deleting task',
+        message: 'Removing task record and refreshing the employee overview.'
+      })
+
+      showStatus({ type: 'success', title: 'Task deleted', message: 'Task has been removed successfully.' })
+    } catch (error) {
+      showStatus({ type: 'error', title: 'Task deletion failed', message: normalizeApiError(error, 'The task could not be removed.') })
+    }
+  }
 
   if (isLoading) {
     return <div className="text-muted">Loading employee overview…</div>
@@ -177,6 +386,9 @@ export default function EmployeesOverview() {
             </div>
           </div>
         </div>
+        <div className="d-flex align-items-center justify-content-end gap-2 flex-wrap">
+          <AppDatePresetFilter value={datePreset} onChange={setDatePreset} name="employee-task-overview-range" />
+        </div>
       </div>
 
       <div className="row g-3">
@@ -188,7 +400,7 @@ export default function EmployeesOverview() {
 
       <div className="row g-3">
         <div className="col-12 col-xl-4">
-          <CardShell title="Task Status Distribution" right={<AppDatePresetFilter value={datePreset} onChange={setDatePreset} />}>
+          <CardShell title="Task Status Distribution">
             <div style={{ width: '100%', height: 320 }}>
               <ResponsiveContainer>
                 <PieChart>
@@ -210,7 +422,7 @@ export default function EmployeesOverview() {
         </div>
 
         <div className="col-12 col-xl-8">
-          <CardShell title="Hours Worked Trend" right={<AppDatePresetFilter value={datePreset} onChange={setDatePreset} />}>
+          <CardShell title="Hours Worked Trend">
             <div style={{ width: '100%', height: 320 }}>
               <ResponsiveContainer>
                 <BarChart data={hoursChart.data} margin={{ top: 12, right: 12, left: 0, bottom: 24 }}>
@@ -226,22 +438,52 @@ export default function EmployeesOverview() {
         </div>
       </div>
 
-      <CardShell title="Task Entries" right={<AppDatePresetFilter value={datePreset} onChange={setDatePreset} />}>
+      <CardShell title="Task Entries">
+        <div className="employee-toolbar employee-toolbar-top mb-3">
+          <AppSearchField
+            className="employee-toolbar-search"
+            value={taskSearch}
+            onChange={(event) => setTaskSearch(event.target.value)}
+            placeholder="Search by project, date, status, or remarks"
+          />
+          <div className="employee-toolbar-actions">
+            {canCreateTasks ? (
+              <button type="button" className="btn btn-primary btn-icon-inline employee-toolbar-btn" onClick={() => openCreateTask()}>
+                <PlusIcon />
+                <span>Add Task</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
         <PaginatedTable rows={sortedTasks}>
           {({ rows }) => (
             <table className="table align-middle mb-0 employee-table employee-table-dense mapping-table task-management-table">
+              <colgroup>
+                <col className="task-col-date" />
+                <col className="task-col-project" />
+                <col className="task-col-count task-col-hours" />
+                <col className="task-col-count" />
+                <col className="task-col-count task-col-progress" />
+                <col className="task-col-count" />
+                <col className="task-col-count" />
+                <col className="task-col-count" />
+                <col className="task-col-count" />
+                <col className="task-col-remarks" />
+                <col className="task-col-actions" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th><SortableHeader label="Task Date" sortKey="taskDate" sortConfig={sortConfig} onSort={requestSort} /></th>
+                  <th><SortableHeader label="Task Date" sortKey="updated" sortConfig={sortConfig} onSort={requestSort} /></th>
                   <th><SortableHeader label="Project" sortKey="project" sortConfig={sortConfig} onSort={requestSort} /></th>
-                  <th><SortableHeader label="Hours" sortKey="hours" sortConfig={sortConfig} onSort={requestSort} /></th>
-                  <th><SortableHeader label="Completed" sortKey="completed" sortConfig={sortConfig} onSort={requestSort} /></th>
-                  <th><SortableHeader label="In Progress" sortKey="inprogress" sortConfig={sortConfig} onSort={requestSort} /></th>
-                  <th><SortableHeader label="Approved" sortKey="approved" sortConfig={sortConfig} onSort={requestSort} /></th>
-                  <th><SortableHeader label="Reviewed" sortKey="reviewed" sortConfig={sortConfig} onSort={requestSort} /></th>
-                  <th><SortableHeader label="Rework" sortKey="rework" sortConfig={sortConfig} onSort={requestSort} /></th>
-                  <th><SortableHeader label="Rejected" sortKey="rejected" sortConfig={sortConfig} onSort={requestSort} /></th>
+                  <th className="text-center task-count-cell"><SortableHeader label="Hours" sortKey="hours" sortConfig={sortConfig} onSort={requestSort} className="justify-content-center" /></th>
+                  <th className="text-center task-count-cell"><SortableHeader label="Completed" sortKey="completed" sortConfig={sortConfig} onSort={requestSort} className="justify-content-center" /></th>
+                  <th className="text-center task-count-cell"><SortableHeader label="In Progress" sortKey="inprogress" sortConfig={sortConfig} onSort={requestSort} className="justify-content-center" /></th>
+                  <th className="text-center task-count-cell"><SortableHeader label="Approved" sortKey="approved" sortConfig={sortConfig} onSort={requestSort} className="justify-content-center" /></th>
+                  <th className="text-center task-count-cell"><SortableHeader label="Reviewed" sortKey="reviewed" sortConfig={sortConfig} onSort={requestSort} className="justify-content-center" /></th>
+                  <th className="text-center task-count-cell"><SortableHeader label="Rework" sortKey="rework" sortConfig={sortConfig} onSort={requestSort} className="justify-content-center" /></th>
+                  <th className="text-center task-count-cell"><SortableHeader label="Rejected" sortKey="rejected" sortConfig={sortConfig} onSort={requestSort} className="justify-content-center" /></th>
                   <th>Remarks</th>
+                  <th className="text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -249,18 +491,24 @@ export default function EmployeesOverview() {
                   <tr key={task.uid}>
                     <td className="employee-cell-wrap"><TableCellStack title={formatDate(task.taskDate)} subtitle={task.taskDate || '—'} /></td>
                     <td className="employee-cell-wrap"><TableCellStack title={task.projectName} subtitle={task.projectCode} meta={task.assignmentStatus || 'Not mapped'} /></td>
-                    <td className="employee-cell-wrap"><TableBadge value={String(task.hourWork || 0)} tone={task.hourWork > 8 ? 'orange' : 'blue'} /></td>
-                    <td className="employee-cell-wrap"><TableBadge value={String(task.taskCompletedValue || 0)} tone="green" /></td>
-                    <td className="employee-cell-wrap"><TableBadge value={String(task.taskInprogressValue || 0)} tone="blue" /></td>
-                    <td className="employee-cell-wrap"><TableBadge value={String(task.taskApprovedValue || 0)} tone="teal" /></td>
-                    <td className="employee-cell-wrap"><TableBadge value={String(task.taskReviewedValue || 0)} tone="purple" /></td>
-                    <td className="employee-cell-wrap"><TableBadge value={String(task.taskReworkValue || 0)} tone="orange" /></td>
-                    <td className="employee-cell-wrap"><TableBadge value={String(task.taskRejectedValue || 0)} tone="red" /></td>
+                    <td className="employee-cell-wrap text-center task-count-cell"><TableBadge value={String(task.hourWork || 0)} tone={task.hourWork > 8 ? 'orange' : 'blue'} /></td>
+                    <td className="employee-cell-wrap text-center task-count-cell"><TableBadge value={String(task.taskCompletedValue || 0)} tone="green" /></td>
+                    <td className="employee-cell-wrap text-center task-count-cell"><TableBadge value={String(task.taskInprogressValue || 0)} tone="blue" /></td>
+                    <td className="employee-cell-wrap text-center task-count-cell"><TableBadge value={String(task.taskApprovedValue || 0)} tone="teal" /></td>
+                    <td className="employee-cell-wrap text-center task-count-cell"><TableBadge value={String(task.taskReviewedValue || 0)} tone="purple" /></td>
+                    <td className="employee-cell-wrap text-center task-count-cell"><TableBadge value={String(task.taskReworkValue || 0)} tone="orange" /></td>
+                    <td className="employee-cell-wrap text-center task-count-cell"><TableBadge value={String(task.taskRejectedValue || 0)} tone="red" /></td>
                     <td className="employee-cell-wrap"><TableCellStack title={task.remarks || '—'} /></td>
+                    <td className="employee-actions-cell">
+                      <TableActionCluster className="justify-content-center mx-auto">
+                        {canUpdateTasks ? <TableActionButton icon={<PencilIcon />} label="Edit" variant="edit" onClick={() => openEditTask(task)} /> : null}
+                        {canDeleteTasks ? <TableActionButton icon={<TrashIcon />} label="Delete" variant="delete" onClick={() => handleDeleteTask(task)} /> : null}
+                      </TableActionCluster>
+                    </td>
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan="10">
+                    <td colSpan="11">
                       <div className="employee-empty-state text-center py-4">
                         <div className="fw-semibold mb-1">No task entries are available for this preset.</div>
                         <div className="text-muted small">Switch the date range or add task records for this employee.</div>
@@ -273,6 +521,158 @@ export default function EmployeesOverview() {
           )}
         </PaginatedTable>
       </CardShell>
+
+      <TaskEntryModal
+        open={isTaskModalOpen}
+        mode={taskModalMode}
+        draft={taskDraft}
+        errors={taskErrors}
+        touched={taskTouched}
+        projectOptions={projectOptions}
+        onChange={handleTaskDraftChange}
+        onBlur={handleTaskDraftBlur}
+        onClose={() => {
+          setIsTaskModalOpen(false)
+          resetTaskModal()
+        }}
+        onSubmit={handleSaveTask}
+      />
     </div>
+  )
+}
+
+const TASK_DEFAULT_STANDARD_HOURS = 8
+const TASK_NUMBER_FIELDS = [
+  { key: 'hourWork', label: 'Hours worked' },
+  { key: 'taskCompleted', label: 'Completed' },
+  { key: 'taskInprogress', label: 'In progress' },
+  { key: 'taskApproved', label: 'Approved' },
+  { key: 'taskReviewed', label: 'Reviewed' },
+  { key: 'taskRework', label: 'Rework' },
+  { key: 'taskRejected', label: 'Rejected' }
+]
+
+function toIsoDateString(value) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getTodayIsoDate() {
+  return toIsoDateString(new Date())
+}
+
+function parseNonNegativeInteger(value, fallback = 0) {
+  const parsed = Number.parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback
+  return parsed
+}
+
+function resolveTaskAssignmentUid(assignments = [], { employeeUid = '', projectUid = '', preferredUid = '' } = {}) {
+  const normalizedEmployeeUid = String(employeeUid || '').trim()
+  const normalizedProjectUid = String(projectUid || '').trim()
+  if (!normalizedEmployeeUid || !normalizedProjectUid) return ''
+
+  const compatibleAssignments = (Array.isArray(assignments) ? assignments : [])
+    .filter((assignment) => (
+      String(assignment.employeeUid || '') === normalizedEmployeeUid
+        && String(assignment.projectUid || '') === normalizedProjectUid
+        && String(assignment.uid || '').trim()
+    ))
+
+  if (!compatibleAssignments.length) return ''
+  const normalizedPreferredUid = String(preferredUid || '').trim()
+  if (normalizedPreferredUid && compatibleAssignments.some((assignment) => String(assignment.uid || '') === normalizedPreferredUid)) {
+    return normalizedPreferredUid
+  }
+
+  const sorted = [...compatibleAssignments].sort((left, right) => {
+    const leftUpdated = Date.parse(left.updatedAt || left.createdAt || '') || 0
+    const rightUpdated = Date.parse(right.updatedAt || right.createdAt || '') || 0
+    return rightUpdated - leftUpdated
+  })
+  return String(sorted[0]?.uid || '')
+}
+
+function createTaskDraft({ employeeUid = '', task = null, todayIsoDate = getTodayIsoDate() } = {}) {
+  return {
+    employeeUid: task?.employeeUid || employeeUid,
+    projectUid: task?.projectUid || '',
+    projectAssignmentUid: task?.projectAssignmentUid || '',
+    taskDate: normalizeDateInput(task?.taskDate || todayIsoDate) || todayIsoDate,
+    hourWork: String(task?.hourWork ?? TASK_DEFAULT_STANDARD_HOURS),
+    taskCompleted: String(task?.taskCompletedValue ?? task?.taskCompleted ?? 0),
+    taskInprogress: String(task?.taskInprogressValue ?? task?.taskInprogress ?? 0),
+    taskApproved: String(task?.taskApprovedValue ?? task?.taskApproved ?? 0),
+    taskReviewed: String(task?.taskReviewedValue ?? task?.taskReviewed ?? 0),
+    taskRework: String(task?.taskReworkValue ?? task?.taskRework ?? 0),
+    taskRejected: String(task?.taskRejectedValue ?? task?.taskRejected ?? 0),
+    remarks: task?.remarks || ''
+  }
+}
+
+function buildTaskDraftErrors(draft = {}, todayIsoDate = getTodayIsoDate()) {
+  const errors = {
+    projectUid: String(draft.projectUid || '').trim() ? '' : 'Project is required.',
+    taskDate: String(draft.taskDate || '').trim() ? '' : 'Task date is required.'
+  }
+
+  if (!errors.taskDate && String(draft.taskDate || '') > todayIsoDate) {
+    errors.taskDate = 'Task date cannot be in the future.'
+  }
+
+  TASK_NUMBER_FIELDS.forEach(({ key, label }) => {
+    const raw = String(draft[key] ?? '').trim()
+    const numeric = Number(raw)
+    if (!raw) errors[key] = ''
+    else if (!Number.isInteger(numeric)) errors[key] = `${label} must be a whole number.`
+    else if (numeric < 0) errors[key] = `${label} cannot be negative.`
+    else errors[key] = ''
+  })
+
+  return errors
+}
+
+function TaskEntryModal({ open, mode, draft, errors, touched, projectOptions, onChange, onBlur, onClose, onSubmit }) {
+  return (
+    <ModalFrame
+      open={open}
+      title={mode === 'edit' ? 'Edit Task' : 'Add Task'}
+      onClose={onClose}
+      size="lg"
+      footer={(
+        <>
+          <button type="button" className="btn btn-light px-4" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-primary px-4" onClick={onSubmit}>{mode === 'edit' ? 'Save Task' : 'Add Task'}</button>
+        </>
+      )}
+    >
+      <div className="row g-3">
+        <div className="col-12 col-md-6">
+          <label className="form-label">Project</label>
+          <AppSelect name="projectUid" value={draft.projectUid} onChange={onChange} onBlur={onBlur} options={projectOptions} placeholder="Select project" invalid={Boolean(touched.projectUid && errors.projectUid)} />
+          {touched.projectUid && errors.projectUid ? <div className="invalid-feedback d-block">{errors.projectUid}</div> : null}
+        </div>
+        <div className="col-12 col-md-6">
+          <label className="form-label">Task Date</label>
+          <input type="date" name="taskDate" className={`form-control${touched.taskDate && errors.taskDate ? ' is-invalid' : ''}`} value={draft.taskDate} onChange={onChange} onBlur={onBlur} />
+          {touched.taskDate && errors.taskDate ? <div className="invalid-feedback d-block">{errors.taskDate}</div> : null}
+        </div>
+        {TASK_NUMBER_FIELDS.map((field) => (
+          <div className="col-12 col-sm-6 col-xl-3" key={field.key}>
+            <label className="form-label">{field.label}</label>
+            <input type="number" min="0" step="1" name={field.key} className={`form-control${touched[field.key] && errors[field.key] ? ' is-invalid' : ''}`} value={draft[field.key]} onChange={onChange} onBlur={onBlur} />
+            {touched[field.key] && errors[field.key] ? <div className="invalid-feedback d-block">{errors[field.key]}</div> : null}
+          </div>
+        ))}
+        <div className="col-12">
+          <label className="form-label">Remarks</label>
+          <textarea rows="3" name="remarks" className="form-control" value={draft.remarks} onChange={onChange} onBlur={onBlur} />
+        </div>
+      </div>
+    </ModalFrame>
   )
 }

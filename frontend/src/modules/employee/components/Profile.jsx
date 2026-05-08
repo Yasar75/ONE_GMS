@@ -1772,7 +1772,7 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <div className="d-flex flex-column gap-3">
-        <PageHeader title="My Profile" tagline="Manage profile identity, onboarding, and account security." />
+        <PageHeader title="My Profile" tagline="Keep your personal details, work information, and account security up to date." />
         <PageContentLoader cards={3} />
       </div>
     )
@@ -1780,7 +1780,7 @@ export default function ProfilePage() {
 
   return (
     <div className="d-flex flex-column gap-3 employee-module-page profile-page profile-modern-page">
-      <PageHeader title="My Profile" tagline="Manage profile identity, onboarding, and account security." />
+      <PageHeader title="My Profile" tagline="Keep your personal details, work information, and account security up to date." />
 
       <div className="profile-hero card border-0 shadow-sm">
         <div className="card-body profile-hero-body">

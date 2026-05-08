@@ -29,7 +29,12 @@ const ROLE_MODULE_ALIAS_MAP = {
   'Task Management': 'Project Task',
   'Project Tasks': 'Project Task',
   'Manage Tasks': 'Project Task',
-  'Employee Management': 'Employees Management'
+  'Employee Management': 'Employees Management',
+  'Payslip Management': 'Payslip',
+  'Manage Payslips': 'Payslip',
+  'Payslips': 'Payslip',
+  'Employee Payslip': 'Payslip',
+  'My Payslips': 'My Payslip'
 }
 
 export const PERMISSION_ACTIONS = {
@@ -73,7 +78,9 @@ export const PERMISSION_MODULES = {
   manageLeave: ['Manage Leave', 'Manage Leave Requests'],
   project: ['Project', 'Project Management', 'Manage Projects'],
   projectAssignment: ['Project Assignment', 'Project Mapping', 'Project Assignments', 'Assign Projects'],
-  projectTask: ['Project Task', 'Task Management', 'Project Tasks', 'Manage Tasks']
+  projectTask: ['Project Task', 'Task Management', 'Project Tasks', 'Manage Tasks'],
+  payslip: ['Payslip', 'Payslip Management', 'Manage Payslips', 'Payslips', 'Employee Payslip'],
+  myPayslip: ['My Payslip', 'My Payslips']
 }
 
 export const ROLE_MATRIX_MODULES = dedupePermissionModules([
@@ -103,7 +110,9 @@ export const ROLE_MATRIX_MODULES = dedupePermissionModules([
   'Manage Leave',
   'Project',
   'Project Assignment',
-  'Project Task'
+  'Project Task',
+  'Payslip',
+  'My Payslip'
 ])
 
 export const EMPLOYEE_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
@@ -136,6 +145,10 @@ export const TASK_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
   ...PERMISSION_MODULES.projectTask
 ])
 
+export const PAYSLIP_MANAGEMENT_ROUTE_MODULES = dedupePermissionModules([
+  ...PERMISSION_MODULES.payslip
+])
+
 export const SELF_SERVICE_ATTENDANCE_ROUTE_MODULES = dedupePermissionModules([
   ...PERMISSION_MODULES.myShift,
   ...PERMISSION_MODULES.myAttendancePreview,
@@ -146,6 +159,10 @@ export const SELF_SERVICE_LEAVE_ROUTE_MODULES = dedupePermissionModules([
   ...PERMISSION_MODULES.holidayCalendar,
   ...PERMISSION_MODULES.leaveRequest,
   ...PERMISSION_MODULES.myLeaveBalance
+])
+
+export const SELF_SERVICE_PAYSLIP_ROUTE_MODULES = dedupePermissionModules([
+  ...PERMISSION_MODULES.myPayslip
 ])
 
 const APP_ROUTE_ACCESS = {
@@ -161,12 +178,15 @@ const APP_ROUTE_ACCESS = {
   '/admin/leave-management': LEAVE_MANAGEMENT_ROUTE_MODULES,
   '/admin/project-management': PROJECT_MANAGEMENT_ROUTE_MODULES,
   '/admin/task-management': TASK_MANAGEMENT_ROUTE_MODULES,
+  '/admin/payslip-management': PAYSLIP_MANAGEMENT_ROUTE_MODULES,
   '/employee/dashboard': dedupePermissionModules([
     ...SELF_SERVICE_ATTENDANCE_ROUTE_MODULES,
-    ...SELF_SERVICE_LEAVE_ROUTE_MODULES
+    ...SELF_SERVICE_LEAVE_ROUTE_MODULES,
+    ...SELF_SERVICE_PAYSLIP_ROUTE_MODULES
   ]),
   '/employee/attendance': SELF_SERVICE_ATTENDANCE_ROUTE_MODULES,
-  '/employee/apply-leave': SELF_SERVICE_LEAVE_ROUTE_MODULES
+  '/employee/apply-leave': SELF_SERVICE_LEAVE_ROUTE_MODULES,
+  '/employee/payslip': SELF_SERVICE_PAYSLIP_ROUTE_MODULES
 }
 
 const HOME_ROUTE_ORDER = [
@@ -176,9 +196,11 @@ const HOME_ROUTE_ORDER = [
   '/admin/leave-management',
   '/admin/project-management',
   '/admin/task-management',
+  '/admin/payslip-management',
   '/employee/dashboard',
   '/employee/attendance',
-  '/employee/apply-leave'
+  '/employee/apply-leave',
+  '/employee/payslip'
 ]
 
 export function isSystemAdminRoleName(roleName) {
@@ -332,6 +354,7 @@ export function canAccessAppPath(user, pathname = '') {
   if (normalizedPath === '/employee/dashboard') return isSelfServiceUser
   if (normalizedPath === '/employee/attendance') return isSelfServiceUser
   if (normalizedPath === '/employee/apply-leave') return isSelfServiceUser
+  if (normalizedPath === '/employee/payslip') return isSelfServiceUser && hasModuleVisibility(user, SELF_SERVICE_PAYSLIP_ROUTE_MODULES)
 
   if (normalizedPath.startsWith('/admin/') && !isManagementUser) {
     return false
@@ -343,6 +366,10 @@ export function canAccessAppPath(user, pathname = '') {
 
   if (normalizedPath.startsWith('/admin/task-management/employees/')) {
     return hasModuleVisibility(user, TASK_MANAGEMENT_ROUTE_MODULES)
+  }
+
+  if (normalizedPath.startsWith('/admin/payslip-management/employees/')) {
+    return hasModuleVisibility(user, PAYSLIP_MANAGEMENT_ROUTE_MODULES)
   }
 
   const requiredModules = APP_ROUTE_ACCESS[normalizedPath]

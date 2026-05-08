@@ -9,5 +9,6 @@ from .attendance_management import Attendance,AttendancePunchLog,AttendanceRegul
 
 from .employee_metadata import EmployeeMetadata, MetadataCategory
 from .project_management import Project,ProjectAssignment,ProjectTask
+from .payslip import Payslip
 
  

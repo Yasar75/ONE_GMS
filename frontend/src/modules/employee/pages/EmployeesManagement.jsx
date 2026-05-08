@@ -92,10 +92,10 @@ import {
 import { filterCollectionByQuery } from '../../../utils/search.js'
 
 const TAB_ITEMS = [
-  { key: 'metadata', label: 'Metadata Entries', helper: 'Backend-driven master data' },
+  { key: 'metadata', label: 'Metadata Entries', helper: 'Master data for employee forms' },
   { key: 'entries', label: 'Employee Entries', helper: 'Directory, create, update, export' },
   { key: 'mapping', label: 'Employee Mapping', helper: 'Department-wise reporting structure mapping' },
-  { key: 'requests', label: 'Employee Status', helper: 'Backend lock state and first-login status' }
+  { key: 'requests', label: 'Employee Status', helper: 'Account status and first-login tracking' }
 ]
 
 const EMPLOYEE_VIEW_TABS = [
@@ -142,7 +142,7 @@ const MAPPING_ASSIGNMENT_FIELD_CONFIG = {
   teamLeadEmployeeUid: { assignmentKey: 'team_lead_employee_uid', label: 'Team Lead' },
   coordinatorEmployeeUid: { assignmentKey: 'coordinator_employee_uid', label: 'Coordinator' }
 }
-const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Profile Management', 'Employees Management', 'Attendance Management', 'Leave Management', 'Project Management', 'Task Management', 'Other']
+const ROLE_MODULE_VISUAL_GROUP_ORDER = ['Administrative', 'Profile Management', 'Employees Management', 'Attendance Management', 'Leave Management', 'Project Management', 'Task Management', 'Payslip Management', 'Other']
 const ROLE_MODULE_VISUAL_CONFIG = [
   {
     title: 'Administrative',
@@ -206,6 +206,13 @@ const ROLE_MODULE_VISUAL_CONFIG = [
     title: 'Task Management',
     modules: [
       { key: 'Project Task', label: 'Manage Tasks' }
+    ]
+  },
+  {
+    title: 'Payslip Management',
+    modules: [
+      { key: 'Payslip', label: 'Payslip' },
+      { key: 'My Payslip', label: 'My Payslip' }
     ]
   }
 ]
@@ -358,6 +365,7 @@ function getRoleModuleGroupName(moduleName) {
   if (['Employees Management', 'Employee Mapping', 'User Status'].includes(canonicalModuleName)) return 'Employees Management'
   if (['Attendance Overview', 'My Attendance Preview', 'Manage Regularization', 'Shift Roster', 'Assign Shift', 'My Shift'].includes(canonicalModuleName)) return 'Attendance Management'
   if (['Holiday Calendar', 'Assign Leave', 'My Leave Balance', 'Leave Request', 'Manage Leave', 'Leave type'].includes(canonicalModuleName)) return 'Leave Management'
+  if (['Payslip', 'My Payslip'].includes(canonicalModuleName)) return 'Payslip Management'
   return 'Other'
 }
 
@@ -1674,7 +1682,7 @@ function MetadataCard({ title, description, entries, onAdd, onEdit, onDelete, ro
                         {roleCard ? (
                           <div className="metadata-role-summary">
                             <div className="fw-semibold small">{getRoleAccessSummary(effectiveAccess)}</div>
-                            {isSystemAdminRoleName(entry.roleName) ? <div className="metadata-role-flag">Backend-managed full access</div> : null}
+                            {isSystemAdminRoleName(entry.roleName) ? <div className="metadata-role-flag">System-managed full access</div> : null}
                           </div>
                         ) : (entry.description || '—')}
                       </td>
@@ -1897,7 +1905,7 @@ function RoleEntryModal({ open, title, draft, errors = {}, touched = {}, onChang
             ) : null}
             {backendModulesUnavailable ? (
               <div className="role-access-state-banner">
-                Role modules are currently unavailable. Role access cannot be saved until a valid module list is available.
+                Role permissions are currently unavailable. Role access cannot be saved until the permission list is available.
               </div>
             ) : null}
           </div>
@@ -3271,8 +3279,8 @@ export default function EmployeesManagement() {
       if (backendRoleModulesUnavailable) {
         showStatus({
           type: 'error',
-          title: 'Backend modules unavailable',
-          message: 'No valid role modules are available right now, so the role matrix cannot be saved.'
+          title: 'Role access list unavailable',
+          message: 'Role permissions are not available right now, so the role matrix cannot be saved.'
         })
         return
       }
@@ -3580,7 +3588,7 @@ export default function EmployeesManagement() {
       modalTitle: 'Unlock User Account',
       title: `Unlock ${requestEntry.fullName || requestEntry.email}?`,
       message: 'This will unlock the selected account by email.',
-      note: 'Manual lock or deactivate is no longer available here. Backend controls the 48-hour auto-lock flow.'
+      note: 'Accounts are locked automatically if first login is not completed within 48 hours.'
     })
     if (!accepted) return
 
@@ -3641,7 +3649,7 @@ export default function EmployeesManagement() {
   if (shouldShowDirectoryLoader) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
+        <PageHeader title="Employee Management" tagline="Manage employee details, reporting lines, role access, and account status." />
         <PageContentLoader cards={4} slowDelayMs={5000} showSlowLoader={false} />
       </div>
     )
@@ -3650,7 +3658,7 @@ export default function EmployeesManagement() {
   if (isError && !isDirectoryAccessBlocked && !employeeLookup.length) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from a single workspace." />
+        <PageHeader title="Employee Management" tagline="Manage employee details, reporting lines, role access, and account status." />
         <div className="card border-0 shadow-sm glass employee-directory-shell">
           <div className="card-body py-5 text-center">
             <div className="fw-semibold mb-2">Employee management could not be loaded.</div>
@@ -3665,7 +3673,7 @@ export default function EmployeesManagement() {
   if (!availableTabs.length) {
     return (
       <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-        <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from one operational console." />
+        <PageHeader title="Employee Management" tagline="Manage employee details, reporting lines, role access, and account status." />
         <div className="card border-0 shadow-sm glass employee-directory-shell">
           <div className="card-body py-5 text-center">
             <div className="fw-semibold mb-2">No accessible sections for this role.</div>
@@ -3679,9 +3687,9 @@ export default function EmployeesManagement() {
   return (
     // Mapping structure management is temporarily removed to focus on core employee directory features. It will be reintroduced in a future update after further refinement.
     //   <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-    // <PageHeader title="Employee Management" tagline="Administer metadata, employee records, mapping structure, and linked auth signup from one operational console." />
+    // <PageHeader title="Employee Management" tagline="Manage employee details, reporting lines, role access, and account status." />
     <div className="d-flex flex-column gap-3 employee-directory-page employee-module-page">
-      <PageHeader title="Employee Management" tagline="Administer metadata, employee records, and linked auth signup from one operational console." />
+      <PageHeader title="Employee Management" tagline="Manage employee details, reporting lines, role access, and account status." />
 
       <AttendanceTabs activeTab={activeTab} onChange={handleTabChange} tabs={availableTabs} />
       {requestedTab && requestedTab !== activeTab ? (
@@ -4185,7 +4193,7 @@ export default function EmployeesManagement() {
                         <td colSpan="7">
                           <div className="employee-empty-state text-center py-4">
                             <div className="fw-semibold mb-1">No employee status records found.</div>
-                            <div className="text-muted small">Backend lock status and first-login records will appear here.</div>
+                            <div className="text-muted small">Account lock status and first-login records will appear here.</div>
                           </div>
                         </td>
                       </tr>
