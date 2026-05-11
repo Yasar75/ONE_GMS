@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useMemo, useState } from 'react'
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -46,6 +46,7 @@ function compactUid(value) {
 
 function TaskOverviewAxisTick({ x, y, payload }) {
   const entry = payload?.payload
+
   return (
     <g transform={`translate(${x},${y})`}>
       <text x="0" y="0" dy="0.6em" textAnchor="middle" fill="currentColor" fontSize="12" fontWeight="600">
@@ -78,6 +79,7 @@ export default function EmployeesOverview() {
   const [selectedTask, setSelectedTask] = useState(null)
   const [taskDraft, setTaskDraft] = useState(() => createTaskDraft({ employeeUid, todayIsoDate }))
   const [taskTouched, setTaskTouched] = useState({})
+  const currentTaskUid = taskModalMode === 'edit' ? String(selectedTask?.uid || '').trim() : ''
   const [taskSearch, setTaskSearch] = useState('')
   const deferredTaskSearch = useDeferredValue(taskSearch)
   const taskPermissionModules = [...PERMISSION_MODULES.projectTask, ...PERMISSION_MODULES.project]
@@ -98,22 +100,44 @@ export default function EmployeesOverview() {
   const employee = useMemo(() => employees.find((entry) => String(entry.uid || '') === String(employeeUid || '')) || null, [employeeUid, employees])
   const projectByUid = useMemo(() => new Map(projects.map((project) => [String(project.uid || ''), project])), [projects])
   const assignmentByUid = useMemo(() => new Map(assignments.map((assignment) => [String(assignment.uid || ''), assignment])), [assignments])
-  const projectOptions = useMemo(() => {
+  const occupiedProjectUidsForTaskDate = useMemo(() => {
+    const normalizedTaskDate = normalizeTaskEntryDate(taskDraft.taskDate)
+    if (!normalizedTaskDate) return new Set()
+
+    return new Set(tasks
+      .filter((task) => (
+        String(task?.uid || '').trim() !== currentTaskUid
+          && String(task?.employeeUid || '').trim() === String(employeeUid || '').trim()
+          && normalizeTaskEntryDate(task?.taskDate) === normalizedTaskDate
+      ))
+      .map((task) => String(task?.projectUid || '').trim())
+      .filter(Boolean))
+  }, [currentTaskUid, employeeUid, taskDraft.taskDate, tasks])
+
+  const employeeProjectUids = useMemo(() => {
     const employeeAssignments = assignments.filter((assignment) => String(assignment.employeeUid || '') === String(employeeUid || ''))
     const mappedProjectUids = Array.from(new Set(employeeAssignments.map((assignment) => String(assignment.projectUid || '')).filter(Boolean)))
-    const sourceProjectUids = mappedProjectUids.length
+
+    return mappedProjectUids.length
       ? mappedProjectUids
       : projects.map((project) => String(project.uid || '')).filter(Boolean)
+  }, [assignments, employeeUid, projects])
 
-    return sourceProjectUids.map((projectUid) => {
-      const project = projectByUid.get(projectUid)
-      return {
-        value: projectUid,
-        label: project ? `${project.projectName} (${project.projectCode})` : `Project ${compactUid(projectUid)}`,
-        description: project?.status || (mappedProjectUids.length ? 'Mapped project' : 'Project record')
-      }
-    })
-  }, [assignments, employeeUid, projectByUid, projects])
+  const projectOptions = useMemo(() => {
+    const hasMappedProjects = assignments.some((assignment) => String(assignment.employeeUid || '') === String(employeeUid || ''))
+
+    return employeeProjectUids
+      .map((projectUid) => {
+        const project = projectByUid.get(projectUid)
+        const isAlreadyLogged = occupiedProjectUidsForTaskDate.has(projectUid)
+        return {
+          value: projectUid,
+          label: project ? `${project.projectName} (${project.projectCode})` : `Project ${compactUid(projectUid)}`,
+          description: isAlreadyLogged ? 'Already logged on this date' : (project?.status || (hasMappedProjects ? 'Mapped project' : 'Project record')),
+          disabled: isAlreadyLogged
+        }
+      })
+  }, [assignments, employeeProjectUids, employeeUid, occupiedProjectUidsForTaskDate, projectByUid])
 
   const employeeTaskRows = useMemo(() => tasks
     .filter((task) => String(task.employeeUid || '') === String(employeeUid || ''))
@@ -173,12 +197,60 @@ export default function EmployeesOverview() {
     }
   })
 
-  const taskErrors = useMemo(() => buildTaskDraftErrors(taskDraft, todayIsoDate), [taskDraft, todayIsoDate])
+  const duplicateTaskEntry = useMemo(() => (
+    findDuplicateTaskEntry(tasks, taskDraft, currentTaskUid)
+  ), [currentTaskUid, taskDraft.employeeUid, taskDraft.projectUid, taskDraft.taskDate, tasks])
+
+  const duplicateTaskDateMessage = useMemo(() => {
+    if (!String(taskDraft.projectUid || '').trim()) return ''
+    return duplicateTaskEntry
+      ? 'This employee already has a task entry for the selected project on this date.'
+      : ''
+  }, [duplicateTaskEntry, taskDraft.projectUid])
+
+  const taskErrors = useMemo(() => buildTaskDraftErrors(taskDraft, todayIsoDate, duplicateTaskDateMessage), [duplicateTaskDateMessage, taskDraft, todayIsoDate])
 
   const maxHours = Math.max(...hoursChart.data.map((entry) => Number(entry.hours || 0)), 0)
   const hourTicks = buildHourTicks(maxHours, hoursChart.yAxisStep)
   const isLoading = employeesQuery.isLoading || projectsQuery.isLoading || assignmentsQuery.isLoading || tasksQuery.isLoading
   const isError = employeesQuery.isError || projectsQuery.isError || assignmentsQuery.isError || tasksQuery.isError
+
+  useEffect(() => {
+    if (!isTaskModalOpen) return
+
+    setTaskDraft((current) => {
+      const optionProjectUids = projectOptions
+        .map((option) => String(option.value || '').trim())
+        .filter(Boolean)
+      const availableProjectUids = projectOptions
+        .filter((option) => !option.disabled)
+        .map((option) => String(option.value || '').trim())
+        .filter(Boolean)
+
+      const currentProjectUid = String(current.projectUid || '').trim()
+      let nextProjectUid = currentProjectUid
+
+      if (!currentProjectUid && optionProjectUids.length === 1) {
+        nextProjectUid = optionProjectUids[0]
+      } else if (!currentProjectUid && availableProjectUids.length === 1) {
+        nextProjectUid = availableProjectUids[0]
+      } else if (currentProjectUid && !optionProjectUids.includes(currentProjectUid)) {
+        nextProjectUid = ''
+      }
+
+      if (nextProjectUid === currentProjectUid) return current
+
+      return {
+        ...current,
+        projectUid: nextProjectUid,
+        projectAssignmentUid: resolveTaskAssignmentUid(assignments, {
+          employeeUid,
+          projectUid: nextProjectUid,
+          preferredUid: current.projectAssignmentUid
+        })
+      }
+    })
+  }, [assignments, employeeUid, isTaskModalOpen, projectOptions])
 
   function resetTaskModal() {
     setTaskModalMode('create')
@@ -232,13 +304,38 @@ export default function EmployeesOverview() {
   }
 
   function handleTaskDraftChange(event) {
-    const { name, value } = event.target
-    setTaskDraft((current) => ({
-      ...current,
-      [name]: name === 'taskDate'
-        ? (normalizeDateInput(value || todayIsoDate) || todayIsoDate)
-        : value
-    }))
+    const { name } = event.target
+    const value = name === 'overtime' ? Boolean(event.target.checked) : event.target.value
+
+    setTaskDraft((current) => {
+      const next = {
+        ...current,
+        [name]: name === 'taskDate'
+          ? (normalizeDateInput(value || todayIsoDate) || todayIsoDate)
+          : value
+      }
+
+      if (name === 'overtime' && !next.overtime && parseNonNegativeInteger(next.hourWork, 0) > TASK_DEFAULT_STANDARD_HOURS) {
+        next.hourWork = String(TASK_DEFAULT_STANDARD_HOURS)
+      }
+
+      if (name === 'hourWork') {
+        const parsedHourWork = parseStrictWholeNumber(next.hourWork)
+        if (Number.isInteger(parsedHourWork) && parsedHourWork <= TASK_DEFAULT_STANDARD_HOURS && next.overtime) {
+          next.overtime = false
+        }
+      }
+
+      if (name === 'projectUid' || name === 'taskDate') {
+        next.projectAssignmentUid = resolveTaskAssignmentUid(assignments, {
+          employeeUid,
+          projectUid: next.projectUid,
+          preferredUid: next.projectAssignmentUid
+        })
+      }
+
+      return next
+    })
   }
 
   function handleTaskDraftBlur(event) {
@@ -365,6 +462,13 @@ export default function EmployeesOverview() {
     )
   }
 
+  const employeeRoleName = String(employee.roleName || '').trim()
+  const employeeHeaderMeta = [
+    employee.employeeCode || 'No code',
+    employeeRoleName,
+    employee.department || 'No department'
+  ].filter(Boolean)
+
   return (
     <div className="d-flex flex-column gap-3">
       <div className="d-flex align-items-start justify-content-between gap-3 flex-wrap">
@@ -382,7 +486,7 @@ export default function EmployeesOverview() {
           <div>
             <h1 className="fw-bold mb-1">Employees Overview</h1>
             <div className="text-muted small">
-              {employee.fullName || employee.employeeCode || 'Employee'} • {employee.employeeCode || 'No code'} • {employee.roleName || 'No role'} • {employee.department || 'No department'}
+              {employee.fullName || employee.employeeCode || 'Employee'}{employeeHeaderMeta.length ? ` • ${employeeHeaderMeta.join(' • ')}` : ''}
             </div>
           </div>
         </div>
@@ -529,6 +633,8 @@ export default function EmployeesOverview() {
         errors={taskErrors}
         touched={taskTouched}
         projectOptions={projectOptions}
+        duplicateTaskDateMessage={duplicateTaskDateMessage}
+        disableDuplicateFields={Boolean(duplicateTaskDateMessage)}
         onChange={handleTaskDraftChange}
         onBlur={handleTaskDraftBlur}
         onClose={() => {
@@ -544,13 +650,14 @@ export default function EmployeesOverview() {
 const TASK_DEFAULT_STANDARD_HOURS = 8
 const TASK_NUMBER_FIELDS = [
   { key: 'hourWork', label: 'Hours worked' },
-  { key: 'taskCompleted', label: 'Completed' },
-  { key: 'taskInprogress', label: 'In progress' },
-  { key: 'taskApproved', label: 'Approved' },
-  { key: 'taskReviewed', label: 'Reviewed' },
-  { key: 'taskRework', label: 'Rework' },
-  { key: 'taskRejected', label: 'Rejected' }
+  { key: 'taskCompleted', label: 'Completed', tone: 'green' },
+  { key: 'taskInprogress', label: 'In progress', tone: 'blue' },
+  { key: 'taskApproved', label: 'Approved', tone: 'teal' },
+  { key: 'taskReviewed', label: 'Reviewed', tone: 'purple' },
+  { key: 'taskRework', label: 'Rework', tone: 'orange' },
+  { key: 'taskRejected', label: 'Rejected', tone: 'red' }
 ]
+const TASK_STATUS_NUMBER_FIELDS = TASK_NUMBER_FIELDS.filter((field) => field.key !== 'hourWork')
 
 function toIsoDateString(value) {
   const date = value instanceof Date ? value : new Date(value)
@@ -569,6 +676,13 @@ function parseNonNegativeInteger(value, fallback = 0) {
   const parsed = Number.parseInt(String(value ?? ''), 10)
   if (!Number.isFinite(parsed) || parsed < 0) return fallback
   return parsed
+}
+
+function parseStrictWholeNumber(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  if (!/^-?\d+$/.test(raw)) return Number.NaN
+  return Number.parseInt(raw, 10)
 }
 
 function resolveTaskAssignmentUid(assignments = [], { employeeUid = '', projectUid = '', preferredUid = '' } = {}) {
@@ -597,6 +711,30 @@ function resolveTaskAssignmentUid(assignments = [], { employeeUid = '', projectU
   return String(sorted[0]?.uid || '')
 }
 
+function normalizeTaskEntryDate(value) {
+  return normalizeDateInput(value || '') || String(value || '').trim()
+}
+
+function getTaskEntryIdentity(task = {}) {
+  const employeeUid = String(task.employeeUid || '').trim()
+  const projectUid = String(task.projectUid || '').trim()
+  const taskDate = normalizeTaskEntryDate(task.taskDate)
+
+  if (!employeeUid || !projectUid || !taskDate) return ''
+  return `${employeeUid}::${projectUid}::${taskDate}`
+}
+
+function findDuplicateTaskEntry(tasks = [], draft = {}, currentTaskUid = '') {
+  const draftIdentity = getTaskEntryIdentity(draft)
+  if (!draftIdentity) return null
+
+  const normalizedCurrentTaskUid = String(currentTaskUid || '').trim()
+  return (Array.isArray(tasks) ? tasks : []).find((task) => (
+    getTaskEntryIdentity(task) === draftIdentity
+      && String(task?.uid || '').trim() !== normalizedCurrentTaskUid
+  )) || null
+}
+
 function createTaskDraft({ employeeUid = '', task = null, todayIsoDate = getTodayIsoDate() } = {}) {
   return {
     employeeUid: task?.employeeUid || employeeUid,
@@ -604,6 +742,7 @@ function createTaskDraft({ employeeUid = '', task = null, todayIsoDate = getToda
     projectAssignmentUid: task?.projectAssignmentUid || '',
     taskDate: normalizeDateInput(task?.taskDate || todayIsoDate) || todayIsoDate,
     hourWork: String(task?.hourWork ?? TASK_DEFAULT_STANDARD_HOURS),
+    overtime: Number(task?.hourWork ?? TASK_DEFAULT_STANDARD_HOURS) > TASK_DEFAULT_STANDARD_HOURS,
     taskCompleted: String(task?.taskCompletedValue ?? task?.taskCompleted ?? 0),
     taskInprogress: String(task?.taskInprogressValue ?? task?.taskInprogress ?? 0),
     taskApproved: String(task?.taskApprovedValue ?? task?.taskApproved ?? 0),
@@ -614,7 +753,7 @@ function createTaskDraft({ employeeUid = '', task = null, todayIsoDate = getToda
   }
 }
 
-function buildTaskDraftErrors(draft = {}, todayIsoDate = getTodayIsoDate()) {
+function buildTaskDraftErrors(draft = {}, todayIsoDate = getTodayIsoDate(), duplicateTaskDateMessage = '') {
   const errors = {
     projectUid: String(draft.projectUid || '').trim() ? '' : 'Project is required.',
     taskDate: String(draft.taskDate || '').trim() ? '' : 'Task date is required.'
@@ -624,19 +763,39 @@ function buildTaskDraftErrors(draft = {}, todayIsoDate = getTodayIsoDate()) {
     errors.taskDate = 'Task date cannot be in the future.'
   }
 
+  if (!errors.taskDate && duplicateTaskDateMessage) {
+    errors.taskDate = duplicateTaskDateMessage
+  }
+
   TASK_NUMBER_FIELDS.forEach(({ key, label }) => {
     const raw = String(draft[key] ?? '').trim()
     const numeric = Number(raw)
     if (!raw) errors[key] = ''
     else if (!Number.isInteger(numeric)) errors[key] = `${label} must be a whole number.`
     else if (numeric < 0) errors[key] = `${label} cannot be negative.`
+    else if (key === 'hourWork' && !draft.overtime && numeric > TASK_DEFAULT_STANDARD_HOURS) errors[key] = `Enable Overtime to log more than ${TASK_DEFAULT_STANDARD_HOURS} hours.`
     else errors[key] = ''
   })
 
   return errors
 }
 
-function TaskEntryModal({ open, mode, draft, errors, touched, projectOptions, onChange, onBlur, onClose, onSubmit }) {
+function TaskEntryModal({
+  open,
+  mode,
+  draft,
+  errors,
+  touched,
+  projectOptions,
+  duplicateTaskDateMessage = '',
+  disableDuplicateFields = false,
+  onChange,
+  onBlur,
+  onClose,
+  onSubmit
+}) {
+  const showTaskDateError = Boolean(errors.taskDate && (touched.taskDate || duplicateTaskDateMessage))
+
   return (
     <ModalFrame
       open={open}
@@ -646,31 +805,70 @@ function TaskEntryModal({ open, mode, draft, errors, touched, projectOptions, on
       footer={(
         <>
           <button type="button" className="btn btn-light px-4" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary px-4" onClick={onSubmit}>{mode === 'edit' ? 'Save Task' : 'Add Task'}</button>
+          <button type="button" className="btn btn-primary px-4" onClick={onSubmit} disabled={disableDuplicateFields}>{mode === 'edit' ? 'Save Task' : 'Add Task'}</button>
         </>
       )}
     >
       <div className="row g-3">
-        <div className="col-12 col-md-6">
+        <div className="col-12">
           <label className="form-label">Project</label>
           <AppSelect name="projectUid" value={draft.projectUid} onChange={onChange} onBlur={onBlur} options={projectOptions} placeholder="Select project" invalid={Boolean(touched.projectUid && errors.projectUid)} />
           {touched.projectUid && errors.projectUid ? <div className="invalid-feedback d-block">{errors.projectUid}</div> : null}
         </div>
         <div className="col-12 col-md-6">
           <label className="form-label">Task Date</label>
-          <input type="date" name="taskDate" className={`form-control${touched.taskDate && errors.taskDate ? ' is-invalid' : ''}`} value={draft.taskDate} onChange={onChange} onBlur={onBlur} />
-          {touched.taskDate && errors.taskDate ? <div className="invalid-feedback d-block">{errors.taskDate}</div> : null}
+          <input type="date" name="taskDate" max={getTodayIsoDate()} className={`form-control${showTaskDateError ? ' is-invalid' : ''}`} value={draft.taskDate} onChange={onChange} onBlur={onBlur} />
+          {showTaskDateError ? <div className="task-hours-note is-danger small mt-2">{errors.taskDate}</div> : null}
         </div>
-        {TASK_NUMBER_FIELDS.map((field) => (
-          <div className="col-12 col-sm-6 col-xl-3" key={field.key}>
-            <label className="form-label">{field.label}</label>
-            <input type="number" min="0" step="1" name={field.key} className={`form-control${touched[field.key] && errors[field.key] ? ' is-invalid' : ''}`} value={draft[field.key]} onChange={onChange} onBlur={onBlur} />
+
+        <div className="col-12 col-md-6">
+          <div className="task-hours-control">
+            <div className="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+              <label className="form-label mb-0">Hours worked</label>
+              <div className="form-check task-hours-overtime-toggle">
+                <input
+                  type="checkbox"
+                  className="form-check-input"
+                  id="employee-task-hours-overtime"
+                  name="overtime"
+                  checked={Boolean(draft.overtime)}
+                  onChange={onChange}
+                  onBlur={onBlur}
+                  disabled={disableDuplicateFields}
+                />
+                <label className="form-check-label" htmlFor="employee-task-hours-overtime">Overtime</label>
+              </div>
+            </div>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              name="hourWork"
+              className={`form-control${touched.hourWork && errors.hourWork ? ' is-invalid' : ''}`}
+              value={draft.hourWork}
+              onChange={onChange}
+              onBlur={onBlur}
+              disabled={disableDuplicateFields}
+            />
+            {touched.hourWork && errors.hourWork ? <div className="invalid-feedback d-block">{errors.hourWork}</div> : null}
+            <div className={`task-hours-note text-muted small ${!draft.overtime ? 'is-highlighted' : ''}`.trim()}>
+              Default workday is {TASK_DEFAULT_STANDARD_HOURS} hours. Enable Overtime to log entries above {TASK_DEFAULT_STANDARD_HOURS} hours.
+            </div>
+          </div>
+        </div>
+
+        {TASK_STATUS_NUMBER_FIELDS.map((field) => (
+          <div className="col-12 col-md-4" key={field.key}>
+            <label className="form-label">
+              <span className={`task-status-label task-status-label-${field.tone}`}>{field.label}</span>
+            </label>
+            <input type="number" min="0" step="1" name={field.key} className={`form-control${touched[field.key] && errors[field.key] ? ' is-invalid' : ''}`} value={draft[field.key]} onChange={onChange} onBlur={onBlur} disabled={disableDuplicateFields} />
             {touched[field.key] && errors[field.key] ? <div className="invalid-feedback d-block">{errors[field.key]}</div> : null}
           </div>
         ))}
         <div className="col-12">
           <label className="form-label">Remarks</label>
-          <textarea rows="3" name="remarks" className="form-control" value={draft.remarks} onChange={onChange} onBlur={onBlur} />
+          <textarea rows="3" name="remarks" className="form-control" value={draft.remarks} onChange={onChange} onBlur={onBlur} disabled={disableDuplicateFields} />
         </div>
       </div>
     </ModalFrame>

@@ -111,8 +111,15 @@ export default function AppSelect({
       if (!triggerRect) return
 
       const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0
-      const spaceBelow = viewportHeight - triggerRect.bottom
-      const spaceAbove = triggerRect.top
+      const clippingRect = rootRef.current?.closest?.('.modal-frame-body')?.getBoundingClientRect?.()
+      const spaceBelow = Math.min(
+        viewportHeight - triggerRect.bottom,
+        clippingRect ? clippingRect.bottom - triggerRect.bottom : viewportHeight
+      )
+      const spaceAbove = Math.min(
+        triggerRect.top,
+        clippingRect ? triggerRect.top - clippingRect.top : viewportHeight
+      )
       const estimatedMenuHeight = Math.min(searchable && normalizedOptions.length ? 360 : 280, Math.max(normalizedOptions.length * 48, 160))
 
       setMenuPlacement(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow ? 'top' : 'bottom')

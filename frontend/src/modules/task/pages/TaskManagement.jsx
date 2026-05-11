@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+﻿import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -273,6 +273,30 @@ function resolveTaskAssignmentUid(assignments = [], { employeeUid = '', projectU
   return String(sorted[0]?.uid || '')
 }
 
+function normalizeTaskEntryDate(value) {
+  return normalizeDateInput(value || '') || String(value || '').trim()
+}
+
+function getTaskEntryIdentity(task = {}) {
+  const employeeUid = String(task.employeeUid || '').trim()
+  const projectUid = String(task.projectUid || '').trim()
+  const taskDate = normalizeTaskEntryDate(task.taskDate)
+
+  if (!employeeUid || !projectUid || !taskDate) return ''
+  return `${employeeUid}::${projectUid}::${taskDate}`
+}
+
+function findDuplicateTaskEntry(tasks = [], draft = {}, currentTaskUid = '') {
+  const draftIdentity = getTaskEntryIdentity(draft)
+  if (!draftIdentity) return null
+
+  const normalizedCurrentTaskUid = String(currentTaskUid || '').trim()
+  return (Array.isArray(tasks) ? tasks : []).find((task) => (
+    getTaskEntryIdentity(task) === draftIdentity
+      && String(task?.uid || '').trim() !== normalizedCurrentTaskUid
+  )) || null
+}
+
 function toProjectStatusTone(status) {
   const normalized = String(status || '').trim().toLowerCase()
   if (normalized === 'active') return 'green'
@@ -409,7 +433,7 @@ function buildAssignmentErrors(draft) {
   }
 }
 
-function buildTaskErrors(draft) {
+function buildTaskErrors(draft, duplicateTaskDateMessage = '') {
   const todayIsoDate = getTodayIsoDate()
   const errors = {
     employeeUid: getRequiredFieldMessage(draft.employeeUid, 'Employee'),
@@ -419,6 +443,10 @@ function buildTaskErrors(draft) {
 
   if (!errors.taskDate && draft.taskDate && String(draft.taskDate) > todayIsoDate) {
     errors.taskDate = 'Task date cannot be in the future.'
+  }
+
+  if (!errors.taskDate && duplicateTaskDateMessage) {
+    errors.taskDate = duplicateTaskDateMessage
   }
 
   TASK_NUMBER_FIELDS.forEach(({ key, label }) => {
@@ -863,14 +891,17 @@ function TaskFormModal({
   taskProjectOptions,
   employeeOptions,
   selectedBillingStatus,
+  duplicateTaskDateMessage = '',
+  disableDuplicateFields = false,
   todayIsoDate,
   onChange,
   onBlur,
   onClose,
   onSubmit
 }) {
-  const selectedProjectCount = taskProjectOptions.length
+  const selectedProjectCount = taskProjectOptions.filter((option) => !option.disabled).length
   const taskDateColumnClass = 'col-12 col-md-6'
+  const showTaskDateError = Boolean(errors.taskDate && (touched.taskDate || duplicateTaskDateMessage))
 
   return (
     <ModalFrame
@@ -881,7 +912,7 @@ function TaskFormModal({
       footer={(
         <>
           <button type="button" className="btn btn-light" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary" onClick={onSubmit}>{mode === 'create' ? 'Create Task' : 'Save Changes'}</button>
+          <button type="button" className="btn btn-primary" onClick={onSubmit} disabled={disableDuplicateFields}>{mode === 'create' ? 'Create Task' : 'Save Changes'}</button>
         </>
       )}
     >
@@ -906,14 +937,14 @@ function TaskFormModal({
           {touched.projectUid && errors.projectUid ? <div className="invalid-feedback d-block">{errors.projectUid}</div> : null}
           {draft.employeeUid ? (
             <div className="form-text">
-              {selectedProjectCount === 0 ? 'No mapped project found for this employee.' : `Mapped projects: ${selectedProjectCount}`}
+              {selectedProjectCount === 0 ? 'No available mapped project found for this employee and date.' : `Available mapped projects: ${selectedProjectCount}`}
             </div>
           ) : null}
         </div>
         <div className={taskDateColumnClass}>
           <label className="form-label">Task Date</label>
-          <input type="date" name="taskDate" max={todayIsoDate} className={`form-control${touched.taskDate && errors.taskDate ? ' is-invalid' : ''}`} value={draft.taskDate} onChange={onChange} onBlur={onBlur} />
-          {touched.taskDate && errors.taskDate ? <div className="invalid-feedback d-block">{errors.taskDate}</div> : null}
+          <input type="date" name="taskDate" max={todayIsoDate} className={`form-control${showTaskDateError ? ' is-invalid' : ''}`} value={draft.taskDate} onChange={onChange} onBlur={onBlur} />
+          {showTaskDateError ? <div className="task-hours-note is-danger small mt-2">{errors.taskDate}</div> : null}
         </div>
 
         <div className="col-12 col-md-6">
@@ -929,6 +960,7 @@ function TaskFormModal({
                   checked={Boolean(draft.overtime)}
                   onChange={onChange}
                   onBlur={onBlur}
+                  disabled={disableDuplicateFields}
                 />
                 <label className="form-check-label" htmlFor="task-hours-overtime">Overtime</label>
               </div>
@@ -942,6 +974,7 @@ function TaskFormModal({
               value={draft.hourWork}
               onChange={onChange}
               onBlur={onBlur}
+              disabled={disableDuplicateFields}
             />
             {touched.hourWork && errors.hourWork ? <div className="invalid-feedback d-block">{errors.hourWork}</div> : null}
             <div className={`task-hours-note text-muted small ${!draft.overtime ? 'is-highlighted' : ''}`.trim()}>
@@ -965,14 +998,14 @@ function TaskFormModal({
             <label className="form-label">
               <span className={`task-status-label task-status-label-${field.tone}`}>{field.label}</span>
             </label>
-            <input type="number" min="0" step="1" name={field.key} className={`form-control${touched[field.key] && errors[field.key] ? ' is-invalid' : ''}`} value={draft[field.key]} onChange={onChange} onBlur={onBlur} />
+            <input type="number" min="0" step="1" name={field.key} className={`form-control${touched[field.key] && errors[field.key] ? ' is-invalid' : ''}`} value={draft[field.key]} onChange={onChange} onBlur={onBlur} disabled={disableDuplicateFields} />
             {touched[field.key] && errors[field.key] ? <div className="invalid-feedback d-block">{errors[field.key]}</div> : null}
           </div>
         ))}
 
         <div className="col-12">
           <label className="form-label">Remarks</label>
-          <textarea rows="3" name="remarks" className="form-control" value={draft.remarks} onChange={onChange} onBlur={onBlur} />
+          <textarea rows="3" name="remarks" className="form-control" value={draft.remarks} onChange={onChange} onBlur={onBlur} disabled={disableDuplicateFields} />
         </div>
       </div>
     </ModalFrame>
@@ -1068,6 +1101,7 @@ export default function TaskManagement() {
   const [selectedTask, setSelectedTask] = useState(null)
   const [taskDraft, setTaskDraft] = useState(() => createTaskDraft())
   const [taskTouched, setTaskTouched] = useState({})
+  const currentTaskUid = taskFormMode === 'edit' ? String(selectedTask?.uid || '').trim() : ''
 
   const [isProjectImportOpen, setIsProjectImportOpen] = useState(false)
   const [projectImportFile, setProjectImportFile] = useState(null)
@@ -1200,9 +1234,35 @@ export default function TaskManagement() {
   const deferredAssignmentSearch = useDeferredValue(assignmentSearch)
   const deferredTaskSearch = useDeferredValue(taskSearch)
 
+  const occupiedProjectUidsForTaskDate = useMemo(() => {
+    const normalizedEmployeeUid = String(taskDraft.employeeUid || '').trim()
+    const normalizedTaskDate = normalizeTaskEntryDate(taskDraft.taskDate)
+    if (!normalizedEmployeeUid || !normalizedTaskDate) return new Set()
+
+    return new Set(tasks
+      .filter((task) => (
+        String(task?.uid || '').trim() !== currentTaskUid
+          && String(task?.employeeUid || '').trim() === normalizedEmployeeUid
+          && normalizeTaskEntryDate(task?.taskDate) === normalizedTaskDate
+      ))
+      .map((task) => String(task?.projectUid || '').trim())
+      .filter(Boolean))
+  }, [currentTaskUid, taskDraft.employeeUid, taskDraft.taskDate, tasks])
+
+  const duplicateTaskEntry = useMemo(() => (
+    findDuplicateTaskEntry(tasks, taskDraft, currentTaskUid)
+  ), [currentTaskUid, taskDraft.employeeUid, taskDraft.projectUid, taskDraft.taskDate, tasks])
+
+  const duplicateTaskDateMessage = useMemo(() => {
+    if (!String(taskDraft.projectUid || '').trim()) return ''
+    return duplicateTaskEntry
+      ? 'This employee already has a task entry for the selected project on this date.'
+      : ''
+  }, [duplicateTaskEntry, taskDraft.projectUid])
+
   const projectErrors = useMemo(() => buildProjectErrors(projectDraft), [projectDraft])
   const assignmentErrors = useMemo(() => buildAssignmentErrors(assignmentDraft), [assignmentDraft])
-  const taskErrors = useMemo(() => buildTaskErrors(taskDraft), [taskDraft])
+  const taskErrors = useMemo(() => buildTaskErrors(taskDraft, duplicateTaskDateMessage), [duplicateTaskDateMessage, taskDraft])
 
   const projectRows = useMemo(() => projects.map((project) => {
     const projectUid = String(project.uid || '').trim()
@@ -1467,13 +1527,15 @@ export default function TaskManagement() {
 
     return mappedProjectUids.map((projectUid) => {
       const project = projectByUid.get(projectUid)
+      const isAlreadyLogged = occupiedProjectUidsForTaskDate.has(projectUid)
       return {
         value: projectUid,
         label: project ? `${project.projectName} (${project.projectCode})` : `Project ${compactUid(projectUid)}`,
-        description: project?.status || 'Mapped project'
+        description: isAlreadyLogged ? 'Already logged on this date' : (project?.status || 'Mapped project'),
+        disabled: isAlreadyLogged
       }
     })
-  }, [assignmentsByEmployeeUid, projectByUid, taskDraft.employeeUid])
+  }, [assignmentsByEmployeeUid, occupiedProjectUidsForTaskDate, projectByUid, taskDraft.employeeUid])
 
   const selectedTaskAssignmentUid = useMemo(() => resolveTaskAssignmentUid(assignments, {
     employeeUid: taskDraft.employeeUid,
@@ -1490,16 +1552,24 @@ export default function TaskManagement() {
   }, [assignmentStatusesByEmployeeUid, selectedTaskAssignment?.status, taskDraft.employeeUid])
 
   useEffect(() => {
+    if (!isTaskFormOpen) return
+
     setTaskDraft((current) => {
       const normalizedEmployeeUid = String(current.employeeUid || '').trim()
-      const availableProjectUids = taskMappedProjectOptions.map((option) => String(option.value || '')).filter(Boolean)
+      const optionProjectUids = taskMappedProjectOptions.map((option) => String(option.value || '')).filter(Boolean)
+      const availableProjectUids = taskMappedProjectOptions
+        .filter((option) => !option.disabled)
+        .map((option) => String(option.value || ''))
+        .filter(Boolean)
 
       let nextProjectUid = String(current.projectUid || '').trim()
       if (!normalizedEmployeeUid) {
         nextProjectUid = ''
-      } else if (availableProjectUids.length === 1) {
+      } else if (!nextProjectUid && optionProjectUids.length === 1) {
+        nextProjectUid = optionProjectUids[0]
+      } else if (!nextProjectUid && availableProjectUids.length === 1) {
         nextProjectUid = availableProjectUids[0]
-      } else if (!availableProjectUids.includes(nextProjectUid)) {
+      } else if (nextProjectUid && !optionProjectUids.includes(nextProjectUid)) {
         nextProjectUid = ''
       }
 
@@ -1523,7 +1593,7 @@ export default function TaskManagement() {
         projectAssignmentUid: nextAssignmentUid
       }
     })
-  }, [assignments, taskMappedProjectOptions])
+  }, [assignments, isTaskFormOpen, taskMappedProjectOptions])
   function resetProjectComposer() {
     setSelectedProject(null)
     setProjectFormMode('create')
@@ -2663,6 +2733,8 @@ export default function TaskManagement() {
         taskProjectOptions={taskMappedProjectOptions}
         employeeOptions={employeeFormOptions}
         selectedBillingStatus={selectedTaskBillingStatus}
+        duplicateTaskDateMessage={duplicateTaskDateMessage}
+        disableDuplicateFields={Boolean(duplicateTaskDateMessage)}
         todayIsoDate={todayIsoDate}
         onChange={handleTaskDraftChange}
         onBlur={handleTaskDraftBlur}
