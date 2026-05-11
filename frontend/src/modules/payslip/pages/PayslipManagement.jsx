@@ -68,6 +68,48 @@ function createUploadDraft(employeeUid = '') {
   }
 }
 
+function getPayslipPeriodIdentity(payslip = {}) {
+  const employeeUid = String(payslip.employeeUid || '').trim()
+  const salaryMonth = Number(payslip.salaryMonth ?? payslip.month)
+  const salaryYear = Number(payslip.salaryYear ?? payslip.year)
+
+  if (!employeeUid || !Number.isInteger(salaryMonth) || !Number.isInteger(salaryYear)) return ''
+  if (salaryMonth < 1 || salaryMonth > 12 || salaryYear < 2000 || salaryYear > 2100) return ''
+  return `${employeeUid}::${salaryYear}::${salaryMonth}`
+}
+
+function findDuplicatePayslipPeriod(payslips = [], draft = {}) {
+  const draftIdentity = getPayslipPeriodIdentity(draft)
+  if (!draftIdentity) return null
+
+  return (Array.isArray(payslips) ? payslips : []).find((payslip) => getPayslipPeriodIdentity(payslip) === draftIdentity) || null
+}
+
+function buildUploadMonthOptions(payslips = [], draft = {}) {
+  const employeeUid = String(draft.employeeUid || '').trim()
+  const salaryYear = Number(draft.year)
+
+  if (!employeeUid || !Number.isInteger(salaryYear)) return PAYSLIP_MONTH_OPTIONS
+
+  const uploadedMonths = new Set((Array.isArray(payslips) ? payslips : [])
+    .filter((payslip) => (
+      String(payslip.employeeUid || '').trim() === employeeUid
+        && Number(payslip.salaryYear) === salaryYear
+    ))
+    .map((payslip) => Number(payslip.salaryMonth))
+    .filter((month) => Number.isInteger(month) && month >= 1 && month <= 12))
+
+  return PAYSLIP_MONTH_OPTIONS.map((option) => {
+    const month = Number(option.value)
+    const isUploaded = uploadedMonths.has(month)
+    return {
+      ...option,
+      description: isUploaded ? `${option.description} • Already uploaded` : option.description,
+      disabled: isUploaded
+    }
+  })
+}
+
 function buildEmployeeOptions(employees = [], withAll = false) {
   const options = (Array.isArray(employees) ? employees : [])
     .filter((employee) => String(employee.uid || '').trim())
@@ -82,11 +124,12 @@ function buildEmployeeOptions(employees = [], withAll = false) {
     : options
 }
 
-function buildUploadErrors(draft = {}) {
+function buildUploadErrors(draft = {}, duplicatePeriodMessage = '') {
   const errors = {}
   if (!String(draft.employeeUid || '').trim()) errors.employeeUid = 'Employee is required.'
   if (!Number.isInteger(Number(draft.month)) || Number(draft.month) < 1 || Number(draft.month) > 12) errors.month = 'Salary month is required.'
   if (!Number.isInteger(Number(draft.year)) || Number(draft.year) < 2000 || Number(draft.year) > 2100) errors.year = 'Salary year must be between 2000 and 2100.'
+  if (!errors.month && duplicatePeriodMessage) errors.month = duplicatePeriodMessage
   if (!draft.file) {
     errors.file = 'Payslip PDF file is required.'
   } else {
@@ -114,13 +157,16 @@ function PayslipUploadModal({
   touched,
   employeeOptions,
   employeeLocked = false,
+  monthOptions = PAYSLIP_MONTH_OPTIONS,
   yearOptions,
+  duplicatePeriodMessage = '',
   onChange,
   onFileChange,
   onBlur,
   onClose,
   onSubmit
 }) {
+  const hasDuplicatePeriod = Boolean(duplicatePeriodMessage)
   return (
     <ModalFrame
       open={open}
@@ -130,11 +176,11 @@ function PayslipUploadModal({
       footer={(
         <>
           <button type="button" className="btn btn-light px-4" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary px-4" onClick={onSubmit}>Upload Payslip</button>
+          <button type="button" className="btn btn-primary px-4" onClick={onSubmit} disabled={hasDuplicatePeriod}>Upload Payslip</button>
         </>
       )}
     >
-      <div className="row g-3">
+      <div className="row g-3 payslip-upload-modal-shell">
         <div className="col-12">
           <label className="form-label">Employee</label>
           <AppSelect
@@ -156,11 +202,11 @@ function PayslipUploadModal({
             value={draft.month}
             onChange={onChange}
             onBlur={onBlur}
-            options={PAYSLIP_MONTH_OPTIONS}
+            options={monthOptions}
             placeholder="Select month"
-            invalid={Boolean(touched.month && errors.month)}
+            invalid={Boolean((touched.month || hasDuplicatePeriod) && errors.month)}
           />
-          {touched.month && errors.month ? <div className="invalid-feedback d-block">{errors.month}</div> : null}
+          {(touched.month || hasDuplicatePeriod) && errors.month ? <div className="invalid-feedback d-block">{errors.month}</div> : null}
         </div>
         <div className="col-12 col-md-6">
           <label className="form-label">Salary Year</label>
@@ -226,7 +272,12 @@ export default function PayslipManagement({ mode = 'management' }) {
   const yearOptions = useMemo(() => buildPayslipYearOptions(payslips), [payslips])
   const yearFilterOptions = useMemo(() => [{ value: 'All', label: 'All years', description: 'No year filter applied' }, ...yearOptions], [yearOptions])
   const monthFilterOptions = useMemo(() => [{ value: 'All', label: 'All months', description: 'No month filter applied' }, ...PAYSLIP_MONTH_OPTIONS], [])
-  const uploadErrors = useMemo(() => buildUploadErrors(uploadDraft), [uploadDraft])
+  const uploadMonthOptions = useMemo(() => buildUploadMonthOptions(payslips, uploadDraft), [payslips, uploadDraft.employeeUid, uploadDraft.year])
+  const duplicatePayslipPeriod = useMemo(() => (
+    findDuplicatePayslipPeriod(payslips, uploadDraft)
+  ), [payslips, uploadDraft.employeeUid, uploadDraft.month, uploadDraft.year])
+  const duplicatePayslipPeriodMessage = duplicatePayslipPeriod ? 'A payslip already exists for this employee and salary period.' : ''
+  const uploadErrors = useMemo(() => buildUploadErrors(uploadDraft, duplicatePayslipPeriodMessage), [duplicatePayslipPeriodMessage, uploadDraft])
 
   const selectedEmployee = useMemo(() => employeeByUid.get(String(routeEmployeeUid || '')) || null, [employeeByUid, routeEmployeeUid])
 
@@ -404,6 +455,11 @@ export default function PayslipManagement({ mode = 'management' }) {
     }
 
     setUploadTouched({ employeeUid: true, month: true, year: true, file: true })
+    if (duplicatePayslipPeriodMessage) {
+      showStatus({ type: 'error', title: 'Payslip already uploaded', message: duplicatePayslipPeriodMessage })
+      return
+    }
+
     if (Object.values(uploadErrors).some(Boolean)) {
       showStatus({ type: 'error', title: 'Payslip upload is incomplete', message: 'Select an employee, salary period, and a valid PDF before uploading.' })
       return
@@ -519,7 +575,7 @@ export default function PayslipManagement({ mode = 'management' }) {
               <span className="employee-action-btn__label" aria-hidden="true">Back</span>
             </button>
             <div>
-              <h1 className="fw-bold mb-1">Payslip Overview</h1>
+              <h1 className="fw-bold mb-1">Employee's Payslip Overview</h1>
               <div className="text-muted small">
                 {selectedEmployee?.fullName || selectedEmployee?.employeeCode || 'Employee'} • {selectedEmployee?.employeeCode || 'No code'} • {selectedEmployee?.department || 'No department'}
               </div>
@@ -680,7 +736,9 @@ export default function PayslipManagement({ mode = 'management' }) {
         touched={uploadTouched}
         employeeOptions={employeeOptions}
         employeeLocked={isEmployeeView}
+        monthOptions={uploadMonthOptions}
         yearOptions={yearOptions}
+        duplicatePeriodMessage={duplicatePayslipPeriodMessage}
         onChange={handleUploadDraftChange}
         onFileChange={handleUploadFileChange}
         onBlur={handleUploadBlur}
