@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.dependencies import PermissionChecker, get_current_user
 from src.db.main import get_session
+from src.db.models import Role
 from src.payslip.schema import (
     PayslipDownloadResponse,
     PayslipListResponse,
@@ -21,6 +22,41 @@ payslip_router = APIRouter()
 
 admin_module = "Payslip"
 employee_module = "My Payslip"
+
+
+async def require_payslip_download_permission(
+    session: AsyncSession = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    if not current_user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not verified.",
+        )
+
+    role = await session.get(Role, current_user.role_id)
+
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have enough permissions to perform this action.",
+        )
+
+    if role.role_name.lower() in {"admin", "dev"}:
+        return True
+
+    permissions = role.permissions or {}
+    allowed_actions = set(permissions.get(admin_module, [])) | set(
+        permissions.get(employee_module, [])
+    )
+
+    if "r" in allowed_actions or "*" in allowed_actions:
+        return True
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have enough permissions to perform this action.",
+    )
 
 
 @payslip_router.post(
@@ -165,7 +201,7 @@ async def get_payslip(
 
 @payslip_router.get(
     "/{payslip_uid}/download",
-    dependencies=[Depends(PermissionChecker(employee_module, "r"))],
+    dependencies=[Depends(require_payslip_download_permission)],
 )
 async def download_payslip(
     payslip_uid: uuid.UUID,
@@ -178,27 +214,33 @@ async def download_payslip(
         payslip_uid=payslip_uid,
     )
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        storage_response = await client.get(payslip.file_url)
+    storage_download_url = PayslipService.build_payslip_storage_download_url(payslip)
+
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+        storage_response = await client.get(storage_download_url)
 
     if storage_response.status_code != 200:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Unable to fetch payslip PDF from storage.",
         )
 
     if not storage_response.content.startswith(b"%PDF"):
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Stored payslip is not a valid PDF. Please re-upload it.",
         )
 
-    filename = f"payslip_{payslip.salary_month}_{payslip.salary_year}.pdf"
+    filename = PayslipService.build_payslip_filename(
+        payslip.salary_month,
+        payslip.salary_year,
+    )
 
     return Response(
         content=storage_response.content,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{filename}"'
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
         },
     )

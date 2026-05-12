@@ -32,7 +32,8 @@ import {
   buildPayslipYearOptions,
   formatPayslipPeriod,
   getCurrentPayslipMonth,
-  getCurrentPayslipYear
+  getCurrentPayslipYear,
+  toPayslipFileName
 } from '../utils/payslip.js'
 
 const MAX_PAYSLIP_FILE_SIZE = 5 * 1024 * 1024
@@ -144,10 +145,22 @@ function buildUploadErrors(draft = {}, duplicatePeriodMessage = '') {
   return errors
 }
 
-function openDirectPayslipFile(payslip) {
-  if (!payslip?.fileUrl) return false
-  window.open(payslip.fileUrl, '_blank', 'noopener,noreferrer')
-  return true
+function revokeObjectUrl(url) {
+  window.setTimeout(() => URL.revokeObjectURL(url), 60 * 1000)
+}
+
+function downloadPayslipBlob(blob, payslip) {
+  const pdfBlob = blob instanceof Blob && blob.type === 'application/pdf'
+    ? blob
+    : new Blob([blob], { type: 'application/pdf' })
+  const url = URL.createObjectURL(pdfBlob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = toPayslipFileName(payslip)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  revokeObjectUrl(url)
 }
 
 function PayslipUploadModal({
@@ -249,6 +262,7 @@ export default function PayslipManagement({ mode = 'management' }) {
   const isEmployeeView = mode === 'employee' || Boolean(routeEmployeeUid)
 
   const canViewPayslips = hasModuleVisibility(user, PERMISSION_MODULES.payslip)
+  const canDownloadPayslips = hasModulePermission(user, PERMISSION_MODULES.payslip, PERMISSION_ACTIONS.read)
   const canUploadPayslips = hasModulePermission(user, PERMISSION_MODULES.payslip, PERMISSION_ACTIONS.create)
   const canDeletePayslips = hasModulePermission(user, PERMISSION_MODULES.payslip, PERMISSION_ACTIONS.delete)
 
@@ -519,9 +533,22 @@ export default function PayslipManagement({ mode = 'management' }) {
     setYearFilter('All')
   }
 
-  function handleOpenPayslip(payslip) {
-    if (!openDirectPayslipFile(payslip)) {
-      showStatus({ type: 'error', title: 'Payslip file unavailable', message: 'The payslip PDF is not available yet.' })
+  async function handleDownloadPayslip(payslip) {
+    if (!canDownloadPayslips) {
+      showStatus({ type: 'error', title: 'Payslip access blocked', message: 'Your role does not have permission to download payslips.' })
+      return
+    }
+
+    try {
+      await runWithLoader(async () => {
+        const blob = await payslipService.downloadPayslip(payslip.uid)
+        downloadPayslipBlob(blob, payslip)
+      }, {
+        title: 'Downloading payslip',
+        message: 'Preparing the payslip PDF.'
+      })
+    } catch (error) {
+      showStatus({ type: 'error', title: 'Payslip file unavailable', message: normalizeApiError(error, 'The payslip PDF could not be downloaded.') })
     }
   }
   const pageHeaderTagline = canUploadPayslips || canDeletePayslips
@@ -680,7 +707,7 @@ export default function PayslipManagement({ mode = 'management' }) {
                         <td className="employee-cell-wrap"><TableCellStack title={formatDate(row.createdAt)} subtitle={row.createdAt ? 'Uploaded' : '—'} /></td>
                         <td className="employee-actions-cell">
                           <TableActionCluster className="justify-content-center mx-auto">
-                            <TableActionButton icon={<DownloadIcon />} label="Open PDF" variant="view" onClick={() => handleOpenPayslip(row)} />
+                            {canDownloadPayslips ? <TableActionButton icon={<DownloadIcon />} label="Download" variant="view" onClick={() => handleDownloadPayslip(row)} /> : null}
                             {canDeletePayslips ? <TableActionButton icon={<TrashIcon />} label="Delete" variant="delete" onClick={() => handleDeletePayslip(row)} /> : null}
                           </TableActionCluster>
                         </td>
