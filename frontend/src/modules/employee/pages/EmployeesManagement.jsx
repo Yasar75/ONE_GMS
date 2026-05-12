@@ -136,6 +136,11 @@ const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['released', 'hold', 'terminate
 const EMPTY_LIST = Object.freeze([])
 const MAPPING_DRAFT_FIELDS = ['managerEmployeeUid', 'hrEmployeeUid', 'teamLeadEmployeeUid', 'coordinatorEmployeeUid']
 const REPORTING_ASSIGNMENT_OPTION_ORDER = ['manager_employee_uid', 'hr_employee_uid', 'team_lead_employee_uid', 'coordinator_employee_uid']
+const GENDER_OPTIONS = [
+  { value: 'Male', label: 'Male'},
+  { value: 'Female', label: 'Female'},
+  { value: 'Others', label: 'Others', description: 'Other gender identity' }
+]
 const MAPPING_ASSIGNMENT_FIELD_CONFIG = {
   managerEmployeeUid: { assignmentKey: 'manager_employee_uid', label: 'Manager' },
   hrEmployeeUid: { assignmentKey: 'hr_employee_uid', label: 'HR' },
@@ -1452,7 +1457,7 @@ function EmployeeFormFields({
 
       <div className="col-12 col-md-6">
         <label className="form-label">Gender</label>
-        <input className="form-control" name="gender" value={draft.gender} onChange={onChange} onBlur={onBlur} maxLength="120" placeholder="Enter gender manually" />
+        <AppSelect name="gender" value={draft.gender} onChange={onChange} onBlur={onBlur} options={GENDER_OPTIONS} placeholder="Select gender" />
       </div>
 
       <div className="col-12 col-md-6">

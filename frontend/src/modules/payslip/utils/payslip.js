@@ -13,6 +13,21 @@ export const PAYSLIP_MONTH_OPTIONS = [
   { value: '12', label: 'December', description: 'Month 12' }
 ]
 
+const PAYSLIP_MONTH_FILENAME_PARTS = [
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'may',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'oct',
+  'nov',
+  'dec'
+]
+
 export function getCurrentPayslipYear() {
   return new Date().getFullYear()
 }
@@ -53,6 +68,12 @@ export function buildPayslipYearOptions(payslips = []) {
 }
 
 export function toPayslipFileName(payslip = {}) {
-  const period = formatPayslipPeriod(payslip.salaryMonth, payslip.salaryYear).replace(/\s+/g, '_')
-  return `payslip_${period || payslip.uid || 'document'}.pdf`
+  const month = Number(payslip.salaryMonth ?? payslip.salary_month)
+  const year = Number(payslip.salaryYear ?? payslip.salary_year)
+
+  if (Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(year)) {
+    return `${PAYSLIP_MONTH_FILENAME_PARTS[month - 1]}_${String(year % 100).padStart(2, '0')}.pdf`
+  }
+
+  return 'payslip.pdf'
 }

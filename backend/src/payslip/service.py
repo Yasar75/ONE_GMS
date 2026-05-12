@@ -1,8 +1,11 @@
+import io
 import os
+import time
 import uuid
 from typing import Optional
 
 import cloudinary.uploader
+import cloudinary.utils
 from fastapi import HTTPException, UploadFile, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -16,6 +19,20 @@ class PayslipService:
     MAX_FILE_SIZE = Config.MAX_FILE_SIZE
     ALLOWED_EXTENSION = ".pdf"
     ALLOWED_MIME_TYPES = ["application/pdf", "application/x-pdf"]
+    MONTH_FILENAME_PARTS = (
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "may",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct",
+        "nov",
+        "dec",
+    )
 
     @staticmethod
     def _validate_month_year(month: int, year: int) -> None:
@@ -23,6 +40,28 @@ class PayslipService:
             raise HTTPException(status_code=400, detail="Month must be between 1 and 12.")
         if year < 2000 or year > 2100:
             raise HTTPException(status_code=400, detail="Year must be valid.")
+
+    @staticmethod
+    def build_payslip_filename(month: int, year: int) -> str:
+        PayslipService._validate_month_year(month, year)
+        month_part = PayslipService.MONTH_FILENAME_PARTS[month - 1]
+        year_part = str(year % 100).zfill(2)
+        return f"{month_part}_{year_part}.pdf"
+
+    @staticmethod
+    def build_payslip_storage_download_url(payslip: Payslip) -> str:
+        if not payslip.cloudinary_public_id:
+            return payslip.file_url
+
+        configure_cloudinary()
+        return cloudinary.utils.private_download_url(
+            payslip.cloudinary_public_id,
+            "pdf",
+            resource_type="raw",
+            type="upload",
+            attachment=True,
+            expires_at=int(time.time()) + 300,
+        )
 
     @staticmethod
     def _validate_pdf_file(file: UploadFile) -> None:
@@ -78,7 +117,7 @@ class PayslipService:
         return employee
 
     @staticmethod
-    async def _is_admin_or_dev(session: AsyncSession, current_user: User) -> bool:
+    async def _can_manage_payslips(session: AsyncSession, current_user: User) -> bool:
         if not getattr(current_user, "role_id", None):
             return False
 
@@ -87,7 +126,11 @@ class PayslipService:
         if not role:
             return False
 
-        return role.role_name.lower() in {"admin", "dev"}
+        if role.role_name.lower() in {"admin", "dev"}:
+            return True
+
+        allowed_actions = (role.permissions or {}).get("Payslip", [])
+        return "*" in allowed_actions or "r" in allowed_actions
 
     @staticmethod
     async def _check_duplicate_payslip(
@@ -122,16 +165,19 @@ class PayslipService:
         salary_month: int,
         salary_year: int,
     ) -> dict:
+        filename = PayslipService.build_payslip_filename(salary_month, salary_year)
         public_id = (
             f"payslips/{employee_uid}/{salary_year}/"
-            f"{salary_month:02d}/{uuid.uuid4()}" #.pdf
+            f"{salary_month:02d}/{filename}"
         )
 
         try:
             configure_cloudinary()
+            file_stream = io.BytesIO(file_bytes)
+            file_stream.name = filename
 
             result = cloudinary.uploader.upload(
-                file_bytes,
+                file_stream,
                 resource_type="raw",
                 public_id=public_id,
                 overwrite=True,
@@ -312,7 +358,7 @@ class PayslipService:
     ) -> Payslip:
         payslip = await PayslipService.get_payslip_by_uid(session, payslip_uid)
 
-        if await PayslipService._is_admin_or_dev(session, current_user):
+        if await PayslipService._can_manage_payslips(session, current_user):
             return payslip
 
         employee = await PayslipService._get_current_employee(session, current_user)
